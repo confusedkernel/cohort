@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meep"
+version = "0.1.0"
+description = "Evidential pluralism made auditable: a supervised evidence graph for multi-agent textual research."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+agents = ["anthropic>=0.40"]
+
+[tool.setuptools.packages.find]
+include = ["meep*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
