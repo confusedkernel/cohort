@@ -6,7 +6,9 @@ messaging, no shared transcript, no framework beyond the SDK itself).
 NOT smoke-tested against the live API as part of this build — no
 ANTHROPIC_API_KEY was available. Run once against a real key before
 trusting it; the tool-dispatch logic below (`_dispatch`, the two tools
-themselves) is covered by `tests/test_tools.py` without needing the API.
+themselves, and the rejection-context assembly) is covered by
+`tests/test_tools.py` and `tests/test_attestation_worker.py` without needing
+the API.
 """
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ from typing import Any
 import anthropic
 
 from ..graph import Graph
+from ..schemas import NodeType
 from ..sources.base import Source
 from ..tools.find_attestations import DESCRIPTION as FIND_ATTESTATIONS_DESCRIPTION
 from ..tools.find_attestations import NAME as FIND_ATTESTATIONS_NAME
@@ -39,6 +42,32 @@ SYSTEM_PROMPT = (
     "in text. Stop once you've made reasonable progress or run out of "
     "queries worth trying."
 )
+
+def _rejected_context(graph: Graph) -> str:
+    """A summary of already-rejected claims/conjectures and why, so the
+    worker doesn't repropose them.
+
+    `witness`/`passage` don't need this: their rejection is already blocked
+    mechanically at the write boundary via `canonical_ref` identity
+    (`PersistentRejection`). `claim`/`conjecture` have no content-derived
+    identity to block on — principle 5 forbids hashing agent-produced text
+    into identity — so a rejected conjecture, reworded, would sail through
+    a fresh `propose_conjecture` call unblocked. This is the mitigation:
+    make the rejection visible to the model's own reasoning instead of
+    faking an identity key for content the design deliberately declines to
+    hash.
+    """
+    rejected = [
+        n for t in (NodeType.CLAIM, NodeType.CONJECTURE) for n in graph.rejected(node_type=t)
+    ]
+    if not rejected:
+        return ""
+    lines = ["Already rejected by the researcher — do not repropose these or close variants of them:"]
+    for n in rejected:
+        text = n.payload.get("text", n.id)
+        lines.append(f"- [{n.type}] {text!r} — reason: {n.rejected_reason or '(no reason recorded)'}")
+    return "\n".join(lines)
+
 
 TOOLS = [
     {
@@ -73,8 +102,15 @@ class AttestationWorker:
     def run(self, instructions: str, *, max_turns: int = 6) -> list[dict[str, Any]]:
         """Runs a tool-use loop against `instructions`. Returns the list of
         tool calls made (name, args, and either the result or the refusal),
-        in order — this is the worker's own audit trail of its turn."""
-        messages: list[dict] = [{"role": "user", "content": instructions}]
+        in order — this is the worker's own audit trail of its turn.
+
+        Prepends a summary of already-rejected claims/conjectures, if any
+        (see `_rejected_context`) — this is what makes persistent rejection
+        hold across a live loop for content that has no identity to block on
+        mechanically."""
+        context = _rejected_context(self.graph)
+        full_instructions = f"{context}\n\n{instructions}" if context else instructions
+        messages: list[dict] = [{"role": "user", "content": full_instructions}]
         log: list[dict[str, Any]] = []
 
         for _ in range(max_turns):

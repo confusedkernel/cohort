@@ -9,7 +9,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from meep.agents.attestation_worker import AttestationWorker
-from meep.schemas import EdgeType
+from meep.schemas import RESEARCHER, ConjecturePayload, EdgeType
 
 AGENT = "agent:worker-1"
 
@@ -82,6 +82,39 @@ def test_worker_reports_a_refused_write_as_a_tool_error_without_crashing(graph):
 
     assert log[0]["is_error"] is True
     assert "NodeNotFound" in log[0]["result"]
+
+
+def test_worker_prepends_rejected_conjectures_to_its_instructions(graph):
+    conjecture_id = graph.propose_conjecture(
+        ConjecturePayload(text="an earlier Kuchean recension underlies this"), authored_by=AGENT
+    )
+    graph.reject(
+        conjecture_id, authored_by=RESEARCHER,
+        reason="no Kuchean fragment catalogue exists for this text",
+    )
+
+    responses = [SimpleNamespace(content=[_text_block("noted")], stop_reason="end_turn")]
+    client = FakeClient(responses)
+    worker = AttestationWorker(graph, source=None, authored_by=AGENT, client=client)
+
+    worker.run("propose any conjectures worth testing")
+
+    first_call_messages = client.messages.calls[0]["messages"]
+    sent_content = first_call_messages[0]["content"]
+    assert "Kuchean recension" in sent_content
+    assert "no Kuchean fragment catalogue exists" in sent_content
+    assert "propose any conjectures worth testing" in sent_content
+
+
+def test_worker_omits_rejection_context_when_nothing_is_rejected(graph):
+    responses = [SimpleNamespace(content=[_text_block("noted")], stop_reason="end_turn")]
+    client = FakeClient(responses)
+    worker = AttestationWorker(graph, source=None, authored_by=AGENT, client=client)
+
+    worker.run("propose any conjectures worth testing")
+
+    sent_content = client.messages.calls[0]["messages"][0]["content"]
+    assert sent_content == "propose any conjectures worth testing"
 
 
 def test_worker_stops_immediately_on_end_turn_with_no_tool_use(graph):

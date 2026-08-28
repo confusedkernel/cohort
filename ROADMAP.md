@@ -244,7 +244,7 @@ a concurrency test).
 |---|---|---|
 | 1 | Graph store, event log, vocabulary, ladder, rebuild | **Done** — `meep/{schemas,errors,eventlog,graph}.py`, 47 tests, `demo.py` |
 | 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done** against a fixture corpus (`examples/local_corpus`) — `meep/sources/`, `meep/tools/`, `meep/agents/attestation_worker.py`, 18 more tests. Real dev corpus still open (§14); worker's live API round-trip untested |
-| 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | `propose_conjecture` tool and gate are done (stage 1+2); the live loop (an actual worker run against a real corpus) is what remains |
+| 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done**, modulo a live API run. `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) — the worker now prepends prior rejections + reasons to its own instructions. What remains: an actual run against a live key to see this drive real model behavior, not just the mocked-client proof that the context gets sent |
 | 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | Not started; open decision — does the corpus carry parallel markup already? (§14) |
 | 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Not started |
 | 6 | ATELIER integration: source interface becomes an adapter; cumulative-coverage policy | Not started |

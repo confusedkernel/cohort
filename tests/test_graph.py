@@ -293,6 +293,29 @@ def test_citable_returns_only_accepted_nodes_and_excludes_decisions(graph):
     assert all(n.type != "decision" for n in graph.citable())
 
 
+def test_rejected_returns_rejected_nodes_with_reasons(graph):
+    c1 = _claim(graph, text="rejected claim")
+    graph.reject(c1, authored_by=RESEARCHER, reason="unsupported by any passage")
+    c2 = _claim(graph, text="untouched claim")
+
+    rejected = graph.rejected()
+    ids = {n.id for n in rejected}
+    assert c1 in ids
+    assert c2 not in ids
+    r = next(n for n in rejected if n.id == c1)
+    assert r.rejected_reason == "unsupported by any passage"
+
+
+def test_rejected_filters_by_node_type(graph):
+    w = _witness(graph)
+    graph.reject(w, authored_by=RESEARCHER, reason="catalogue error")
+    c = _claim(graph)
+    graph.reject(c, authored_by=RESEARCHER, reason="unsupported")
+
+    only_claims = graph.rejected(node_type="claim")
+    assert {n.id for n in only_claims} == {c}
+
+
 # --- independent_support: the headline demo output (design doc §4, §11) -----
 
 def test_independent_support_starts_independent(graph):

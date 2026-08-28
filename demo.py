@@ -131,6 +131,23 @@ def main() -> None:
         except Exception as e:
             print(f"re-proposing a rejected witness is refused: {type(e).__name__}: {e}\n")
 
+        print("--- persistent rejection for content with no identity to block on ---")
+        bad_conjecture_id = g.propose_conjecture(
+            ConjecturePayload(text="An earlier Kuchean recension underlies this passage"),
+            authored_by=AGENT,
+        )
+        g.reject(
+            bad_conjecture_id, authored_by=RESEARCHER,
+            reason="no Kuchean fragment catalogue exists for this text; unfalsifiable as stated",
+        )
+        print("a conjecture, reworded, has no canonical_ref to block re-proposal by id —")
+        print("so a worker's own context has to carry the rejection instead:\n")
+        for n in g.rejected(node_type="conjecture"):
+            print(f"  [{n.type}] {n.payload['text']!r}")
+            print(f"    reason: {n.rejected_reason}")
+        print("(this is exactly what AttestationWorker.run() prepends to its instructions —")
+        print(" see meep/agents/attestation_worker.py::_rejected_context)\n")
+
         print("--- rebuild from the event log ---")
         report = g.rebuild()
         print(
