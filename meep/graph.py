@@ -418,6 +418,25 @@ class Graph:
         ).fetchall()
         return [self._row_to_node(r) for r in rows]
 
+    def rejected(self, *, node_type: NodeType | None = None) -> list[Node]:
+        """Rejected nodes, with their reasons (design doc §8: "the graph
+        records the judgement calls, not only the findings"). For
+        `witness`/`passage`, persistent rejection is already enforced
+        mechanically at the write boundary via `canonical_ref` identity. For
+        `claim`/`conjecture`, there is no content-derived identity to block
+        on — principle 5 forbids hashing agent-produced text into identity —
+        so a rejected conjecture cannot be caught by id if reworded. This
+        method is how that gap gets closed instead: by making rejections
+        visible to an agent's own reasoning, not by faking an identity key
+        for content the design deliberately declines to hash."""
+        query = "SELECT * FROM nodes WHERE status=?"
+        params: list = [NodeStatus.REJECTED]
+        if node_type is not None:
+            query += " AND type=?"
+            params.append(node_type)
+        rows = self.conn.execute(query, params).fetchall()
+        return [self._row_to_node(r) for r in rows]
+
     def independent_support(self, node_id: str) -> IndependentSupport:
         """design doc §4, §11 — the counter-argument to consensus-seeking:
         attesting count stays put while `independent` flips to False the

@@ -2,12 +2,19 @@
 
 ## Status note
 
-`DESIGN.md` §11 describes stage 1 (`schemas.py`, `errors.py`,
-`eventlog.py`, `graph.py`, 22 tests, a demo) as already built. A full survey
-of this repository (`git log`, `git status`, a recursive file search) found
-only `DESIGN.md`, zero commits, no remote. **Nothing from stage 1
-exists on disk, under any name.** This document treats §11 as the *spec* for
-stage 1, not a status report, and plans to build it fresh.
+`DESIGN.md` §11 originally described stage 1 as already built, when in fact
+nothing existed on disk under any name. That gap is closed: **stage 1 and
+stage 2 are both now implemented** (see the build roadmap table below).
+Stage 1's `schemas.py`/`errors.py`/`eventlog.py`/`graph.py` are built to the
+§11 spec, with `pytest -q` green and `demo.py` printing the
+`independent_support()` flip. Stage 2's source interface, local FTS5
+reader, the two named tools, and the attestation worker are built and
+tested — **except** the attestation worker's actual Anthropic API round-trip,
+which is untested (no API key was available at build time; the tool-dispatch
+loop itself is covered by a mocked test). The corpus used for stage 2's
+tests (`examples/local_corpus`) is an illustrative fixture of public-domain
+Tang poems, not the real development corpus — that decision is still open
+(see below).
 
 Decisions already made:
 - The agent/LLM layer (stage 2's attestation worker, stage 3's conjecture
@@ -119,18 +126,20 @@ meep/
 │   ├── errors.py                # one exception per rule
 │   ├── eventlog.py               # append-only JSONL, never truncated
 │   └── graph.py                   # SQLite projection, the only writer
+├── meep/
+│   ├── sources/{base.py, local_reader.py}
+│   ├── tools/{find_attestations.py, propose_conjecture.py}
+│   └── agents/attestation_worker.py
 ├── tests/
 │   ├── conftest.py
 │   ├── test_schemas.py
 │   ├── test_eventlog.py
-│   └── test_graph.py
+│   ├── test_graph.py
+│   ├── test_local_reader.py
+│   ├── test_tools.py
+│   └── test_attestation_worker.py   # mocked client — no live API round-trip
+├── examples/local_corpus/            # manifest.csv + texts/ — a fixture, not the dev corpus
 └── demo.py                      # inline synthetic refs; no corpus needed yet
-
-# stage 2 adds, without reshaping the above:
-meep/sources/{base.py, local_reader.py}
-meep/tools/{find_attestations.py, propose_conjecture.py}
-meep/agents/attestation_worker.py
-examples/local_corpus/           # manifest.csv + texts/, mirrors atelier/examples/local_corpus
 ```
 
 Built fresh, so the layout ATELIER already uses (package dir + sibling
@@ -233,9 +242,9 @@ a concurrency test).
 
 | Stage | Deliverable | Status |
 |---|---|---|
-| 1 | Graph store, event log, vocabulary, ladder, rebuild | **To build** — spec exists (§11), code does not |
-| 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | Not started; open decision — development corpus (§14) |
-| 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | Not started |
+| 1 | Graph store, event log, vocabulary, ladder, rebuild | **Done** — `meep/{schemas,errors,eventlog,graph}.py`, 47 tests, `demo.py` |
+| 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done** against a fixture corpus (`examples/local_corpus`) — `meep/sources/`, `meep/tools/`, `meep/agents/attestation_worker.py`, 18 more tests. Real dev corpus still open (§14); worker's live API round-trip untested |
+| 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | `propose_conjecture` tool and gate are done (stage 1+2); the live loop (an actual worker run against a real corpus) is what remains |
 | 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | Not started; open decision — does the corpus carry parallel markup already? (§14) |
 | 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Not started |
 | 6 | ATELIER integration: source interface becomes an adapter; cumulative-coverage policy | Not started |
