@@ -3,11 +3,11 @@ OpenRouter tool-use loop (design doc §5 principle 3: the agent's entire
 world is read graph -> call a tool -> write back; no agent-to-agent
 messaging, no shared transcript, no framework beyond the transport itself).
 
-Replaces the Anthropic SDK entirely (ROADMAP.md "Scope revision", OpenRouter
+Replaces the Anthropic SDK entirely (docs/roadmap.md "Scope revision", OpenRouter
 workstream) — see `cohort/agents/openrouter.py` for the transport and why it's
 stdlib-only rather than a client library.
 
-`run_async()` is the canonical loop (ROADMAP.md "Scope revision",
+`run_async()` is the canonical loop (docs/roadmap.md "Scope revision",
 agent-society axis step 4 — real concurrency); `run()` is a thin sync
 wrapper. Safe to run several workers concurrently against one shared
 `Graph`: `to_thread` is scoped only around the one blocking HTTP call in
@@ -108,7 +108,7 @@ def _rejected_context(graph: Graph) -> str:
 def _profile_context(profile: AgentProfile | None) -> str:
     """Declared research commitments, not a cosmetic role prompt — distinct
     corpus/method scope per agent is what "viewpoint formation without
-    persona theater" means (ROADMAP.md "Scope revision", agent-society
+    persona theater" means (docs/roadmap.md "Scope revision", agent-society
     axis): the diversity has to come from what the agent is actually scoped
     to look at, not from a personality prompt layered on an identical view
     of the whole corpus."""

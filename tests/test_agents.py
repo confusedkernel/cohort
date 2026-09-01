@@ -1,4 +1,4 @@
-"""Agent identity: a sidecar record, not a graph node (ROADMAP.md "Scope
+"""Agent identity: a sidecar record, not a graph node (docs/roadmap.md "Scope
 revision", agent-society axis, steps 1-3 — registration and a
 contribution-history report only; reputation scoring and asyncio fan-out
 are explicitly deferred).

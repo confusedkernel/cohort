@@ -2,8 +2,8 @@
 
 ## Scope revision
 
-This is a conscious reversal of two `DESIGN.md` passages, not a drift.
-`DESIGN.md`'s own standing rule is: *"when a rule here cannot be honoured,
+This is a conscious reversal of two `design.md` passages, not a drift.
+`design.md`'s own standing rule is: *"when a rule here cannot be honoured,
 say so and stop... The predecessor's central problem was documentation
 describing guarantees the code did not provide."* So, said plainly:
 
@@ -26,7 +26,7 @@ describing guarantees the code did not provide."* So, said plainly:
   is disciplined about carrying them. Corpus bytes stay out of the
   repository; only a local path (`CBETA_ARCHIVE_PATH`) is configured.
 
-Everything else in `DESIGN.md` — all seven principles in §5, and every other
+Everything else in `design.md` — all seven principles in §5, and every other
 anti-goal in §9 — **survives untouched**; each addition below was checked
 against all seven before being written. §6's "closed on purpose... adding a
 type requires an argument" vocabulary discipline is being *exercised*, not
@@ -37,7 +37,7 @@ as the existing vocabulary does.
 
 ## Status note
 
-`DESIGN.md` §11 originally described stage 1 as already built, when in fact
+`design.md` §11 originally described stage 1 as already built, when in fact
 nothing existed on disk under any name. That gap is closed: **stage 1 and
 stage 2 are both now implemented** (see the build roadmap table below).
 Stage 1's `schemas.py`/`errors.py`/`eventlog.py`/`graph.py` are built to the
@@ -59,7 +59,7 @@ Decisions already made:
   not a third-party framework — is unchanged, and the SDK itself turned out to
   be surplus to it.
 - COHORT's source interface is shaped like ATELIER's `search`/`fetch`
-  (`DESIGN.md` §2), and ATELIER's other conventions are the default for
+  (`design.md` §2), and ATELIER's other conventions are the default for
   team consistency (same authors, same Sindia infrastructure track) —
   cited below as `atelier/...` paths.
 - Stage 5's researcher UI (graph view, accept/reject, provenance on click)
@@ -187,33 +187,34 @@ the design doc explicitly withholds something (no policy file → no
 
 ## Project structure
 
+Generated from the tree, not hand-maintained — the previous version of this
+section predated `sources/cbeta_*`, the UI, five of the seven tools and nine
+test modules.
+
 ```
-cohort/
-├── pyproject.toml
+cohort/                          # repo root
+├── pyproject.toml               # deps: pydantic; extras: dev, ui
 ├── README.md
-├── ROADMAP.md                 # this document
+├── demo.py                      # the independent_support() flip; no corpus, no key
+├── docs/                        # index.md maps the rest
+├── examples/local_corpus/       # manifest.csv + texts/ — a fixture, never a finding
+├── scripts/                     # 10 entry points; see docs/cli.md
 ├── cohort/
-│   ├── __init__.py
-│   ├── schemas.py              # closed vocabulary: nodes, edges, events, dating,
-│   │                            # verification/assurance, agent identity
-│   ├── errors.py                # one exception per rule
-│   ├── eventlog.py               # append-only JSONL, never truncated
-│   ├── graph.py                   # SQLite projection, the only writer
-│   ├── sources/{base.py, local_reader.py}
-│   ├── tools/{find_attestations.py, propose_conjecture.py}
-│   └── agents/attestation_worker.py
-├── tests/
-│   ├── conftest.py
-│   ├── test_schemas.py
-│   ├── test_eventlog.py
-│   ├── test_graph.py
-│   ├── test_local_reader.py
-│   ├── test_tools.py
-│   ├── test_attestation_worker.py   # mocked client — no live API round-trip
-│   ├── test_verification.py         # verify()/assurance_for()
-│   └── test_agents.py               # register_agent()/agent_report()
-├── examples/local_corpus/            # manifest.csv + texts/ — a fixture, not the dev corpus
-└── demo.py                      # inline synthetic refs; no corpus needed yet
+│   ├── schemas.py               # closed vocabulary: nodes, edges, events, dating,
+│   │                            #   verification/assurance, agent identity
+│   ├── errors.py                # one exception per rule the design claims
+│   ├── eventlog.py              # append-only JSONL, never truncated
+│   ├── graph.py                 # SQLite projection, the only writer
+│   ├── migrations.py            # numbered, forward-only (at version 3)
+│   ├── sources/                 # base.py, local_reader.py,
+│   │                            #   cbeta_reader.py, cbeta_fts.py, cbeta_markup.py
+│   ├── tools/                   # propose_claim, find_attestations, propose_conjecture,
+│   │                            #   record_contradiction, link_parallels,
+│   │                            #   collate_editions, verify_exact_span
+│   ├── agents/                  # openrouter.py, attestation_worker.py,
+│   │                            #   swarm.py, budget.py
+│   └── ui/                      # api.py, runs.py, frontend/ (React+Vite), static/
+└── tests/                       # 18 modules, 260 tests
 ```
 
 Built fresh, so the layout ATELIER already uses (package dir + sibling
@@ -405,10 +406,10 @@ sent instructions.
 | Stage | Deliverable | Status |
 |---|---|---|
 | 1 | Graph store, event log, vocabulary, ladder, rebuild | **Done** — `cohort/{schemas,errors,eventlog,graph}.py`, 47 tests, `demo.py` |
-| 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done, live-verified, now corpus-wide** — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`. The CBETA archive is obtained and hash-verified, and `cohort/sources/cbeta_fts.py` indexes all 20,190 entries (15.28M citable spans, ~1.1 GB, built by `scripts/build_cbeta_index.py`), so `CbetaReader.search()` covers the real corpus rather than a hand-listed fixture. Searchable spans are exactly the citable ones, so every hit is fetchable by construction. Results are corpus-ordered, deliberately unranked — see `HANDOFF.md` |
+| 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done, live-verified, now corpus-wide** — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`. The CBETA archive is obtained and hash-verified, and `cohort/sources/cbeta_fts.py` indexes all 20,190 entries (15.28M citable spans, ~1.1 GB, built by `scripts/build_cbeta_index.py`), so `CbetaReader.search()` covers the real corpus rather than a hand-listed fixture. Searchable spans are exactly the citable ones, so every hit is fetchable by construction. Results are corpus-ordered, deliberately unranked — see `handoff.md` |
 | 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done, live-verified.** `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) |
-| 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Unblocked; `parallel_of` and collation halves done, live-verified.** `cohort/sources/cbeta_markup.py` parses `<cb:docNumber>` cross-references and `<app>` apparatus; `cohort/tools/link_parallels.py` writes `parallel_of` edges (asserted references only, and only to witnesses already in the graph); `cohort/tools/collate_editions.py` records `CROSS_EDITION_COLLATION` verifications. `scripts/run_stage4_demo.py` shows `independent_support` flipping on three real Heart Sutra translations, derived from the corpus rather than hand-added. Contradiction surfacing now has a producer: `cohort/tools/record_contradiction.py` writes `contradicts` edges with a mandatory stated reason (edges gained a `reason` column, migration 3), and it is registered in `AttestationWorker`. Still open: `descends_from` extraction — the markup asserts parallelism, not descent, so there is no corpus channel for it — and *automatic* contradiction detection across witnesses, which needs locus alignment COHORT does not have and does not claim. `link_parallels`/`collate_editions` are **now registered as agent tools** and have been called by a real model — neither takes a judgement as input (only a `witness_id`; the corpus supplies the content), which is what settled the question. See `HANDOFF.md` |
-| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified**. Researcher UI **built** — read-only by default, with writes, corpus and runs each opt-in behind a separate flag — `cohort/ui/api.py` (FastAPI over `graph.py`'s reader surface) + `cohort/ui/frontend/` (React/Vite), both behind the optional `ui` extra; served by `scripts/serve_ui.py` against a graph seeded from the real archive. Serves while an agent run holds the write lock, via `Graph.open_read_only()`. Renders §10's requirements (status as a visual channel, discounting edges distinct from supporting ones, contradiction as visible as agreement, provenance on click). **Accept/reject is now built** (`--allow-writes`), which retires this row's earlier claim that a writing UI would have to hold the exclusive lock "for as long as a tab is open" — that was wrong. Each write takes the lock for one request and releases it; a run holding the lock yields a 409 with a stated reason, so single-writer discipline is unchanged rather than relaxed. The UI also reaches parity with the Python API on two further fronts: corpus browse/search (`--corpus`) and an agent-run launcher (`--allow-runs`) with a per-run spend cap the browser cannot raise. Live-verified end to end over HTTP. The "many agents" half is **now reachable from the UI**: a run is one or several agents, each with its own declared corpus scope and method, sharing one graph, one lock and one budget cap; live-verified with two concurrent agents. See `HANDOFF.md` |
+| 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Unblocked; `parallel_of` and collation halves done, live-verified.** `cohort/sources/cbeta_markup.py` parses `<cb:docNumber>` cross-references and `<app>` apparatus; `cohort/tools/link_parallels.py` writes `parallel_of` edges (asserted references only, and only to witnesses already in the graph); `cohort/tools/collate_editions.py` records `CROSS_EDITION_COLLATION` verifications. `scripts/run_stage4_demo.py` shows `independent_support` flipping on three real Heart Sutra translations, derived from the corpus rather than hand-added. Contradiction surfacing now has a producer: `cohort/tools/record_contradiction.py` writes `contradicts` edges with a mandatory stated reason (edges gained a `reason` column, migration 3), and it is registered in `AttestationWorker`. Still open: `descends_from` extraction — the markup asserts parallelism, not descent, so there is no corpus channel for it — and *automatic* contradiction detection across witnesses, which needs locus alignment COHORT does not have and does not claim. `link_parallels`/`collate_editions` are **now registered as agent tools** and have been called by a real model — neither takes a judgement as input (only a `witness_id`; the corpus supplies the content), which is what settled the question. See `handoff.md` |
+| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified**. Researcher UI **built** — read-only by default, with writes, corpus and runs each opt-in behind a separate flag — `cohort/ui/api.py` (FastAPI over `graph.py`'s reader surface) + `cohort/ui/frontend/` (React/Vite), both behind the optional `ui` extra; served by `scripts/serve_ui.py` against a graph seeded from the real archive. Serves while an agent run holds the write lock, via `Graph.open_read_only()`. Renders §10's requirements (status as a visual channel, discounting edges distinct from supporting ones, contradiction as visible as agreement, provenance on click). **Accept/reject is now built** (`--allow-writes`), which retires this row's earlier claim that a writing UI would have to hold the exclusive lock "for as long as a tab is open" — that was wrong. Each write takes the lock for one request and releases it; a run holding the lock yields a 409 with a stated reason, so single-writer discipline is unchanged rather than relaxed. The UI also reaches parity with the Python API on two further fronts: corpus browse/search (`--corpus`) and an agent-run launcher (`--allow-runs`) with a per-run spend cap the browser cannot raise. Live-verified end to end over HTTP. The "many agents" half is **now reachable from the UI**: a run is one or several agents, each with its own declared corpus scope and method, sharing one graph, one lock and one budget cap; live-verified with two concurrent agents. See `handoff.md` |
 | 6 | ATELIER integration: source interface becomes an adapter; cumulative-coverage policy | Not started |
 
 Design doc's own cut order still applies if time runs short: **cut stage 5
@@ -433,7 +434,7 @@ coordinate with CWN.dia). The development-corpus question is resolved
 (CBETA, see "Scope revision"), the archive has been obtained, and the corpus
 markup-format question is now answered empirically — CBETA's TEI does carry
 usable parallel cross-references (`<cb:docNumber>`) and pervasive variant
-apparatus (`<app>`), both of which stage 4 now reads. See `HANDOFF.md` for
+apparatus (`<app>`), both of which stage 4 now reads. See `handoff.md` for
 the current concrete state and next steps.
 
 ---

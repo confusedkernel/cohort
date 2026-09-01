@@ -98,7 +98,7 @@ export default function GraphView({ data, selectedId, onSelect, showAudit }) {
               >
                 <rect width={w} height={h} rx="7" className="node-box" />
                 <g clipPath="url(#node-clip)">
-                  {/* status as a visual channel, not a tooltip (DESIGN.md §10) */}
+                  {/* status as a visual channel, not a tooltip (docs/design.md §10) */}
                   <rect width="5" height={h} rx="2" className="status-bar" />
                   <text className="node-type" x="14" y="19">{node.type}</text>
                   <text className="node-status" x={w - 12} y="19" textAnchor="end">

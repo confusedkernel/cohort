@@ -48,7 +48,7 @@ def main() -> None:
 
     archive_path = os.environ.get("CBETA_ARCHIVE_PATH")
     if not archive_path:
-        print("config error: CBETA_ARCHIVE_PATH is not set (see HANDOFF.md)", file=sys.stderr)
+        print("config error: CBETA_ARCHIVE_PATH is not set (see docs/handoff.md)", file=sys.stderr)
         sys.exit(1)
 
     db_path = Path(

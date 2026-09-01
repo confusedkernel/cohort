@@ -1,20 +1,23 @@
-# Development handoff
+# Changelog
 
-## Outcome and current phase
+The development record, oldest first. Each entry is kept as it was written,
+because this project's house rule is that a superseded conclusion should say so
+rather than go quiet — several entries below were later reversed, and the
+reversal is more informative than a tidied-up history would be.
 
-This repository is a working, tested evidence-graph system for supervised
-multi-agent textual research (`DESIGN.md` for the design, `ROADMAP.md` for
-architecture/tech-stack/build-order — read both before changing anything).
-It is not a prototype of an idea; it runs, live, against a real model.
+**These are dated notes, not current state.** Test counts, "not yet run" and
+"still open" inside an entry are true as of that entry and nowhere else. For
+what is true now, read [handoff.md](handoff.md).
 
-**What's actually been proven, not just written**: 260 tests pass
-(`pytest -q`); `demo.py` runs end-to-end with no corpus or API key needed;
-`scripts/smoke_openrouter.py` has completed a real OpenRouter call;
-`scripts/run_swarm_demo.py` has completed two *concurrent* real agents
-against OpenRouter, each with distinct declared scope, each correctly
-finding and attesting its own passage, both writes landing safely in one
-shared graph; `scripts/run_cbeta_demo.py` has now done the same against the
-real CBETA archive (see below).
+This log lived at the top of the old root-level `HANDOFF.md` until 2026-09-02,
+which pushed that file's "Read first" section down to line 840. Splitting it out is the only change:
+the entries are verbatim, reordered only to put the one misfiled entry
+(*The researcher UI, first cut*) back in sequence.
+
+---
+
+
+## The archive blocker is resolved
 
 **Update, 2026-09-01: the archive blocker is resolved.** The real CBETA v061
 archive was located on this shared server at
@@ -27,7 +30,7 @@ the expected value recorded below:
 `CbetaReader` agrees. `.env`'s `CBETA_ARCHIVE_PATH` now points at it.
 
 A random sample of 30 real entries answered the corpus-markup open question
-(ROADMAP.md §14, HANDOFF step 3): **29/30 carry real `<app>`/`<lem>`/`<rdg>`
+(roadmap.md §14, and step 3 of the then-current handoff): **29/30 carry real `<app>`/`<lem>`/`<rdg>`
 variant-reading TEI apparatus** with genuine edition sigla (e.g. `【CB】` vs
 `【金藏】`) — variant-reading extraction for stage 4 is clearly feasible.
 A second, targeted probe (300 random entries) then answered the
@@ -66,6 +69,115 @@ The closed vocabulary already covers all of this: `parallel_of`,
 `descends_from`, and `CROSS_EDITION_COLLATION` exist, and
 `independent_support()` already consumes descent/parallel edges. Stage 4
 needed no new types — only extraction.
+
+---
+
+
+## The researcher UI, first cut (read-only) — and the first corpus-backed demo
+
+**Update: the researcher UI (stage 5) is built and serving — read-only.**
+
+> *Historical entry, partly superseded.* This was the first stage-5 update.
+> Two of its conclusions were later reversed, by
+> [*Three gaps … closed*](#three-gaps-between-the-code-and-the-paper-claim-closed)
+> and [*The web UI reaches parity*](#the-web-ui-reaches-parity-with-the-python-api)
+> below: accept/reject **is** built (and the lock-holding concern stated here
+> was wrong), and the UI is no longer read-only — it also browses the corpus
+> and launches agent runs. What still holds is everything about how the
+> frontend honours design §10, `Graph.open_read_only()`, and the `CbetaReader`
+> collection bug. Its counts and "not yet run" notes are as of that day.
+
+`cohort/ui/api.py` is a FastAPI JSON API over `graph.py`'s reader surface;
+`cohort/ui/frontend/` is a React + Vite app that builds into
+`cohort/ui/static/`, which the API mounts when present. Both live behind the
+optional `ui` extra, so the core library and CLI never require them
+(`pip install -e '.[ui]'`).
+
+```bash
+.venv/bin/python scripts/seed_demo_graph.py --force   # real CBETA data, no API key
+cd cohort/ui/frontend && npm install && npm run build
+.venv/bin/python scripts/serve_ui.py --db demo_graph.sqlite   # http://127.0.0.1:8000
+```
+
+**Read-only is a position, not a phase.** Every request opens the projection
+through the new `Graph.open_read_only()`, which takes no writer lock, so the
+UI serves *while an agent run is writing* — there is a test asserting exactly
+that. It also cannot write: SQLite is opened `mode=ro`, migrations are skipped
+(applying one is itself a write, so an out-of-date projection is refused
+rather than misread), and no `EventLog` is attached, which makes every
+mutating method fail through the existing `event_log_or_raise()` guard rather
+than a parallel check that could drift from it. A test asserts the app exposes
+no non-GET routes.
+
+**Accept/reject was deliberately absent, and was the open decision.**
+design.md §13 puts it in stage 5, but those are researcher *writes*, and the
+worry at the time was that a writing UI would hold the exclusive lock for as
+long as a browser tab is open, stopping every agent run in the meantime. That
+was wrong — a write takes the lock for one request, not one session — and once
+that was seen, the endpoints were built. See *Three gaps … closed* below.
+
+**The frontend honours §10's requirements as requirements**, since a naive
+rendering "flattens exactly the epistemics that justify the system": node
+status is a coloured bar on every node rather than a tooltip; `parallel_of`
+and `descends_from` are drawn thicker and dashed in a distinct colour, labelled
+"**discounts** support" in the legend, and flagged `discounts: true` by the
+API so the frontend cannot omit the distinction by accident; `contradicts` is
+as heavy as `attests`; every node opens a provenance panel with authorship,
+verifications (including their `limitations` text), edges both ways, and the
+`independent_support` block. Layout is a deterministic evidence chain
+(witness → passage → claim) rather than a force simulation, which would place
+the same graph differently on every load — a poor property for something meant
+to be read and cited. Audit nodes (`verification`, `decision`) are hidden by
+default as bookkeeping rather than evidence, behind a toggle.
+
+`scripts/seed_demo_graph.py` builds the demo graph from the **real archive**,
+not a fixture: three Heart Sutra translations, hash-verified, with
+`parallel_of` edges read out of CBETA's own cross-references, giving
+`attesting_count = 3, independent = False`. Its one hand-authored node is a
+conjecture left at `proposed` with no `tests` edge — the falsifiability gate
+would refuse to attest it, which is precisely the state worth being able to
+see. It is hand-authored because `propose_conjecture`'s live path against real
+text still has not been run, and staging a fake model run would misrepresent
+what has been verified.
+
+Two things found while building it: `Graph` had **no public way to list
+nodes** (only the opinionated `citable()`/`rejected()`), now `Graph.nodes()`;
+and node ids routinely contain `#` (a passage ref is `{witness}#{excerpt}`),
+which in a URL path silently truncates at the fragment — so `/api/node` and
+`/api/agent` take the id as a query parameter, with a regression test.
+
+**A second pre-existing bug fixed here.** `CbetaReader` assumed Taisho
+throughout: `_t_number_from_entry_path` matched only `T…` refs, so `search()`
+*and* `fetch()` raised on every other collection — 11,208 of the archive's
+20,190 entries, including all 4,000-plus of X (卍續藏). Witness identity is
+now any CBETA canonical ref (`T02n0099`, `X10n0249`, `J01nA042`,
+`B00na001`, `ZW01n0014a`), validated against all 20,190 filenames with zero
+failures (4,852 distinct texts). This is additive — Taisho refs are unchanged
+— and Taisho stays privileged in exactly one place,
+`resolve_taisho_number()`, because `<cb:docNumber>` cross-references are
+Taisho numbers.
+
+`scripts/run_cbeta_demo.py` (same manual-only discipline as
+`scripts/run_swarm_demo.py`) has now run one real agent, via OpenRouter,
+calling `find_attestations` against the real archive for both claims above
+— **the first corpus-backed demo this project has run**. Both passages were
+located, attested, and their witnesses correctly carry the CC BY-NC-SA-
+equivalent license note (`WitnessPayload.source_terms`, populated from
+`SourceRecord.note` — this wiring was previously missing in
+`find_attestations.py` despite the schema field existing for exactly this
+purpose; fixed as part of this run, with a regression test in
+`tests/test_tools.py`). 139 tests pass (was 136; three new tests cover the
+`index`-backed `search()` and the `source_terms` fix).
+
+**What was still open as of this entry** (roadmap.md §14): the chronology
+scheme — which remains open, and remains the researcher's call. The same
+paragraph noted `propose_conjecture` had not yet run against real text; it has
+since, see *`propose_conjecture` runs live against the real corpus* below.
+
+---
+
+
+## Stage 4's extraction layer: `parallel_of` and cross-edition collation
 
 **Update: stage 4's extraction layer is built, tested and live-verified.**
 
@@ -164,6 +276,11 @@ Because the index is gitignored, a fresh clone has none: both
 `scripts/run_cbeta_demo.py` and `scripts/run_stage4_demo.py` exit with a
 message naming exactly what they expect rather than failing obscurely.
 
+---
+
+
+## The full-corpus search index
+
 **Update: the full-corpus search index is built and working.**
 
 `cohort/sources/cbeta_fts.py` builds a persistent SQLite FTS5 index, reusing
@@ -214,6 +331,11 @@ matter into infrastructure, which §5 principle 2 refuses. When a conjecture
 rests on a truncated result set, that belongs in
 `ConjecturePayload.selection_risks`.
 
+---
+
+
+## `propose_conjecture` runs live against the real corpus
+
 **Update: `propose_conjecture` has now run live against the real corpus** —
 the last stage-2/3 capability that had never touched real text.
 `scripts/run_conjecture_demo.py`, one agent, four turns, **$0.0039 total**
@@ -238,7 +360,7 @@ descent from Kumārajīva's 大品般若 wording, scribal harmonisation).
 (`prior_art_色即是空`, `new-claim-色即是空`, …). Every one was refused with
 `NodeNotFound`, reported back to the model as a tool error, and the agent
 adapted and completed the task. That is the write boundary working exactly as
-designed — DESIGN.md §5 principle 4, refusals surfaced rather than silently
+designed — design.md §5 principle 4, refusals surfaced rather than silently
 dropped — and it is the first time that path has been exercised by a real
 model rather than a test.
 
@@ -254,6 +376,11 @@ already mitigated, because `cbeta_fts.search()` re-checks every candidate for
 an exact substring match in Python, so returned hits are exact. The risk was
 correctly identified and is already handled.
 
+---
+
+
+## `propose_claim` — the tool the conjecture run showed was missing
+
 **Update: `propose_claim` is built — the tool the conjecture run showed was
 missing.** An agent can now create a `claim`, so the loop that previously
 dead-ended in five fabricated ids closes: propose the claim, then call
@@ -265,7 +392,7 @@ for `text`, so an unguarded tool would be markedly *cheaper* than
 query). That asymmetry would be a bypass: anything an agent could not get
 past the falsifiability gate it could relabel as a claim, bolt on whatever
 passages a search returned, and ride the ladder to `attested` with no
-dossier — precisely the "vacuous grounded claim" DESIGN.md §7 says citation
+dossier — precisely the "vacuous grounded claim" design.md §7 says citation
 checking "passes happily, because a claim can be perfectly cited and say
 nothing".
 
@@ -317,14 +444,18 @@ against a live model** — the loop is proven by a fake transport that reads
 the claim id back out of the tool-result message the way a model has to,
 but no real API call has exercised it.
 
+---
 
-**Update: the three gaps between the code and DESIGN.md §15's paper claim are
+
+## Three gaps between the code and the paper claim, closed
+
+**Update: the three gaps between the code and design.md §15's paper claim are
 closed.** The §15 claim was tested clause by clause; two clauses were not
 actually delivered and one vocabulary entry had no producer.
 
 **1. The researcher now has an interface.** `accept`/`reject`/`reopen` existed
 only as Python calls, so *researcher authority as mechanism* — the one thing
-agents may never do (DESIGN.md §8) — could only be demonstrated by typing
+agents may never do (design.md §8) — could only be demonstrated by typing
 Python. `POST /api/accept|reject|reopen` now exist behind
 `create_app(..., allow_writes=True)` / `serve_ui.py --allow-writes`, off by
 default.
@@ -411,6 +542,10 @@ Files: `cohort/tools/record_contradiction.py` (new),
 **Not yet run against a live model**: `record_contradiction` has never been
 called by a real model, same status `propose_claim` is in.
 
+---
+
+
+## The web UI reaches parity with the Python API
 
 **Update: the web UI now reaches parity with the Python API.** Corpus
 browse/search and an agent-run launcher are built, so what you can do in a
@@ -454,7 +589,7 @@ than inventing web-only ones:
 
 - **One run at a time**, enforced by the existing `flock`. A run holds the
   writer lock for its whole duration, so accept/reject answers 409 while one is
-  going — that is DESIGN.md §5 principle 7 behaving normally, and the UI's job
+  going — that is design.md §5 principle 7 behaving normally, and the UI's job
   is to say so, not to work around it. Tested.
 - **Spend capped in code, with a ceiling the browser cannot raise.** The
   client proposes a budget; `max_budget_usd` bounds it. A client-supplied
@@ -502,6 +637,10 @@ Files: `cohort/agents/budget.py`, `cohort/ui/runs.py`,
 `.env`/API-key management. Both are one-time setup, and a web form is the wrong
 place for a credential.
 
+---
+
+
+## UI restyled, plus real responsiveness
 
 **Update: UI restyled (Apple-style dark), plus real responsiveness.**
 `styles.css` was rewritten around Apple's dark system colours, which happen to
@@ -509,7 +648,7 @@ map cleanly onto the semantics already in use — systemBlue for support,
 systemOrange for the discounting relations (a warning, not an error),
 systemRed for contradiction, systemPurple for the falsifiability edge.
 
-**DESIGN.md §10's three requirements were preserved, not restyled away**: status
+**design.md §10's three requirements were preserved, not restyled away**: status
 is still its own visual channel, discounting edges still differ from supporting
 ones in colour *and* dash pattern *and* weight (so none relies on hue alone),
 and `contradicts` is still as heavy as `attests`. The polish is applied around
@@ -564,6 +703,10 @@ deliberately does not reuse the status palette: the two are orthogonal.
 Nothing was dropped in the rewrite — verified by diffing defined selectors
 against the old sheet, and by checking every class the JSX uses still resolves.
 
+---
+
+
+## Settings popover and a real light theme
 
 **Update: settings popover + a real light theme.** A gear in the top bar opens
 a floating settings panel (outside-click and Escape to dismiss, capture-phase
@@ -603,11 +746,15 @@ what keeps that honest: it asserts the two palettes have not drifted (39 tokens
 each, compared name by name and value by value), that every light token has a
 dark default on `:root` (a token defined only for light would resolve to
 nothing in dark), that no hardcoded white overlay has crept back into the sheet
-body, that all three theme states are reachable, and — DESIGN.md §10 — that
+body, that all three theme states are reachable, and — design.md §10 — that
 discounting edges still differ from supporting ones in dash pattern *and*
 weight and that `contradicts` keeps its weight, in the graph *and* in the
 legend. A restyle must not quietly reduce those to a colour difference.
 
+---
+
+
+## UI defect pass and responsive design
 
 **Update: UI defect pass + responsive design.** Seven reported problems, all
 fixed; three were the same class of bug — a colour hardcoded for dark mode.
@@ -676,6 +823,10 @@ fill dropped the small type/status labels to 2.66:1 (dark) and 4.17:1 (light);
 one step up the grey ramp restores 5.23 / 5.88 without letting them compete
 with the title.
 
+---
+
+
+## Stage-4 tools registered, and the UI can run a swarm
 
 **Update: the stage-4 tools are registered, and the UI can run a swarm.** The
 two remaining gap-analysis items, plus one defect the live run exposed.
@@ -696,9 +847,9 @@ evidence correctly rather than weakening it.
 `AgentSpec`s and drives `run_swarm()`; `POST /api/run` accepts either the
 single-agent shape or `{agents: [...]}`. The UI grows an agent card per worker
 asking for **corpus scope** and **method** — real research commitments, not
-personas (ROADMAP.md, "viewpoint formation without persona theater"). Bounded
+personas (roadmap.md, "viewpoint formation without persona theater"). Bounded
 at 4 agents: past a handful the count starts being the claim rather than the
-mechanism, which DESIGN.md §9 lists as an anti-goal.
+mechanism, which design.md §9 lists as an anti-goal.
 
 Four properties, all tested: several agents share **one** graph, **one** lock
 and **one** budget (three caps would mean the number the researcher typed bound
@@ -738,267 +889,4 @@ response was **charged** $0.01 as an estimate rather than treated as free, which
 is exactly what `budget.py` documents. But it means the end-to-end no-guessing
 path is proven deterministically, not live.
 
-
-**Update: the researcher UI (stage 5) is built and serving — read-only.**
-
-> *Historical entry, partly superseded.* This was the first stage-5 update and
-> it is the oldest one in this file. Two of its conclusions were later reversed
-> by the entries above: accept/reject **is** built (and the lock-holding
-> concern below was wrong), and the UI is no longer read-only — it also
-> browses the corpus and launches agent runs. What still holds is everything
-> about how the frontend honours DESIGN.md §10, `Graph.open_read_only()`, and
-> the `CbetaReader` collection bug. Counts and "not yet run" notes are as of
-> that day, not now.
-
-`cohort/ui/api.py` is a FastAPI JSON API over `graph.py`'s reader surface;
-`cohort/ui/frontend/` is a React + Vite app that builds into
-`cohort/ui/static/`, which the API mounts when present. Both live behind the
-optional `ui` extra, so the core library and CLI never require them
-(`pip install -e '.[ui]'`).
-
-```bash
-.venv/bin/python scripts/seed_demo_graph.py --force   # real CBETA data, no API key
-cd cohort/ui/frontend && npm install && npm run build
-.venv/bin/python scripts/serve_ui.py --db demo_graph.sqlite   # http://127.0.0.1:8000
-```
-
-**Read-only is a position, not a phase.** Every request opens the projection
-through the new `Graph.open_read_only()`, which takes no writer lock, so the
-UI serves *while an agent run is writing* — there is a test asserting exactly
-that. It also cannot write: SQLite is opened `mode=ro`, migrations are skipped
-(applying one is itself a write, so an out-of-date projection is refused
-rather than misread), and no `EventLog` is attached, which makes every
-mutating method fail through the existing `event_log_or_raise()` guard rather
-than a parallel check that could drift from it. A test asserts the app exposes
-no non-GET routes.
-
-**Accept/reject was deliberately absent, and was the open decision.**
-DESIGN.md §13 puts it in stage 5, but those are researcher *writes*, and the
-worry at the time was that a writing UI would hold the exclusive lock for as
-long as a browser tab is open, stopping every agent run in the meantime. That
-was wrong — a write takes the lock for one request, not one session — and once
-that was seen, the endpoints were built. See the accept/reject entry above.
-
-**The frontend honours §10's requirements as requirements**, since a naive
-rendering "flattens exactly the epistemics that justify the system": node
-status is a coloured bar on every node rather than a tooltip; `parallel_of`
-and `descends_from` are drawn thicker and dashed in a distinct colour, labelled
-"**discounts** support" in the legend, and flagged `discounts: true` by the
-API so the frontend cannot omit the distinction by accident; `contradicts` is
-as heavy as `attests`; every node opens a provenance panel with authorship,
-verifications (including their `limitations` text), edges both ways, and the
-`independent_support` block. Layout is a deterministic evidence chain
-(witness → passage → claim) rather than a force simulation, which would place
-the same graph differently on every load — a poor property for something meant
-to be read and cited. Audit nodes (`verification`, `decision`) are hidden by
-default as bookkeeping rather than evidence, behind a toggle.
-
-`scripts/seed_demo_graph.py` builds the demo graph from the **real archive**,
-not a fixture: three Heart Sutra translations, hash-verified, with
-`parallel_of` edges read out of CBETA's own cross-references, giving
-`attesting_count = 3, independent = False`. Its one hand-authored node is a
-conjecture left at `proposed` with no `tests` edge — the falsifiability gate
-would refuse to attest it, which is precisely the state worth being able to
-see. It is hand-authored because `propose_conjecture`'s live path against real
-text still has not been run, and staging a fake model run would misrepresent
-what has been verified.
-
-Two things found while building it: `Graph` had **no public way to list
-nodes** (only the opinionated `citable()`/`rejected()`), now `Graph.nodes()`;
-and node ids routinely contain `#` (a passage ref is `{witness}#{excerpt}`),
-which in a URL path silently truncates at the fragment — so `/api/node` and
-`/api/agent` take the id as a query parameter, with a regression test.
-
-**A second pre-existing bug fixed here.** `CbetaReader` assumed Taisho
-throughout: `_t_number_from_entry_path` matched only `T…` refs, so `search()`
-*and* `fetch()` raised on every other collection — 11,208 of the archive's
-20,190 entries, including all 4,000-plus of X (卍續藏). Witness identity is
-now any CBETA canonical ref (`T02n0099`, `X10n0249`, `J01nA042`,
-`B00na001`, `ZW01n0014a`), validated against all 20,190 filenames with zero
-failures (4,852 distinct texts). This is additive — Taisho refs are unchanged
-— and Taisho stays privileged in exactly one place,
-`resolve_taisho_number()`, because `<cb:docNumber>` cross-references are
-Taisho numbers.
-
-`scripts/run_cbeta_demo.py` (same manual-only discipline as
-`scripts/run_swarm_demo.py`) has now run one real agent, via OpenRouter,
-calling `find_attestations` against the real archive for both claims above
-— **the first corpus-backed demo this project has run**. Both passages were
-located, attested, and their witnesses correctly carry the CC BY-NC-SA-
-equivalent license note (`WitnessPayload.source_terms`, populated from
-`SourceRecord.note` — this wiring was previously missing in
-`find_attestations.py` despite the schema field existing for exactly this
-purpose; fixed as part of this run, with a regression test in
-`tests/test_tools.py`). 139 tests pass (was 136; three new tests cover the
-`index`-backed `search()` and the `source_terms` fix).
-
-**What was still open as of this entry** (ROADMAP.md §14): the chronology
-scheme — which remains open, and remains the researcher's call. The same
-paragraph noted `propose_conjecture` had not yet run against real text; it has
-since, see the entry above.
-
-## Read first
-
-1. `DESIGN.md` — the design spec. Section 0's standing rule: *"when a rule
-   here cannot be honoured, say so and stop. Do not implement something
-   that looks like it honours the rule."* Follow that rule literally in
-   everything below.
-2. `ROADMAP.md` — structure, tech stack, design ideology, build order, and
-   the "Scope revision" section documenting every deliberate departure from
-   `DESIGN.md`'s original text (each one quoted and annotated in place, not
-   silently changed).
-3. This file, for what to do first.
-
-## The CBETA archive: what's known, what to check
-
-- **Target file**: `CBETA_電子佛典_xml_v061_20210710.zip`.
-- **Expected SHA-256**, independently verified against the actual archive
-  file on this server (`shasum -a 256`) — do not skip re-verifying this on
-  any new machine before trusting it for anything:
-  `90a663f212bc854e6a758ed06c74776cef5cbf8e7040d0192ff3301e6f7158f2`
-- **A concrete lead on where a copy might already exist**: shared lab
-  infrastructure under `/mnt/md0/...` is worth checking first if you're on
-  a machine with access to it — but watch for convenient-looking derivative
-  trees (e.g. an already-extracted `.../Bookcase/CBETA/XML` directory, or a
-  transformed plain-text variant): a checked document in one of those can
-  differ from the archive copy and represents a separate, unidentified
-  version. **Those trees are not the canonical archive.** Don't point
-  `cohort` at one directly or treat it as equivalent; the actual `.zip`,
-  hash-verified, is what `cohort/sources/cbeta_reader.py` expects.
-- **License, already handled in code, not just docs**: CBETA is CC
-  BY-NC-SA-equivalent — non-commercial, attribution, share-alike, version,
-  intact-header requirements — **not public domain**. `ROADMAP.md`'s "Scope
-  revision" explains how this was reconciled with `DESIGN.md` §2's
-  "public-domain or locally-held" rule (read disjunctively: locally-held
-  qualifies on its own, with terms preserved). Corpus bytes must never be
-  committed to this repository, ever — `.gitignore` doesn't currently need
-  a rule for this because no corpus files exist yet, but if you add any,
-  add the ignore rule in the same change.
-
-**Once you have the archive:**
-
-```bash
-# 1. Verify it's the expected file before touching cohort at all:
-shasum -a 256 /path/to/CBETA_電子佛典_xml_v061_20210710.zip
-# compare against the hash above by hand — do not skip this step
-
-# 2. Point cohort at it (see .env.example for the full variable list):
-echo 'CBETA_ARCHIVE_PATH=/path/to/CBETA_電子佛典_xml_v061_20210710.zip' >> .env
-
-# 3. Confirm cohort's own reader agrees the hash matches:
-.venv/bin/python -c "
-from cohort.sources.cbeta_reader import CbetaReader
-r = CbetaReader('/path/to/CBETA_電子佛典_xml_v061_20210710.zip',
-                '90a663f212bc854e6a758ed06c74776cef5cbf8e7040d0192ff3301e6f7158f2')
-print('archive verified, reader constructed OK')
-"
-```
-
-If the hash doesn't match: **stop, don't proceed, don't substitute a
-different tree** (per `DESIGN.md`'s standing rule — say so and stop). A
-mismatched archive is a different, unidentified version, and provenance
-claims built on it would be false from the start.
-
-## What exists
-
-- Full write-boundary system: closed vocabulary, append-only event log as
-  ground truth, SQLite projection, rebuild-and-diff fidelity,
-  single-writer discipline (`cohort/graph.py`, `cohort/eventlog.py`,
-  `cohort/schemas.py`, `cohort/errors.py`, `cohort/migrations.py`).
-- Verification/assurance model (`Graph.verify()`, `assurance_for()`,
-  `verify_exact_span` tool) and independent payload-integrity hashing
-  (`Graph.verify_integrity()`).
-- Source interface + two readers: `LocalReader` (manifest-driven plain text,
-  used by every fixture/test) and `CbetaReader` (hash-verified archive
-  access, TEI header-skipping, unique-span excerpt location). `fetch()`
-  (`"entry_path::excerpt"`) always works. `search()` is served by the
-  full-corpus FTS5 index (`scripts/build_cbeta_index.py`, `cbeta_fts.sqlite`),
-  and still accepts the older hand-maintained
-  `index: dict[str, list[str]]` (`entry_path -> known excerpts`,
-  `cbeta_index.json`, gitignored) that predates it — some live scripts still
-  pass that. Without either, it raises `NotImplementedError` rather than
-  silently returning nothing.
-- `AttestationWorker` (OpenRouter-backed, stdlib `urllib` transport, no
-  client library) with six registered tools — `propose_claim`,
-  `find_attestations`, `propose_conjecture`, `record_contradiction`,
-  `link_parallels`, `collate_editions` — and `run_swarm()` for real concurrent
-  multi-agent execution. `verify_exact_span` is deliberately *not* among them:
-  it is a researcher-side check, not an agent write.
-- The researcher UI (`cohort/ui/`): graph view, provenance panel, corpus
-  browse/search, accept/reject/reopen, refusal log, and a multi-agent run
-  launcher with the spend cap enforced in `cohort/agents/budget.py`.
-- Agent identity (`register_agent`, `AgentProfile`, `agent_report()` as a
-  pure contribution count, deliberately not a reputation score).
-
-## What does not exist
-
-- Relevance ranking over search results — deliberately absent, see the
-  full-corpus index section above. Results come back in corpus order.
-- `descends_from` extraction — nothing in the markup asserts descent
-  directly, so there is no corpus channel for it; `parallel_of` is what the
-  corpus actually states, and it is built and live-verified.
-- *Automatic* contradiction detection across witnesses. `record_contradiction`
-  writes the edges, but finding disagreements needs locus alignment between
-  witnesses (knowing passage A here and passage B there are the same place in
-  the text), which COHORT does not have and does not claim. Apparatus markup
-  cannot supply it either — it describes variants within one document.
-- Edge retraction. Nodes have a ladder and can be rejected; edges have
-  neither, so a wrong edge is permanent.
-- Any use of the `<note type="cf1|cf2|cf3">` cross-reference channel (436
-  occurrences in the 300-file sample) — only `<cb:docNumber>` is read so far.
-- Reputation scoring (agent-society step 5) — deliberately deferred, not
-  blocked on anything.
-- ATELIER integration (stage 6) — not started, not needed yet.
-
-## Environment
-
-```bash
-python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q                # should be 260 passed
-.venv/bin/python demo.py           # no corpus, no API key needed
-cp .env.example .env               # then fill in OPENROUTER_API_KEY / OPENROUTER_MODEL yourself —
-                                    # never paste a real key into a chat session
-.venv/bin/python scripts/smoke_openrouter.py     # one real API call, manual only, never automated
-.venv/bin/python scripts/run_swarm_demo.py       # two real concurrent agents, manual only
-.venv/bin/python scripts/run_cbeta_demo.py       # one real agent against the real CBETA archive,
-                                                  # manual only — needs CBETA_ARCHIVE_PATH in .env too
-.venv/bin/python scripts/run_stage4_demo.py      # stage 4 on real text: shared descent recognised.
-                                                  # No API key and no model call — needs only
-                                                  # CBETA_ARCHIVE_PATH and cbeta_index.json
-.venv/bin/python scripts/build_cbeta_index.py    # full-corpus FTS index: ~7 min, ~1.1 GB, one-off
-.venv/bin/python scripts/search_cbeta.py 色即是空  # search the whole corpus (needs that index)
-.venv/bin/python scripts/scan_parallels.py       # corpus-wide parser validation, ~8s, read-only
-                                                  # -> ~/cbeta_scan/{parallel_map.jsonl,unparsed.txt,summary.txt}
-.venv/bin/python scripts/run_conjecture_demo.py  # live propose_conjecture, manual only.
-                                                  # Spend is capped in code: --budget (default $0.25)
-.venv/bin/python scripts/seed_demo_graph.py      # demo graph from the real archive, no API key
-.venv/bin/python scripts/serve_ui.py --db demo_graph.sqlite \
-    --corpus --allow-writes --allow-runs --max-budget 0.50   # the researcher UI; all three
-                                                  # capabilities are opt-in separately
-```
-
-Venvs bake in absolute paths — if this repo gets moved again after being
-cloned onto the server, delete and recreate `.venv` rather than trying to
-reuse one copied from elsewhere.
-
-## Suggested next session
-
-Everything this section used to list is done: the archive is located and
-hash-verified, the markup question is answered, the full-corpus FTS index is
-built, `find_attestations` and `propose_conjecture` have both run against real
-text, stage 4's `parallel_of` and cross-edition-collation extraction work, the
-two stage-4 tools are registered as agent tools, and `record_contradiction`
-gives `contradicts` a producer. See the updates at the top of this file.
-
-What is actually left:
-
-1. **The paper.** `DESIGN.md` §15 has the claim paragraph and the venue is
-   PNC 2026, but no submission artifact exists in this repository. This is the
-   largest remaining piece of work and it is not a coding task.
-2. **The chronology scheme — do not decide it unilaterally.** It is named as
-   open in `ROADMAP.md` §14 for a reason; flag it, don't guess.
-3. `record_contradiction` has still never been called by a live model. Every
-   other registered tool has. One cheap run would close that.
-4. Deliberately deferred, not blocked, and fine to leave: ATELIER integration
-   (stage 6), reputation scoring, relevance ranking over search results, and
-   edge retraction. Each is described under "What does not exist" above.
+---

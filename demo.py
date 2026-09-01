@@ -1,5 +1,5 @@
 """COHORT demo — no corpus, no live API, no network (design doc §11; the
-verification/agent-identity sections added under ROADMAP.md "Scope
+verification/agent-identity sections added under docs/roadmap.md "Scope
 revision" need no corpus or API key either, since they operate on synthetic
 refs and mocked-free graph calls).
 
@@ -201,7 +201,7 @@ def main() -> None:
               f"({g.agent_profile(AGENT).method_label})")
         print(f"{second_agent} scope: {g.agent_profile(second_agent).corpus_scope} "
               f"({g.agent_profile(second_agent).method_label})")
-        print("— declared viewpoint diversity, not agent count, is the point (ROADMAP.md")
+        print("— declared viewpoint diversity, not agent count, is the point (docs/roadmap.md")
         print("  \"Scope revision\": this is what relaxing the agent-count anti-goal buys)\n")
 
         report = g.agent_report(AGENT)

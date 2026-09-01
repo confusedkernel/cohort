@@ -1,6 +1,6 @@
 // Layout and visual encoding.
 //
-// DESIGN.md §10 is explicit that a naive rendering of this graph "flattens
+// docs/design.md §10 is explicit that a naive rendering of this graph "flattens
 // exactly the epistemics that justify the system", so three things below are
 // requirements rather than styling choices:
 //
@@ -21,7 +21,7 @@ export const COLUMNS = [
   { key: 'audit', label: 'Queries & audit', types: ['query', 'verification', 'decision'] },
 ]
 
-// Audit bookkeeping, not evidence (DESIGN.md §5 principle 6). Hidden by
+// Audit bookkeeping, not evidence (docs/design.md §5 principle 6). Hidden by
 // default so the evidence chain stays legible; never removed, because hiding
 // verification permanently would overstate how checked the graph is.
 export const AUDIT_TYPES = new Set(['verification', 'decision'])

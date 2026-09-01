@@ -14,7 +14,7 @@ the reading; this tool decides what may be written from it.
    `parallel_of` has teeth here — `Graph.independent_support()` flips
    `independent` to False as soon as one links two witnesses backing the same
    claim — so minting an edge from a weak reference would *suppress*
-   independent support, manufacturing the consensus illusion DESIGN.md §4
+   independent support, manufacturing the consensus illusion docs/design.md §4
    exists to expose. Weak references are reported, never written.
 
 2. *Only witnesses already in the graph are linked.* A parallel target the

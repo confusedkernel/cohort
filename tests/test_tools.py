@@ -323,7 +323,7 @@ def test_record_contradiction_refuses_an_invented_node_id(graph, source):
 
 
 def test_record_contradiction_refuses_audit_nodes(graph, source):
-    """A `decision` is a record of a judgement, not evidence (DESIGN.md §5
+    """A `decision` is a record of a judgement, not evidence (docs/design.md §5
     principle 6); marking one contradictory confuses the two layers."""
     claim_id = propose_claim(
         graph, source, ProposeClaimInput(text="a claim", grounding_query="明月"),

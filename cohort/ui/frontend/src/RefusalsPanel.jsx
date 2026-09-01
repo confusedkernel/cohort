@@ -1,6 +1,6 @@
 // The refused writes.
 //
-// This is an output surface, not a log viewer. DESIGN.md §15 claims the
+// This is an output surface, not a log viewer. docs/design.md §15 claims the
 // system's "refusals are part of its scholarly output", and §5 principle 4
 // makes the write boundary the thing that produces them — so a refusal shown
 // here is the system declining to record something, with the name of the

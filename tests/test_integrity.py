@@ -1,4 +1,4 @@
-"""Independent payload-integrity hashing (ROADMAP.md "Scope revision",
+"""Independent payload-integrity hashing (docs/roadmap.md "Scope revision",
 integrity-hashing workstream). `verify_integrity()` is an explicit, on-demand
 check — never an ambient hazard on every read, same posture as `rebuild()`.
 """

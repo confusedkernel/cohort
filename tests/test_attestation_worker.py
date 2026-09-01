@@ -224,7 +224,7 @@ def test_run_raises_a_clear_error_from_inside_a_running_event_loop(graph):
         asyncio.run(call_run_from_a_coroutine())
 
 
-# --- real concurrency (ROADMAP.md "Scope revision", agent-society step 4) --
+# --- real concurrency (docs/roadmap.md "Scope revision", agent-society step 4) --
 
 def test_run_swarm_runs_workers_concurrently_not_sequentially(graph, source):
     delay_s = 0.2
@@ -356,7 +356,7 @@ def test_worker_reports_an_ungrounded_claim_back_to_the_model(graph, source):
 def test_a_refused_tool_call_is_recorded_in_the_event_log(graph, source):
     """The live conjecture run lost five refusals this way: `NodeNotFound`
     comes from a *lookup*, not from `graph._refuse()`, so it was reported to
-    the model and then vanished — the log recorded a clean run. DESIGN.md §15
+    the model and then vanished — the log recorded a clean run. docs/design.md §15
     claims refusals are part of the scholarly output, which has to include
     the most common one an agent actually hits."""
     transport = FakeTransport([

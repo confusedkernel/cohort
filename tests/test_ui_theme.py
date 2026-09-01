@@ -119,7 +119,7 @@ def test_theme_is_switchable_in_all_three_states(css):
 
 
 def test_discounting_edges_stay_distinguishable_without_hue(css):
-    """DESIGN.md §10: a restyle must not reduce `parallel_of`/`descends_from`
+    """docs/design.md §10: a restyle must not reduce `parallel_of`/`descends_from`
     to a colour difference. They carry the argument that agreement between
     related witnesses is not independent confirmation, so they must also differ
     in dash pattern and weight — which survives a theme switch and colour
@@ -133,7 +133,7 @@ def test_discounting_edges_stay_distinguishable_without_hue(css):
 
     contradicts = re.search(r"^\.e-contradicts \{([^}]*)\}", css, re.M)
     assert contradicts and "stroke-width" in contradicts.group(1), (
-        "contradiction must stay as heavy as agreement (DESIGN.md §10)"
+        "contradiction must stay as heavy as agreement (docs/design.md §10)"
     )
 
     # the legend has to teach the same distinction, or the graph is a code the

@@ -13,7 +13,7 @@ dependencies = ["pydantic>=2.6"]
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]
 # The researcher UI (stage 5). Optional on purpose: the core library and CLI
-# must never require it to be installed or running (ROADMAP.md "Decisions
+# must never require it to be installed or running (docs/roadmap.md "Decisions
 # already made"), same pattern as `dev`. `cohort/ui/` is the only place that
 # may import from it.
 ui = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]

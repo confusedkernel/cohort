@@ -7,13 +7,13 @@ The case is the Heart Sutra. T08n0250, T08n0251 and T08n0252 are three
 that as three independent confirmations. It is not: CBETA's own
 `<cb:docNumber>` lists them as parallel texts, and they descend from a shared
 Sanskrit original, so their agreement is evidence of common descent rather
-than independent support. That is DESIGN.md §4's thesis, and this script shows
+than independent support. That is docs/design.md §4's thesis, and this script shows
 COHORT reaching that conclusion from the corpus's own markup — not from a
 hand-added edge, as `demo.py` necessarily does with no corpus present.
 
 No API key and no model call: every step here is mechanical. Requires only
 CBETA_ARCHIVE_PATH in `.env` and a `cbeta_index.json` naming the three
-entries (see HANDOFF.md).
+entries (see docs/handoff.md).
 
 Usage:
     .venv/bin/python scripts/run_stage4_demo.py
@@ -57,10 +57,10 @@ def main() -> None:
     _load_dotenv(REPO_ROOT / ".env")
     archive_path = os.environ.get("CBETA_ARCHIVE_PATH")
     if not archive_path:
-        print("config error: CBETA_ARCHIVE_PATH is not set (see HANDOFF.md)", file=sys.stderr)
+        print("config error: CBETA_ARCHIVE_PATH is not set (see docs/handoff.md)", file=sys.stderr)
         sys.exit(1)
     if not INDEX_PATH.is_file():
-        print(f"config error: no index at {INDEX_PATH} (see HANDOFF.md)", file=sys.stderr)
+        print(f"config error: no index at {INDEX_PATH} (see docs/handoff.md)", file=sys.stderr)
         sys.exit(1)
 
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))

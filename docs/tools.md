@@ -1,0 +1,148 @@
+# The tool layer
+
+Tools are the **only writers**. No agent emits graph structure directly; every
+write goes through a named, schema-validated function, and the invariants are
+enforced there rather than requested in a prompt
+([design.md](design.md) §5 principle 4).
+
+Each tool is task-shaped and individually refusable. Nothing exposes a way to
+write arbitrary structure or to request a whole corpus.
+
+Every signature is `(graph, source, args, *, authored_by, model_call_id=None)`
+— except `record_contradiction`, which takes no `source` because it reads only
+the graph.
+
+## What refusal means here
+
+A tool that cannot do its job **raises**, and the failure is written to the
+event log by `Graph.log_refusal()`. This is not error handling; refusals are
+part of the output ([design.md](design.md) §15). Read them back with
+`read_refusals()`, or see them in the UI's refusal panel.
+
+The most important refusal is an invented node id. Agents guess ids — a live
+run produced five such guesses — and every one is refused rather than minting a
+node, because edges never create their endpoints.
+
+## The six registered agent tools
+
+### `propose_claim`
+Creates a `claim`: an assertion the sources state.
+
+    text: str              the claim
+    grounding_query: str   run against the corpus BEFORE the claim is created
+
+The grounding query is **actually run first**. Zero hits refuses the write, and
+the refusal explains the alternative rather than just saying no: a claim with no
+passages to cite could never be attested, so if the point is that something does
+*not* occur in the corpus, that is a conjecture — an absence is settled by a
+retrieval, not by citation.
+
+On success it records the query as a `query` node with its hit count and links
+it `searched_for` → claim, so the grounding is auditable rather than implied.
+
+> This tool was added after a live run in which an agent, having no way to
+> create a claim, fabricated node ids five times trying to attest one that
+> didn't exist. See [changelog.md](changelog.md).
+
+### `find_attestations`
+Searches the corpus and records each hit as evidence.
+
+    claim_or_conjecture_id: str
+    query: str
+    max_results: int = 5   (1–20)
+
+    → FindAttestationsReport(passages: list[str], witnesses: list[str])
+
+Each hit becomes a `witness` (converging with any existing one for the same
+ref), a `passage` located in it via `part_of`, and an `attests` edge to the
+target. The passage is attested immediately — "the passage exists, the citation
+resolves" is exactly the mechanical check an agent may perform.
+
+Witnesses are proposed with `DatingRoute.UNKNOWN` and a stated basis, not left
+undated.
+
+> `witnesses` is returned because the stage-4 tools take a *witness* id. Before
+> that, an agent that had just called this tool had no way to obtain one — so it
+> guessed four times in a row and was correctly refused each time. Every one of
+> those refusals was unavoidable, which made it a gap in the tool rather than a
+> mistake by the model.
+
+### `propose_conjecture`
+Creates a `conjecture` — an assertion allowed to exceed its evidence.
+
+    text, derivation, corpus_boundary, selection_risks,
+    alternative_explanations, prior_art_query, tests_query_text
+
+All seven required, none blank. The `prior_art_query` is run against the corpus
+*before* proposing. The `tests_query_text` becomes a `query` node linked `tests`
+→ conjecture, which is what makes the conjecture attestable at all.
+
+This is the falsifiability gate, and it is the contribution: it permits genuine
+novelty, which citation checking cannot, and it filters vacuous grounded claims,
+which citation checking passes happily.
+
+### `record_contradiction`
+Writes a `contradicts` edge with a **mandatory stated reason**.
+
+    node_a_id: str
+    node_b_id: str
+    reason: str
+
+Both ids must already exist — invented ids raise `NodeNotFound`. Only
+`claim`, `conjecture`, `passage` and `witness` may be contradicted; audit nodes
+(`verification`, `decision`) are refused, since a bookkeeping record disagreeing
+with something isn't a scholarly disagreement.
+
+The `reason` is stored on the edge (migration 3). Edges have no ladder and no
+retraction, so an edge that carries an argument must carry its argument with it.
+
+### `link_parallels`
+Reads a witness's own CBETA `<cb:docNumber>` cross-references and writes
+`parallel_of` edges.
+
+    witness_id: str
+
+    → LinkParallelsReport(witness_id, linked, already_linked,
+                          absent_from_graph, unresolved, not_asserted)
+
+Every category is reported rather than collapsed into a success count, because
+what it *didn't* link is the interesting part. It refuses to mint an edge from:
+
+- **`cf.` and `Part of` references** — curatorial "compare", sometimes
+  deliberately vague. A `parallel_of` edge has teeth: it *suppresses*
+  independent support. Minting one from `[cf. No. 220(4 or 5) etc.]` would
+  silently discount real evidence on weak grounds — the exact failure the whole
+  design exists to prevent.
+- **ambiguous Taishō resolutions** — a bare number can resolve to several
+  witnesses, so it returns every candidate rather than guessing.
+- **witnesses not already in the graph** — no endpoint minting.
+
+### `collate_editions`
+Records a `cross_edition_collation` verification for a witness, reporting which
+edition families its TEI `<app>` apparatus cites.
+
+    witness_id: str  →  verification node id
+
+**Joint sigla are never split.** `【宋】【元】【明】【宮】` appears as a single
+`wit` value 2,155 times in a 300-file sample; counting it as four independent
+confirmations is precisely the error this system exists to prevent, so it is
+reported as one shared-descent family. The verification always carries
+`limitations` stating what collation did not establish.
+
+## Not an agent tool
+
+### `verify_exact_span`
+Re-fetches a passage's source and confirms the excerpt is still there, byte for
+byte, recording an `exact_span` verification at `A2`.
+
+It is **deliberately not registered** for agents: it is a researcher-side
+integrity check, not an agent write. `find_attestations` stores `source_ref` on
+every passage precisely so this re-fetch remains possible later.
+
+## Why the stage-4 tools are safe to register
+
+`link_parallels` and `collate_editions` write structure with real epistemic
+consequences, and were held back for a while on that basis. What settled it:
+**neither takes a judgement as input.** Both accept only a `witness_id`; the
+content comes from the corpus's own markup. The model chooses *what to read*,
+not *what is true* — the same discretion `find_attestations` always had.

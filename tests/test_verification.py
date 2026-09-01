@@ -1,4 +1,4 @@
-"""The verification/assurance model (ROADMAP.md "Scope revision"): a
+"""The verification/assurance model (docs/roadmap.md "Scope revision"): a
 verification node is a record of a judgement, not evidential content, same
 footing as `decision`. `assurance_for()` is a computed read over passing
 verification nodes, never a second mutable field on the subject.

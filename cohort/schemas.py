@@ -41,7 +41,7 @@ class NodeType(StrEnum):
     DECISION = "decision"
     #: one verification attempt against a claim/conjecture/passage/witness.
     #: Parallel to `decision`: a record of a judgement, not evidential
-    #: content itself (ROADMAP.md "Scope revision", verification axis).
+    #: content itself (docs/roadmap.md "Scope revision", verification axis).
     VERIFICATION = "verification"
 
 
@@ -160,7 +160,7 @@ class Authorship(_Model):
 # An agent's declared corpus/method scope is operational metadata about a
 # writer, not evidence about the corpus — principle 2 makes it a category
 # error inside the closed node/edge vocabulary. Lives in a sidecar `agents`
-# table, same footing as `node_authorship`/`edge_authorship` (ROADMAP.md
+# table, same footing as `node_authorship`/`edge_authorship` (docs/roadmap.md
 # "Scope revision", agent-society axis).
 
 class AgentProfile(_Model):
@@ -175,7 +175,7 @@ class AgentReport(_Model):
     reputation number: outcome-based signals that could feed one (ladder
     survival rate, independence quality, discount-edge contribution,
     responsiveness after rejection) are follow-on work, not built here — see
-    ROADMAP.md. This report must never be consulted by a write-boundary
+    docs/roadmap.md. This report must never be consulted by a write-boundary
     method; a number here feeding back into `attest()`/`accept()` would
     violate principle 6 by the back door."""
 
@@ -196,8 +196,8 @@ class WitnessPayload(_Model):
     #: license/rights terms for a restrictively-licensed but locally-held
     #: source (e.g. CBETA — CC BY-NC-SA-equivalent, not public domain).
     #: Additive; a single descriptive string is deliberate, not a
-    #: structured rights model — DESIGN.md §2 forbids COHORT from building a
-    #: governance layer, even a small one (ROADMAP.md "Scope revision").
+    #: structured rights model — docs/design.md §2 forbids COHORT from building a
+    #: governance layer, even a small one (docs/roadmap.md "Scope revision").
     source_terms: str | None = None
 
 
@@ -218,7 +218,7 @@ class ConjecturePayload(_Model):
     """The falsifiability gate's own check (design doc §7, `attest()`'s
     conjecture branch) is untouched by the dossier below — it still asks
     only for a `tests` edge. These four fields are the *richer* dossier
-    (ROADMAP.md "Scope revision"), enforced by pydantic at proposal time,
+    (docs/roadmap.md "Scope revision"), enforced by pydantic at proposal time,
     not by a new write-boundary rule. "none identified" is a legitimate
     value for the risk/alternatives fields, same pattern as `Dating.basis`:
     declining is legitimate, silence isn't."""
@@ -381,7 +381,7 @@ class Event(_Model):
 class Refusal(_Model):
     """One refused write, read back out of the log.
 
-    Refusals are part of the scholarly output (DESIGN.md §15: "whose
+    Refusals are part of the scholarly output (docs/design.md §15: "whose
     refusals are part of its scholarly output"), not error telemetry, so
     they get a real read model rather than being reassembled from raw
     `detail` dicts at every call site. `rule` is the exception class name —

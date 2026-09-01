@@ -1,5 +1,5 @@
 """Stage 4 tools: link_parallels and collate_editions, against a synthetic
-CBETA archive (no corpus bytes in this repository — HANDOFF.md's rule).
+CBETA archive (no corpus bytes in this repository — docs/handoff.md's rule).
 
 The fixture holds three Taisho texts wired like the real Heart Sutra group:
 T08n0251 lists 250 and 252 as parallels and 1712 as a mere `cf.`, so the

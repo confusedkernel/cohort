@@ -1,4 +1,4 @@
-"""Forward-only schema migrations via `PRAGMA user_version` (ROADMAP.md
+"""Forward-only schema migrations via `PRAGMA user_version` (docs/roadmap.md
 "Scope revision", migrations workstream)."""
 from __future__ import annotations
 

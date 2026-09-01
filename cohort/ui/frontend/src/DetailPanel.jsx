@@ -184,7 +184,7 @@ function EdgeList({ title, edges, field, onSelect }) {
 }
 
 // The researcher's own actions. Deliberately the only writes in the UI, and
-// only mounted when the server was started with --allow-writes: DESIGN.md §8
+// only mounted when the server was started with --allow-writes: docs/design.md §8
 // makes accept/reject the one thing agents may never do, so the interface for
 // it should look like an authority being exercised, not a form being filled.
 function Verdict({ node, onDone }) {

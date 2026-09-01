@@ -17,13 +17,13 @@ import { getRunConfig, getRuns, startRun, stopRun } from './api'
 //
 //   * Refusals are shown as results, not as errors. A run whose agent was
 //     refused five times did not fail; that is the write boundary working, and
-//     it is the most interesting thing on the screen (DESIGN.md §15).
+//     it is the most interesting thing on the screen (docs/design.md §15).
 //
 // A run is one *or several* agents. What several buy is declared viewpoint
 // diversity, so each row asks for a corpus scope and a method — real research
 // commitments that change what an agent looks at — rather than a personality.
 // The agents cannot see each other: there is no channel and no shared
-// transcript (DESIGN.md §5 principle 3), and the panel says so rather than
+// transcript (docs/design.md §5 principle 3), and the panel says so rather than
 // letting a viewer assume they collaborate.
 
 const ACTIVE = new Set(['starting', 'running'])

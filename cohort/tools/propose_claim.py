@@ -4,7 +4,7 @@ search that is actually run.
 Why this tool exists at all: an agent could already propose conjectures but
 had no way to create a `claim`, so when a live run wanted attestations for a
 proposition not yet in the graph it invented node ids and was refused five
-times over (HANDOFF.md, conjecture run). The refusals were the write boundary
+times over (docs/handoff.md, conjecture run). The refusals were the write boundary
 working correctly, but the gap they exposed is real — claims that cite
 passages are the ordinary case the design is built around (design doc §7,
 "Claims must cite nodes"), and there was no sanctioned way to make one.

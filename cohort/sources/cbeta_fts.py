@@ -1,6 +1,6 @@
 """A persistent full-corpus search index over the CBETA archive.
 
-Reimplements (not imports — COHORT stays standalone, DESIGN.md §2) the
+Reimplements (not imports — COHORT stays standalone, docs/design.md §2) the
 character-unigram FTS5 trick `local_reader.py` already uses: FTS5's default
 tokenizer treats an unbroken CJK run as one token, so `MATCH "寂寞"` against
 running Chinese matches nothing. Indexing a space-separated unigram copy and
@@ -283,7 +283,7 @@ class CbetaFtsIndex:
         density and document length, which in this corpus favours short
         commentaries over the canonical scriptures they quote — a scholarly
         judgement about which witnesses matter, silently encoded in
-        infrastructure. DESIGN.md §5 principle 2 refuses exactly that kind of
+        infrastructure. docs/design.md §5 principle 2 refuses exactly that kind of
         smuggled assertion, and corpus order at least has the virtue of being
         neutral and reproducible.
 

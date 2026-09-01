@@ -1,4 +1,4 @@
-"""CBETA archive reader — COHORT's confirmed development corpus (ROADMAP.md
+"""CBETA archive reader — COHORT's confirmed development corpus (docs/roadmap.md
 "Scope revision"), locally-held but restrictively licensed (CC BY-NC-SA-
 equivalent: non-commercial, attribution, share-alike, version and
 intact-header requirements — not public domain).
@@ -180,7 +180,7 @@ class CbetaReader(Source):
         self.version = version
         self.max_entry_bytes = max_entry_bytes
         #: optional hand-maintained `entry_path -> known excerpts` mapping
-        #: (HANDOFF.md "suggested first session", step 4) — never a
+        #: (docs/handoff.md "suggested first session", step 4) — never a
         #: full-corpus index. Loaded by the caller from wherever it likes;
         #: this class stores only what it's given, and never persists it
         #: back into the repository itself (the excerpts are corpus bytes).

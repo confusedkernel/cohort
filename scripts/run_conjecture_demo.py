@@ -1,5 +1,5 @@
 """Manual live run of `propose_conjecture` against the real CBETA archive —
-the last stage-2/3 capability never exercised on real text (HANDOFF.md).
+the last stage-2/3 capability never exercised on real text (docs/handoff.md).
 
 Never imported by pytest, never run automatically, same discipline as the
 other live scripts.

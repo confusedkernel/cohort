@@ -14,16 +14,16 @@ write is ever inside that window). What several agents buy is the thing the
 design actually claims: **declared viewpoint diversity**. Each agent carries
 its own `corpus_scope` and `method_label`, and those are real research
 commitments that change what it looks at — not persona prompts layered over an
-identical view (ROADMAP.md, "viewpoint formation without persona theater").
+identical view (docs/roadmap.md, "viewpoint formation without persona theater").
 Agents still cannot address each other; there is no channel and no shared
-transcript (DESIGN.md §5 principle 3).
+transcript (docs/design.md §5 principle 3).
 
 **1. One run at a time, enforced by the same lock as everything else.** An
 agent run holds the graph's exclusive `flock` for its whole duration —
 minutes, not milliseconds — because it writes continuously. So while a run is
 active, `POST /api/accept` answers 409, exactly as it would while
 `scripts/run_cbeta_demo.py` was running in a terminal. That is not a
-limitation introduced here; it is DESIGN.md §5 principle 7 behaving normally,
+limitation introduced here; it is docs/design.md §5 principle 7 behaving normally,
 and the UI's job is to *say so* rather than to work around it.
 
 **2. Spend is capped in code, per run, with a ceiling the client cannot
@@ -78,7 +78,7 @@ DEFAULT_MAX_TURNS = 8
 #: How many agents one run may fan out to. Bounded because every agent
 #: multiplies the spend against one shared cap, and because past a handful
 #: the count starts being the claim rather than the mechanism — which
-#: DESIGN.md §9 lists as an anti-goal.
+#: docs/design.md §9 lists as an anti-goal.
 DEFAULT_MAX_AGENTS = 4
 
 
@@ -299,7 +299,7 @@ class RunManager:
                 raise RunRejected(
                     f"run {self._current.id} is already in progress. Only one run at "
                     "a time: a run holds this graph's writer lock for its whole "
-                    "duration (DESIGN.md §5 principle 7). Several agents inside one "
+                    "duration (docs/design.md §5 principle 7). Several agents inside one "
                     "run are fine — they share the process and the lock."
                 )
             run = Run(uuid.uuid4().hex[:12], agents, budget_usd, turns, model)

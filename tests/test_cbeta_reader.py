@@ -1,7 +1,7 @@
 """CbetaReader: hash-verified archive extraction and TEI excerpt location,
 tested against a synthetic fixture — no real CBETA archive exists on this
 machine, or in the labmate's own parallel project's repo, at the time this
-was written (ROADMAP.md "Scope revision", CBETA workstream).
+was written (docs/roadmap.md "Scope revision", CBETA workstream).
 """
 from __future__ import annotations
 

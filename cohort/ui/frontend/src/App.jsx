@@ -90,7 +90,7 @@ export default function App() {
 
         <div className="topbar-controls">
           {/* Refusals are an output of this system, not a debug view
-              (DESIGN.md §15), so the count is always on screen — a zero is
+              (docs/design.md §15), so the count is always on screen — a zero is
               itself a fact worth showing. */}
           <button
             className={`refusal-tab ${showRefusals ? 'on' : ''}`}

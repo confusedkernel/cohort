@@ -12,9 +12,9 @@ question separable from the "what may we assert" question.
 flips `independent` to False the moment one links two witnesses supporting the
 same claim. So a wrongly-minted `parallel_of` *suppresses* independent
 support — it manufactures the very consensus illusion the design exists to
-expose (DESIGN.md §4). Guessing is therefore worse than declining, and every
+expose (docs/design.md §4). Guessing is therefore worse than declining, and every
 function below separates what it parsed cleanly from what it could not, rather
-than dropping the remainder silently (DESIGN.md §0's standing rule: say so and
+than dropping the remainder silently (docs/design.md §0's standing rule: say so and
 stop).
 
 Three distinctions the real corpus forces, all preserved rather than
@@ -296,7 +296,7 @@ def edition_families(entries: list[AppEntry]) -> dict[str, int]:
     into individual editions.
 
     Splitting would double-count a shared-descent family as several
-    independent witnesses, which is the consensus illusion DESIGN.md §4
+    independent witnesses, which is the consensus illusion docs/design.md §4
     exists to refuse. Callers wanting per-edition counts must decide that
     question explicitly rather than inherit it from a convenience helper."""
     tally: dict[str, int] = {}

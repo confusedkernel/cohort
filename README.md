@@ -1,4 +1,4 @@
-# cohort
+# Cohort
 
 Evidential pluralism made auditable — a supervised evidence graph for
 multi-agent textual research.
@@ -12,9 +12,46 @@ relations of descent and parallelism are first-class, claims must cite their
 sources, conjectures must arrive with what would refute them, and only the
 researcher can promote a finding to citable status.
 
-See `DESIGN.md` for the design, `ROADMAP.md` for structure, tech stack and
-build order, and `HANDOFF.md` for current state and next steps (start there if
-you're picking this up fresh, e.g. on a different machine).
+**📖 Documentation: [docs/index.md](docs/index.md)** — start there. It maps which
+document answers which question. If you're picking this project up fresh, read
+[docs/design.md](docs/design.md) then [docs/handoff.md](docs/handoff.md).
+
+## Quickstart
+
+No corpus, no API key, no network needed:
+
+    python -m venv .venv && .venv/bin/pip install -e '.[dev]'
+    .venv/bin/pytest -q
+    .venv/bin/python demo.py
+
+`demo.py` prints the thing worth seeing first: a claim whose support count stays
+at two while its independence flag flips to false the moment a `parallel_of`
+edge is recorded. That is the counter-argument to consensus-seeking, in three
+lines of output.
+
+## The researcher UI
+
+The same functionality as the Python API, in a browser — because COHORT should
+be usable as a library by people who write Python and as a tool by researchers
+who don't.
+
+    .venv/bin/pip install -e '.[ui]'
+    cd cohort/ui/frontend && npm install && npm run build && cd -
+    .venv/bin/python scripts/seed_demo_graph.py     # needs the corpus
+    .venv/bin/python scripts/serve_ui.py --db demo_graph.sqlite
+
+Reads never take the writer lock, so the UI can serve while an agent run is
+writing. Three capabilities are opt-in separately, because they carry different
+consequences — reading the corpus is free, accepting a finding is a scholarly
+act, and starting an agent run spends money:
+
+    --corpus        corpus browse/search
+    --allow-writes  the researcher's accept / reject / reopen
+    --allow-runs    the agent-run launcher   (--max-budget caps each run)
+
+It binds `127.0.0.1` by default and deliberately: the corpus behind the graph is
+licence-restricted. Over SSH, forward the port rather than changing the bind.
+Details in [docs/ui.md](docs/ui.md).
 
 ## Access governance is a separate system, and it is not connected
 
@@ -34,53 +71,20 @@ corpus API response — rather than dropped. Corpus bytes are never committed to
 this repository; only a local path is configured. That is provenance hygiene,
 not governance, and it is not a substitute for it.
 
-## Quickstart
-
-No corpus, no API key, no network needed:
-
-    python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-    .venv/bin/pytest -q
-    .venv/bin/python demo.py
-
-`demo.py` prints the thing worth seeing first: a claim whose support count
-stays at two while its independence flag flips to false the moment a
-`parallel_of` edge is recorded. That is the counter-argument to
-consensus-seeking, in three lines of output.
-
-## The researcher UI
-
-    .venv/bin/pip install -e '.[ui]'
-    cd cohort/ui/frontend && npm install && npm run build && cd -
-    .venv/bin/python scripts/seed_demo_graph.py     # needs the corpus
-    .venv/bin/python scripts/serve_ui.py --db demo_graph.sqlite
-
-Reads never take the writer lock, so the UI can serve while an agent run is
-writing. Three capabilities are opt-in separately, because they carry different
-consequences — reading the corpus is free, accepting a finding is a scholarly
-act, and starting an agent run spends money:
-
-    --corpus        corpus browse/search
-    --allow-writes  the researcher's accept / reject / reopen
-    --allow-runs    the agent-run launcher   (--max-budget caps each run)
-
-It binds `127.0.0.1` by default and deliberately: the corpus behind the graph is
-license-restricted. Over SSH, forward the port rather than changing the bind.
+See [docs/corpus.md](docs/corpus.md) for setup.
 
 ## Live scripts
 
-Everything under `scripts/` that calls a model is **manual-only and never run
-by the test suite**. Each one names its own cost in its docstring. Spend is
-capped in code (`cohort/agents/budget.py`) rather than estimated: the cap is
-checked *before* a request, and a response that reports no cost is charged an
-estimate rather than treated as free.
-
-Corpus access needs `CBETA_ARCHIVE_PATH` and a built index
-(`scripts/build_cbeta_index.py`); see `.env.example` and `HANDOFF.md`.
+Everything under `scripts/` that calls a model is **manual-only and never run by
+the test suite**. Each one names its own cost in its docstring. Spend is capped
+in code (`cohort/agents/budget.py`) rather than estimated: the cap is checked
+*before* a request, and a response that reports no cost is charged an estimate
+rather than treated as free. Full reference in [docs/cli.md](docs/cli.md).
 
 ## Conventions
 
 No linter or formatter is configured; match the surrounding style. The house
 habit that matters most: **a document about this system should report
 arithmetic, not assertion** — count the outputs rather than claiming things
-about them. If a rule in `DESIGN.md` cannot be honoured, say so and stop rather
-than quietly working around it.
+about them. If a rule in [docs/design.md](docs/design.md) cannot be honoured,
+say so and stop rather than quietly working around it.

@@ -1,13 +1,19 @@
-Design and handoff spec
+# Design spec
 
 *Evidential pluralism made auditable. A supervised evidence graph for
 multi-agent textual research.*
 
-Status: design settled, stage 1 built, stages 2 onward unbuilt.
 Track: infrastructure, within Sindia.
 Venue: PNC 2026, as a demo of Sindia.
 
 **Scope decision: built standalone.**
+
+> **This is the design, not the status.** Its original status line read
+> *"design settled, stage 1 built, stages 2 onward unbuilt"*, which was true
+> when written and is not now: stages 1–5 are built and live-verified. Sections
+> that describe a moment rather than an intention (§11's test count, §12's
+> table, §14's open decisions) are annotated in place. For current state read
+> [handoff.md](handoff.md); for how it got there, [changelog.md](changelog.md).
 
 ---
 
@@ -15,8 +21,10 @@ Venue: PNC 2026, as a demo of Sindia.
 
 A spec for an implementing agent and for the humans reviewing it. Sections 1 to
 5 are the framing and the constraints; read them before writing anything.
-Sections 6 to 9 are the design proper. Section 12 is what already exists,
-section 13 the build order, section 15 the decisions that are still open.
+Sections 6 to 9 are the design proper. Section 11 is what existed at the time of
+writing, section 12 the build order, section 14 the decisions that are still
+open. (This paragraph pointed at 12, 13 and 15 until 2026-09-02, off by one
+against its own headings.)
 
 Standing rule for the implementing agent: when a rule here cannot be honoured,
 say so and stop. Do not implement something that looks like it honours the rule.
@@ -142,7 +150,7 @@ part, not the agent count. In this phase parallelism is bounded by the local
 corpus and by good manners; access-mode gating belongs to ATELIER and arrives
 with it.
 
-> **Superseded, see `ROADMAP.md` "Scope revision".** After comparing against
+> **Superseded, see `roadmap.md` "Scope revision".** After comparing against
 > a parallel project, agent count is now allowed to grow, conditioned on
 > demonstrating declared viewpoint diversity rather than being the claim
 > itself. Recorded here rather than deleted, per this document's own rule
@@ -212,6 +220,14 @@ an argument.
 | `query` | a retrieval that was run, or that would test a conjecture |
 | `decision` | a researcher judgement, kept as part of the record |
 
+> **One node type added since**: `verification`, one recorded verification
+> attempt against another node, carrying method, result, assurance level and a
+> `limitations` field. Its argument: §8 lets agents perform mechanical checks,
+> and a check whose outcome is not itself a node cannot be audited, contested or
+> superseded. Like `decision`, it is an audit record rather than evidence, and
+> `citable()` excludes both. Full table in
+> [vocabulary.md](vocabulary.md).
+
 **Edges.**
 
 | Type | Domain | Meaning |
@@ -223,6 +239,19 @@ an argument.
 | `quotes` | passage to passage | citation within the corpus |
 | `tests` | query to conjecture | the falsifiability edge |
 | `supersedes` | same type to same type | revision |
+
+> **Three edge types added since**, each with its argument, per this section's
+> own rule that adding a type requires one:
+>
+> - `part_of` (passage → witness) — §11 below flagged passage-to-witness being a
+>   payload field as a weak point, because it made `independent_support()` read
+>   JSON out of a payload to answer this system's central question.
+> - `verifies` (verification → witness/passage/claim/conjecture) — attaches the
+>   audit record above to its subject.
+> - `searched_for` (query → claim/conjecture) — records the retrieval that
+>   produced a node, which is what makes `propose_claim`'s grounding query and
+>   `propose_conjecture`'s prior-art search auditable rather than merely
+>   promised.
 
 Authorship is a field on every event, not an edge; an `authored_by` edge would
 duplicate it with no way to keep the two consistent.
@@ -323,7 +352,7 @@ Each is a plausible wrong turn that would look like progress.
 - **Content-layer claims.** 工具層 contribution. Do not ship an argument about
   textual history dressed as a demo.
 - **Agent count as a headline number.** A scale claim, not a mechanism.
-  **Superseded, see `ROADMAP.md` "Scope revision"** — allowed now when it
+  **Superseded, see `roadmap.md` "Scope revision"** — allowed now when it
   demonstrates declared viewpoint diversity, not scale for its own sake.
 
 ---
@@ -356,6 +385,11 @@ thesis.
 
 ## 11. What already exists (stage 1)
 
+> **As of when this was written.** 22 tests then, 260 now, and stages 2–5 are
+> built. Kept because the *shape* it describes is still the shape, and because
+> its "known weak points" list below is the best record of four real defects.
+> Current state: [handoff.md](handoff.md).
+
 A working write boundary, 22 tests, an offline demo. No agents, no corpus, no
 model, no network. Everything in sections 5 to 8 enforceable without a corpus is
 enforced and tested.
@@ -371,7 +405,7 @@ demo.py
 ```
 
 *The package currently ships under an earlier name; rename to `cohort` before
-stage 2. Mechanical, no design change.*
+stage 2. Mechanical, no design change.* — **Done.**
 
 Enforced and tested: source-derived identity with author accumulation; edges
 never creating endpoints; edge domain constraints; the falsifiability gate,
@@ -387,16 +421,20 @@ false as soon as a `parallel_of` edge is recorded. **Show this first.** It is
 the counter-argument to consensus-seeking in three lines of output.
 
 **Known weak points, to fix in stage 2 rather than discover later.**
+**All four are fixed** — kept here because naming them in advance is why they
+were fixed rather than discovered.
 
-- Passage-to-witness is a payload field, not an edge, so `independent_support`
-  reads JSON out of a payload. Should become a `part_of` edge, which means
-  adding to the vocabulary deliberately.
-- `contradicts` is stored as written and is not symmetric on read. A
-  contradiction query must check both directions and nothing enforces it.
-- No concurrency test. Single-writer discipline is documented, WAL is on, but
-  nothing writes concurrently yet.
-- `rebuild` writes a stray replay log because the constructor insists on one.
-  Cosmetic, but it misdescribes what replaying does.
+- ~~Passage-to-witness is a payload field, not an edge, so `independent_support`
+  reads JSON out of a payload.~~ Now the `part_of` edge, added deliberately to
+  the vocabulary as §6 requires.
+- ~~`contradicts` is stored as written and is not symmetric on read.~~ Now in
+  `SYMMETRIC_EDGE_TYPES` with `parallel_of`: both are stored in both directions,
+  so a query either way finds them, and the UI de-duplicates when drawing.
+- ~~No concurrency test.~~ Two now: `SingleWriterViolation` on a second writer,
+  and a real-overlap assertion proving `run_swarm()` workers run concurrently
+  rather than sequentially.
+- ~~`rebuild` writes a stray replay log.~~ It replays into
+  `Graph(":memory:", event_log=None)`, so no log is written at all.
 
 ---
 
@@ -408,11 +446,14 @@ one has tests.
 | Stage | Deliverable | Agents |
 |---|---|---|
 | 1 | Graph store, event log, vocabulary, ladder, rebuild. **Done.** | none |
-| 2 | Thin source interface + local reader; tool layer; `part_of` edges; one worker that finds attestations | one |
-| 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | one |
-| 4 | `parallel_of` / `descends_from` edges from existing markup; contradiction surfacing; `independent_support` over real witnesses | few |
-| 5 | Fan-out with real concurrency; researcher UI with graph view, accept/reject, provenance on click | many |
+| 2 | Thin source interface + local reader; tool layer; `part_of` edges; one worker that finds attestations. **Done, live-verified.** | one |
+| 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop. **Done, live-verified.** | one |
+| 4 | `parallel_of` / `descends_from` edges from existing markup; contradiction surfacing; `independent_support` over real witnesses. **`parallel_of`, collation and `contradicts` done; `descends_from` blocked** — no corpus channel asserts descent. | few |
+| 5 | Fan-out with real concurrency; researcher UI with graph view, accept/reject, provenance on click. **Done, live-verified**, plus corpus browsing and a run launcher. | many |
 | 6 | ATELIER integration: the source interface becomes an adapter; cumulative-coverage policy | unchanged |
+
+> Stage-by-stage detail is in [roadmap.md](roadmap.md); what is left is in
+> [handoff.md](handoff.md).
 
 **If time runs short, cut 5 before 3.** A small graph with a working
 falsifiability gate is a contribution. A large swarm without one is the thing
@@ -454,7 +495,7 @@ Do not guess at these.
 1), and small enough to iterate on. Michael's Buddhist material may qualify; so
 may a CBETA or Kanripo checkout. Confirm before stage 2.
 
-> **Resolved, see `ROADMAP.md` "Scope revision".** CBETA v061 is the
+> **Resolved, see `roadmap.md` "Scope revision".** CBETA v061 is the
 > confirmed corpus, accepted as "locally-held" under section 2 rule 1 with
 > its real license terms preserved through the pipeline, not waived.
 
@@ -463,7 +504,15 @@ already? If yes, the first `parallel_of` edges are free
 and stage 4 is close. If it is bare text, alignment becomes the first hard
 problem and the project shape changes.
 
-**Chronology.** What replaces political-dynasty periodization? For translation
+> **Answered: it carries markup, and the first `parallel_of` edges were
+> free.** The channel is `<cb:docNumber>` (not generic TEI pointers, which are
+> rare), and `<app>`/`<lem>`/`<rdg>` apparatus is pervasive — 271 of 300 sampled
+> files cite two or more editions. One caution the answer came with: joint
+> sigla like `【宋】【元】【明】【宮】` are *one* shared-descent family, not four
+> confirmations. Details in [corpus.md](corpus.md).
+
+**Chronology.** **Still open — do not guess.** What replaces political-dynasty
+periodization? For translation
 material, translation date, composition date and recension date are three
 different things and the translator matters more than the dynasty. Coordinate
 with CWN.dia, which has the same problem in a different corpus.

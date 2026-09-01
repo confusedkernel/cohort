@@ -894,7 +894,7 @@ class Graph:
         The live conjecture run made the cost concrete: five refused
         `find_attestations` calls against invented node ids were reported to
         the model and then lost, so the log recorded a clean run and
-        DESIGN.md §15's "refusals are part of its scholarly output" held only
+        docs/design.md §15's "refusals are part of its scholarly output" held only
         for the subset of refusals that happened to be write-boundary rules.
 
         Idempotent with `_refuse`: an error already logged there carries

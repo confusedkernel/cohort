@@ -11,7 +11,7 @@ confirmation.
 
 No model call and no API key: everything here is mechanical. The one
 hand-authored node is the conjecture, because `propose_conjecture`'s live
-path against real text has not been exercised yet (see HANDOFF.md) and
+path against real text has not been exercised yet (see docs/handoff.md) and
 inventing a model run would misrepresent what has been verified. Its dossier
 fields are written as a researcher would write them, and it is left at
 `proposed` — no `tests` edge, so the falsifiability gate would refuse to
@@ -75,12 +75,12 @@ def main() -> None:
     _load_dotenv(REPO_ROOT / ".env")
     archive_path = os.environ.get("CBETA_ARCHIVE_PATH")
     if not archive_path:
-        print("config error: CBETA_ARCHIVE_PATH is not set (see HANDOFF.md)", file=sys.stderr)
+        print("config error: CBETA_ARCHIVE_PATH is not set (see docs/handoff.md)", file=sys.stderr)
         sys.exit(1)
 
     index_path = REPO_ROOT / "cbeta_index.json"
     if not index_path.is_file():
-        print(f"config error: no index at {index_path} (see HANDOFF.md)", file=sys.stderr)
+        print(f"config error: no index at {index_path} (see docs/handoff.md)", file=sys.stderr)
         sys.exit(1)
 
     db_path = Path(args.db)
@@ -192,7 +192,7 @@ def main() -> None:
     # A recorded disagreement. `contradicts` has been in the vocabulary since
     # stage 1 and the UI draws it as heavily as `attests`, but until
     # `record_contradiction` existed nothing ever wrote one, so the "disagreement
-    # made visible" half of DESIGN.md §6 had no data behind it in any view.
+    # made visible" half of docs/design.md §6 had no data behind it in any view.
     # This claim genuinely conflicts with the conjecture above: if the phrase was
     # already fixed in Chinese before the recensions split, they are not
     # independent descendants of a Sanskrit parent.
@@ -225,7 +225,7 @@ def main() -> None:
 
     # A refusal, on purpose: the conjecture above has no `tests` edge, so the
     # falsifiability gate must refuse to attest it. The refused write is logged
-    # and shows up in the UI's "refused writes" panel — DESIGN.md §15 counts
+    # and shows up in the UI's "refused writes" panel — docs/design.md §15 counts
     # refusals as output, and a demo graph with none would understate what the
     # system does.
     try:

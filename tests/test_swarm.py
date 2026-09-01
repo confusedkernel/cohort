@@ -1,4 +1,4 @@
-"""run_swarm() itself (ROADMAP.md "Scope revision", agent-society step 4).
+"""run_swarm() itself (docs/roadmap.md "Scope revision", agent-society step 4).
 
 The deeper concurrency-safety proofs (real overlap, shared-graph writes,
 error isolation) live in tests/test_attestation_worker.py, next to

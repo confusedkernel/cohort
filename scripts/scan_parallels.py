@@ -8,7 +8,7 @@ writes three artifacts:
 - `unparsed.txt`        — every distinct bracket the parser declined, deduped,
                           with a count and one example entry each
 - `summary.txt`         — tallies, including the `<note type="cf*">` channel
-                          HANDOFF.md flags as unexplored
+                          docs/handoff.md flags as unexplored
 
 The point is the second file. A parser that silently half-reads a reference
 list would mint false `parallel_of` edges, and `parallel_of` suppresses

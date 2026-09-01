@@ -2,7 +2,7 @@
 
 The `<cb:docNumber>` strings below are real syntax observed in CBETA v061,
 reproduced here because they are *markup*, not corpus text — no scripture
-content is copied into this repository (HANDOFF.md's corpus-bytes rule).
+content is copied into this repository (docs/handoff.md's corpus-bytes rule).
 """
 from __future__ import annotations
 

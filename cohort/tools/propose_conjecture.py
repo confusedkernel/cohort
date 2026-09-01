@@ -6,7 +6,7 @@ conjecture proposed any other way has no `tests` edge and is permanently
 unattestable via `attests` edges, however many it collects. This tool is
 still the only sanctioned way to get a conjecture past that gate.
 
-Layered on top (ROADMAP.md "Scope revision", verification axis): the
+Layered on top (docs/roadmap.md "Scope revision", verification axis): the
 dossier fields (`derivation`, `corpus_boundary`, `selection_risks`,
 `alternative_explanations`) are enforced by `ConjecturePayload` itself, at
 proposal time, not by a new write-boundary rule — pydantic already refuses

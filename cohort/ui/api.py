@@ -6,7 +6,7 @@ write (SQLite `mode=ro`, no `EventLog` attached), so the API keeps serving
 while an agent run is writing.
 
 **Writes are opt-in, and hold the lock for one request only.** The
-researcher's accept/reject (DESIGN.md §13 stage 5) lives here now, behind
+researcher's accept/reject (docs/design.md §13 stage 5) lives here now, behind
 `allow_writes`. An earlier version of this docstring argued a writing UI
 would have to hold the exclusive lock "for as long as a browser tab is
 open" — that was never actually required. Each write endpoint calls
@@ -18,11 +18,11 @@ queueing, retrying, or (worst) weakening the lock.
 
 Writes default to **off** so the read-only deployment stays the default, and
 because these endpoints act as `RESEARCHER` — the one identity the promotion
-ladder treats as privileged (DESIGN.md §8, "Only the researcher"). Enabling
+ladder treats as privileged (docs/design.md §8, "Only the researcher"). Enabling
 them is the operator asserting that whoever can reach this port *is* the
 researcher, which is a claim only the operator can make.
 
-**What the API must not flatten.** DESIGN.md §10 warns that a naive
+**What the API must not flatten.** docs/design.md §10 warns that a naive
 projection of this graph into a knowledge graph "flattens exactly the
 epistemics that justify the system": if the view shows nodes without status
 and edges without the independence flag, it silently restores the consensus
@@ -50,7 +50,7 @@ from ..sources.base import Source
 from ..sources.cbeta_markup import strip_markup_for_display
 from .runs import AgentSpec, RunManager, RunRejected
 
-#: edge types that *discount* support rather than add it (DESIGN.md §4): two
+#: edge types that *discount* support rather than add it (docs/design.md §4): two
 #: witnesses linked by either are evidence of shared descent, not independent
 #: confirmation. Named here so the frontend never has to re-derive it.
 DISCOUNTING_EDGE_TYPES = frozenset({EdgeType.DESCENDS_FROM, EdgeType.PARALLEL_OF})
@@ -245,7 +245,7 @@ def create_app(
     def refusals(limit: int = Query(default=100, ge=1, le=1000)) -> dict[str, Any]:
         """The refused writes, most recent last.
 
-        This is an output surface, not a debug view: DESIGN.md §15 claims the
+        This is an output surface, not a debug view: docs/design.md §15 claims the
         system's "refusals are part of its scholarly output", and until this
         endpoint existed they were visible only in `demo.py`'s terminal
         printout. Read from the event log rather than the projection —
@@ -350,7 +350,7 @@ def create_app(
             id: str = Query(..., min_length=1),
             body: dict[str, Any] = Body(default={}),
         ) -> dict[str, Any]:
-            """Reopen a rejected node. A researcher action by design: DESIGN.md
+            """Reopen a rejected node. A researcher action by design: docs/design.md
             §8 says rejection persists and "reopening is a researcher
             action"."""
             return _verdict(id, "reopen", (body or {}).get("reason"))
@@ -368,7 +368,7 @@ def create_app(
             script calls, so a query typed here and a query typed in Python
             return the same hits in the same order.
 
-            No relevance ranking, deliberately (see HANDOFF.md): results come
+            No relevance ranking, deliberately (see docs/handoff.md): results come
             back in corpus order, and saying so matters more than hiding it —
             a list that looks ranked but is not would misrepresent which
             witnesses are most relevant."""

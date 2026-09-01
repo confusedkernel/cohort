@@ -4,7 +4,7 @@ disagree, with a stated reason.
 Why this exists: `contradicts` has been in the closed vocabulary since stage
 1, is materialised in both directions (`SYMMETRIC_EDGE_TYPES`), and the UI
 deliberately draws it as heavily as `attests` — but until now **nothing in
-the system ever created one**. DESIGN.md §6 lists it as "disagreement made
+the system ever created one**. docs/design.md §6 lists it as "disagreement made
 visible" and §10 warns that a view hiding disagreement "flattens exactly the
 epistemics that justify the system"; a vocabulary entry with no producer
 makes that claim true only in principle. This is the producer.
@@ -59,7 +59,7 @@ DESCRIPTION = (
 #: domain-`"any"` at the write boundary, deliberately — but a *tool* offering
 #: it to an agent should still refuse the cases that are certainly mistakes:
 #: an agent marking a `decision` or `verification` node as contradictory is
-#: confusing audit bookkeeping with evidence (DESIGN.md §5 principle 6), and
+#: confusing audit bookkeeping with evidence (docs/design.md §5 principle 6), and
 #: a `query` cannot disagree with anything, it is a retrieval.
 CONTRADICTABLE_TYPES = frozenset({
     NodeType.CLAIM, NodeType.CONJECTURE, NodeType.PASSAGE, NodeType.WITNESS,

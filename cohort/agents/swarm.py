@@ -1,4 +1,4 @@
-"""Real concurrent multi-agent orchestration (ROADMAP.md "Scope revision",
+"""Real concurrent multi-agent orchestration (docs/roadmap.md "Scope revision",
 agent-society axis step 4 — the deferred piece, now built).
 
 `run_swarm()` is a thin wrapper over `asyncio.gather`; the actual safety
@@ -40,7 +40,7 @@ async def run_swarm(
     attribution is the whole point of running several.
 
     Deliberately still no channel between workers. Passing progress *outward*
-    to one observer is not agent-to-agent messaging (DESIGN.md §5 principle 3):
+    to one observer is not agent-to-agent messaging (docs/design.md §5 principle 3):
     no worker can see another's callback, results, or transcript."""
     def _hook(worker: AttestationWorker):
         if on_tool_call is None:

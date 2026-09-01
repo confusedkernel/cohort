@@ -1,0 +1,109 @@
+# Agents, swarms and spend
+
+The agent layer is `cohort/agents/`. It has **no client library**: OpenRouter
+over stdlib `urllib.request`, so nothing here adds a dependency
+([roadmap.md](roadmap.md) tech stack).
+
+## The worker
+
+`AttestationWorker` runs a tool-use loop over the six registered tools
+([tools.md](tools.md)). Nothing heavier: the tool layer is already the
+constraint surface, so a framework would add machinery the design doesn't need.
+
+    worker = AttestationWorker(graph, source, agent_id="agent:me",
+                               profile=AgentProfile(...))
+    log = await worker.run_async(instructions, max_turns=8,
+                                 on_tool_call=..., should_stop=...)
+
+`on_tool_call` fires per call so a caller can stream progress; `should_stop` is
+checked between turns so a run can be stopped without killing it mid-write.
+
+> A worker's turns must run in **one** `run_async` call. Calling it repeatedly
+> with `max_turns=1` restarts the conversation each time and discards every
+> prior tool result — which is why the callbacks exist instead.
+
+A worker's `profile` declares **corpus scope** and **method label**. These are
+prepended to its instructions and recorded on the agent, so two agents that
+disagree disagree from declared positions. That is what makes disagreement
+meaningful rather than cosmetic.
+
+`agent_report()` returns a pure contribution count — proposed, attested,
+rejected. It is **deliberately not a reputation score**; see
+[design.md](design.md) §9.
+
+## Swarms
+
+    from cohort.agents.swarm import run_swarm
+    results = await run_swarm([(worker_a, task_a), (worker_b, task_b)],
+                              max_turns=6, on_tool_call=..., should_stop=...)
+
+Agents share one `Graph` and communicate **only through it** — no messaging, no
+shared transcript ([design.md](design.md) §5 principle 3). This buys three
+things: every contribution has an author, cost is linear rather than quadratic
+in agent count, and the researcher can pause the whole system because the entire
+shared state is one inspectable object.
+
+`asyncio.to_thread` is scoped around only the blocking HTTP call, so model calls
+overlap while graph writes cannot interleave. Failures are isolated with
+`return_exceptions=True`: one agent's transport error is reported against that
+agent rather than failing the run.
+
+**Fan-out is not a headline.** Agent count is allowed to grow only when it
+demonstrates declared viewpoint diversity — scale for its own sake is the thing
+being critiqued, not the claim being made.
+
+## Spend is capped in code, not estimated
+
+`cohort/agents/budget.py`. This is the only part of the system that spends
+money, and the design follows from that.
+
+    transport = BudgetedTransport(budget_usd=0.50, unknown_call_cost=0.01,
+                                  on_call=...)
+
+Two properties that matter more than they look:
+
+- **The cap is checked *before* a request**, not after. A cap enforced
+  afterwards is a report, not a cap.
+- **A response reporting no cost is charged the estimate**, not treated as free.
+  Unpriced calls are counted and surfaced, so a displayed total is an honest
+  lower bound rather than a silent undercount. This has fired in practice: a
+  malformed provider response was charged $0.01 exactly as designed.
+
+`BudgetExceeded` stops the run. `snapshot()` gives live spend, which is why the
+UI can show a bar filling rather than a total at the end — a cap you cannot
+watch approaching is one you only learn about by hitting it.
+
+## Runs from the UI
+
+`cohort/ui/runs.py` wraps all of the above for the browser, keeping the scripts'
+guarantees rather than reimplementing them.
+
+| Bound | Default | Why |
+|---|---|---|
+| `max_budget_usd` | 1.00 | the browser proposes; the server bounds |
+| `max_turns` | 8 | per agent |
+| `max_agents` | 4 | past a handful the count becomes the claim rather than the mechanism |
+
+One run may hold several `AgentSpec`s, and they share **one** graph, **one**
+lock and **one** budget. Three separate budgets would mean the number you typed
+bounded none of them.
+
+See [ui.md](ui.md) for the HTTP surface.
+
+## Live scripts and their costs
+
+Everything under `scripts/` that calls a model is **manual-only and never run by
+the test suite**. Each names its own cost in its docstring. The full list, with
+prerequisites, is in [cli.md](cli.md).
+
+Observed costs, for calibration:
+
+| Run | Cost |
+|---|---|
+| `smoke_openrouter.py` — one call | ~$0.0002 |
+| browser-launched single agent, 4 calls | $0.00236 |
+| `run_conjecture_demo.py` — live conjecture | ~$0.004 |
+| browser-launched 2-agent swarm, 16 calls, 62.8s | $0.00336 |
+
+Set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` in `.env`. **Never paste a real
+key into a chat session.**

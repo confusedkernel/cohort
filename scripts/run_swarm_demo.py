@@ -1,5 +1,5 @@
 """Manual live demonstration of real concurrent multi-agent execution
-(ROADMAP.md "Scope revision", agent-society axis step 4).
+(docs/roadmap.md "Scope revision", agent-society axis step 4).
 
 Never imported by pytest, never run automatically — same discipline as
 `scripts/smoke_openrouter.py`. `demo.py` itself stays corpus/API-key-free on

@@ -1,7 +1,7 @@
 """The read-only JSON API (build order stage 5).
 
 Two properties matter more than the routing: the API cannot write, and it
-does not flatten the epistemics DESIGN.md §10 warns about — status travels
+does not flatten the epistemics docs/design.md §10 warns about — status travels
 with every node, and edges that *discount* support are marked as such rather
 than looking like edges that add it.
 """
@@ -189,7 +189,7 @@ def with_refusals(tmp_path):
 
 
 def test_refusals_endpoint_exposes_the_honest_log(with_refusals):
-    """DESIGN.md §15 claims refusals are part of the scholarly output. Before
+    """docs/design.md §15 claims refusals are part of the scholarly output. Before
     this endpoint they were reachable only by a list comprehension in
     demo.py, which made the claim true of the log but not of the system."""
     db_path, log_path = with_refusals

@@ -1,4 +1,4 @@
-/* Visual encoding follows DESIGN.md §10: status is a channel of its own,
+/* Visual encoding follows docs/design.md §10: status is a channel of its own,
    discounting edges never look like supporting ones, and contradiction is as
    loud as agreement. Those three are requirements, not styling choices, and
    everything below is applied *around* them, never at their expense — each
@@ -397,7 +397,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: a
 .e-tests { stroke: var(--tests); stroke-dasharray: 2 3; }
 /* discounting edges: thicker and dashed, so they never read as support */
 .e-discount { stroke: var(--discounts); stroke-width: 2.6; stroke-dasharray: 7 4; }
-/* contradiction as visible as agreement (DESIGN.md §10) */
+/* contradiction as visible as agreement (docs/design.md §10) */
 .e-contradicts { stroke: var(--contradicts); stroke-width: 2.6; }
 
 .arrow { fill: var(--structural); }
@@ -1027,7 +1027,7 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 /* --- badge variants that were previously unstyled -------------------------
    `.badge.assurance` (A0…A4) and `.badge.t-*` (node type) have always been
    rendered but never given a look, so both fell back to the neutral badge.
-   Assurance is orthogonal to status (DESIGN.md: a claim can be accepted with
+   Assurance is orthogonal to status (docs/design.md: a claim can be accepted with
    no verification run, or proposed with several), so it deliberately does NOT
    reuse the status colours — it is monospaced and neutral, and only the
    unchecked rung is tinted, because "nothing has been verified" is the one

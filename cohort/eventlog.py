@@ -126,7 +126,7 @@ def read_refusals(path: str | Path, *, limit: int | None = None) -> list[Refusal
     pattern as `summarize_model_calls`.
 
     This exists because a refusal is an output of this system, not a
-    diagnostic (DESIGN.md §15). Before it, the only way to see refusals was
+    diagnostic (docs/design.md §15). Before it, the only way to see refusals was
     an ad-hoc list comprehension over `read_events` in `demo.py`, which meant
     the most distinctive thing COHORT does was visible in terminal output and
     nowhere else.

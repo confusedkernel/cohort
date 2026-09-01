@@ -1,12 +1,12 @@
 """Manual live demonstration of find_attestations against the real CBETA
-archive (HANDOFF.md "suggested first session", step 4) — the first time
+archive (docs/handoff.md "suggested first session", step 4) — the first time
 this project has run an agent against real Buddhist text rather than the
 Tang-poem fixture.
 
 Never imported by pytest, never run automatically — same discipline as
 `scripts/smoke_openrouter.py` and `scripts/run_swarm_demo.py`.
 
-Uses a hand-maintained `entry_path -> known excerpts` index (HANDOFF.md's
+Uses a hand-maintained `entry_path -> known excerpts` index (docs/handoff.md's
 suggested minimal approach — not a full-corpus index), loaded from a local
 JSON file that is gitignored because its excerpts are corpus bytes.
 
@@ -14,7 +14,7 @@ Usage:
     .venv/bin/python scripts/run_cbeta_demo.py
 
 Requires CBETA_ARCHIVE_PATH, OPENROUTER_API_KEY and OPENROUTER_MODEL in
-`.env` (see .env.example and HANDOFF.md).
+`.env` (see .env.example and docs/handoff.md).
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from cohort.schemas import AgentKind, AgentProfile, ClaimPayload
 from cohort.sources.cbeta_reader import CbetaArchiveError, CbetaReader
 
 #: the archive version this SHA-256 identifies — not corpus bytes, a fact
-#: about which version was verified (HANDOFF.md, re-verified independently
+#: about which version was verified (docs/handoff.md, re-verified independently
 #: against the actual file before this script existed).
 CBETA_V061_SHA256 = "90a663f212bc854e6a758ed06c74776cef5cbf8e7040d0192ff3301e6f7158f2"
 
@@ -46,7 +46,7 @@ def main() -> None:
 
     archive_path = os.environ.get("CBETA_ARCHIVE_PATH")
     if not archive_path:
-        print("config error: CBETA_ARCHIVE_PATH is not set (see .env.example, HANDOFF.md)", file=sys.stderr)
+        print("config error: CBETA_ARCHIVE_PATH is not set (see .env.example, docs/handoff.md)", file=sys.stderr)
         sys.exit(1)
 
     if not DEFAULT_INDEX_PATH.is_file():

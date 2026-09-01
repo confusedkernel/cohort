@@ -21,7 +21,7 @@ claim from an `A3_INDEPENDENCE_CHECKED` label.
 
 **Joint sigla are never split.** `wit="【宋】 【元】 【明】 【宮】"` is one
 shared-descent family reading one way, not four independent confirmations;
-counting it as four is precisely the error DESIGN.md §4 is about. The tally
+counting it as four is precisely the error docs/design.md §4 is about. The tally
 `cohort.sources.cbeta_markup.edition_families()` returns is therefore keyed by
 the group as written, and this tool reports it that way.
 """

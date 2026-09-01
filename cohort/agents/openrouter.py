@@ -1,4 +1,4 @@
-"""OpenRouter transport — replaces the Anthropic SDK entirely (ROADMAP.md
+"""OpenRouter transport — replaces the Anthropic SDK entirely (docs/roadmap.md
 "Scope revision", OpenRouter workstream).
 
 Deliberately stdlib-only: `urllib.request` for the one HTTP call this needs,
