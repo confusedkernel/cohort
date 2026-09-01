@@ -19,7 +19,7 @@ What is true as of **2026-09-02**. For how the system got here, see
 
 ## Verified state
 
-    .venv/bin/pytest -q      # 326 passed
+    .venv/bin/pytest -q      # 329 passed
     .venv/bin/python demo.py # no corpus, no API key, no network
 
 Proven by real runs rather than by assertion — every one manual, none
@@ -71,6 +71,11 @@ than implying coverage.
   there are the same place in the text — which COHORT does not have and does
   not claim. Apparatus markup cannot supply it either: it describes variants
   within one document.
+- **A cross-model reviewer.** There is no reviewer *role*: verification is a
+  tool any worker may call, and nothing stops an agent verifying its own claim.
+  Both sibling projects separate the checker from the checked. Refusing a
+  roster that shares a model family (which we now do) is not the same thing.
+  This is the most substantive outstanding criticism — see compare.md §10.
 - **Claim versioning.** A claim can be rejected and reopened but not revised
   into a new version with typed lineage, the way `epistemic-swarm` does it.
   Corrections are therefore coarse. (Edge retraction, previously listed here,

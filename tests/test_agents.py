@@ -5,6 +5,8 @@ are explicitly deferred).
 """
 from __future__ import annotations
 
+import json
+
 from cohort.eventlog import EventLog
 from cohort.graph import Graph
 from cohort.schemas import (
@@ -120,3 +122,73 @@ def test_rebuild_matches_live_with_agent_registrations_present(tmp_path):
     report = g.rebuild()
     assert report.ok is True
     g.close()
+
+
+# --- output-token ceiling ---------------------------------------------------
+
+def test_a_request_carries_an_output_token_ceiling_by_default():
+    """Nothing bounded model output until 2026-09-02. That is a cost hole, not
+    a correctness one: a reasoning model can spend far more than the task needs,
+    and the run's dollar cap would then be reached by fewer, longer calls.
+
+    Prompted by a three-way comparison in which the one project that had
+    measured its token spend found it was paying ~1.7x per call partly because
+    nothing bounded output (compare.md §10)."""
+    from cohort.agents.openrouter import DEFAULT_MAX_OUTPUT_TOKENS, complete
+
+    seen: dict = {}
+
+    def transport(url, headers, body, timeout):
+        seen.update(json.loads(body))
+        return 200, _ok_response()
+
+    complete("m", [], [], api_key="k", transport=transport)
+    assert seen["max_tokens"] == DEFAULT_MAX_OUTPUT_TOKENS
+
+
+def test_the_ceiling_can_be_lifted_but_only_deliberately():
+    """`None` sends no ceiling — the provider default. Passing it is a decision
+    rather than the accident it used to be."""
+    from cohort.agents.openrouter import complete
+
+    seen: dict = {}
+
+    def transport(url, headers, body, timeout):
+        seen.update(json.loads(body))
+        return 200, _ok_response()
+
+    complete("m", [], [], api_key="k", transport=transport, max_output_tokens=None)
+    assert "max_tokens" not in seen
+
+
+def test_the_worker_passes_its_ceiling_through(graph):
+    """The cap is only worth having if the worker actually sends it."""
+    from pathlib import Path
+
+    from cohort.agents.attestation_worker import AttestationWorker
+    from cohort.sources.local_reader import LocalReader
+
+    seen: dict = {}
+
+    def transport(url, headers, body, timeout):
+        seen.update(json.loads(body))
+        return 200, _ok_response()
+
+    source = LocalReader(Path(__file__).parent.parent / "examples" / "local_corpus")
+    try:
+        worker = AttestationWorker(
+            graph, source, authored_by="agent:worker-1", model="m", api_key="k",
+            transport=transport, max_output_tokens=1234,
+        )
+        worker.run("do nothing")
+    finally:
+        source.close()
+    assert seen["max_tokens"] == 1234
+
+
+def _ok_response() -> bytes:
+    return json.dumps({
+        "id": "x", "model": "m",
+        "choices": [{"message": {"role": "assistant", "content": "done"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0.0},
+    }).encode("utf-8")

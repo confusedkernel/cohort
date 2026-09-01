@@ -97,6 +97,12 @@ Two properties that matter more than they look:
   lower bound rather than a silent undercount. This has fired in practice: a
   malformed provider response was charged $0.01 exactly as designed.
 
+A third bound sits under both: **every request carries an output-token
+ceiling** (`DEFAULT_MAX_OUTPUT_TOKENS = 2800`), because nothing bounded model
+output until 2026-09-02. That is a cost bound rather than a correctness one —
+the budget is still the hard stop; the ceiling keeps one call from consuming an
+unreasonable share of it. Lifting it means passing `None` deliberately.
+
 `BudgetExceeded` stops the run. `snapshot()` gives live spend, which is why the
 UI can show a bar filling rather than a total at the end — a cap you cannot
 watch approaching is one you only learn about by hitting it.

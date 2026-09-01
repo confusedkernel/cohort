@@ -89,15 +89,37 @@ def default_transport(url: str, headers: dict[str, str], body: bytes, timeout: f
         raise OpenRouterError(f"OpenRouter request failed: {e.reason}", cause=cause) from e
 
 
+#: Ceiling on a single response's output tokens.
+#:
+#: Nothing bounded model output until 2026-09-02, which is a cost hole rather
+#: than a correctness one: a reasoning model can spend far more than the task
+#: needs, and the run's dollar cap would then be reached by fewer, longer
+#: calls. The budget in `budget.py` is the hard stop; this keeps any one call
+#: from consuming an unreasonable share of it.
+#:
+#: 2,800 is deliberately generous for this tool layer — the longest legitimate
+#: response is a conjecture dossier, and those run a few hundred tokens. A
+#: response that hits this ceiling is far more likely to be a model looping
+#: than a task needing the room.
+DEFAULT_MAX_OUTPUT_TOKENS = 2800
+
+
 def complete(
     model: str, messages: list[dict], tools: list[dict], *, api_key: str,
     timeout: float = 30.0, transport=default_transport,
+    max_output_tokens: int | None = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> OpenRouterResponse:
     """Validated at the boundary before anything touches domain logic — the
     same discipline COHORT already applies to tool inputs, applied here to a
     network response. `transport` is the test seam: pass a fake callable in
-    tests, no HTTP-mocking dependency needed."""
-    body = json.dumps({"model": model, "messages": messages, "tools": tools}).encode("utf-8")
+    tests, no HTTP-mocking dependency needed.
+
+    `max_output_tokens=None` sends no ceiling, which is what the provider
+    defaults to; passing it explicitly is a decision, not an accident."""
+    payload: dict = {"model": model, "messages": messages, "tools": tools}
+    if max_output_tokens is not None:
+        payload["max_tokens"] = max_output_tokens
+    body = json.dumps(payload).encode("utf-8")
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     status, raw = transport(OPENROUTER_URL, headers, body, timeout)
     if status != 200:

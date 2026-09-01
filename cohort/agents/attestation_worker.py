@@ -47,7 +47,12 @@ from ..tools.propose_claim import ProposeClaimInput, propose_claim
 from ..tools.propose_conjecture import DESCRIPTION as PROPOSE_CONJECTURE_DESCRIPTION
 from ..tools.propose_conjecture import NAME as PROPOSE_CONJECTURE_NAME
 from ..tools.propose_conjecture import ProposeConjectureInput, propose_conjecture
-from .openrouter import complete, default_transport, load_openrouter_config
+from .openrouter import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    complete,
+    default_transport,
+    load_openrouter_config,
+)
 
 #: bump whenever SYSTEM_PROMPT or TOOLS changes shape, so logged model_call
 #: events can be grouped by which prompt/tool contract actually produced them.
@@ -198,11 +203,13 @@ class AttestationWorker:
         api_key: str | None = None,
         transport=None,
         profile: AgentProfile | None = None,
+        max_output_tokens: int | None = DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> None:
         if model is None or api_key is None:
             config_key, config_model = load_openrouter_config()
             api_key = api_key if api_key is not None else config_key
             model = model if model is not None else config_model
+        self.max_output_tokens = max_output_tokens
         self.graph = graph
         self.source = source
         self.authored_by = authored_by
@@ -269,7 +276,8 @@ class AttestationWorker:
                 break
             started = time.monotonic()
             response = await asyncio.to_thread(
-                complete, self.model, messages, TOOLS, api_key=self.api_key, transport=self.transport,
+                complete, self.model, messages, TOOLS, api_key=self.api_key,
+                transport=self.transport, max_output_tokens=self.max_output_tokens,
             )
             latency_ms = int((time.monotonic() - started) * 1000)
             call_event = self.graph.log_model_call(
