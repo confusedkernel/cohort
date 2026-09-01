@@ -4,7 +4,7 @@ Design and handoff spec
 multi-agent textual research.*
 
 Status: design settled, stage 1 built, stages 2 onward unbuilt.
-Track: infrastructure (rich / Tyler / Chunki), within Sindia.
+Track: infrastructure, within Sindia.
 Venue: PNC 2026, as a demo of Sindia.
 
 **Scope decision: built standalone.**
@@ -96,19 +96,9 @@ real design item at that point. Note it now; do not solve it now.
 ## 3. Where this sits in Sindia
 
 Infrastructure serves the other legs rather than competing with them. In this
-phase COHORT is developed as its own tool, so the dependencies below are what it
-*will* owe, not what it owes this month.
-
-| Leg | Owner | Relationship to COHORT |
-|---|---|---|
-| CWN.dia: word sense dating, toward a diachronic CWN | Amber, Chungche | shares the dating problem; COHORT's `witness` dating routes are directly reusable |
-| 寂寞: LLM-supported semantic change | Wei-Ling | **do not duplicate.** It was the old fixture demo; hand it over |
-| COHORT (this document) | rich, Tyler, Chunki | the swarm and the evidence graph |
-| ATELIER | same team | governance, developed and shown separately for now |
-| Temporal KG visualization | Joanne, project lead | consumes COHORT's graph projection (section 10) |
-
-Two working systems shown side by side is an easier story for PNC than one
-integration that has to be finished by the deadline. ATELIER already works.
+phase COHORT is developed as its own tool, so any dependencies on sibling
+work are what it *will* owe, not what it owes this month. (Team and
+cross-project details have been omitted from this copy.)
 
 ---
 
@@ -340,8 +330,8 @@ Each is a plausible wrong turn that would look like progress.
 
 ## 10. The visualization leg
 
-The project lead wants a (dynamic/temporal) KG visualization with Joanne, tied
-into this architecture. One caution, and it is a real one.
+A (dynamic/temporal) KG visualization, tied into this architecture, is
+wanted elsewhere in the program. One caution, and it is a real one.
 
 This graph is deliberately not a knowledge graph, so a naive projection into one
 flattens exactly the epistemics that justify the system. If the visual shows
@@ -477,9 +467,6 @@ problem and the project shape changes.
 material, translation date, composition date and recension date are three
 different things and the translator matters more than the dynasty. Coordinate
 with CWN.dia, which has the same problem in a different corpus.
-
-**Division of labour** across rich, Tyler and Chunki. Stages 2 and 4 are
-separable; stage 3 probably is not.
 
 **Name.** COHORT is deliberately unrelated to the content, which avoids
 overclaiming and avoids grepping for a corpus term inside its own package.

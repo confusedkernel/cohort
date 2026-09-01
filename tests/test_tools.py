@@ -16,6 +16,7 @@ from cohort.schemas import (
     NodeStatus,
     WitnessPayload,
 )
+from cohort.sources.cbeta_reader import CbetaReader
 from cohort.sources.local_reader import LocalReader
 from cohort.tools.find_attestations import FindAttestationsInput, find_attestations
 from cohort.tools.propose_conjecture import ProposeConjectureInput, propose_conjecture
@@ -83,6 +84,37 @@ def test_find_attestations_refuses_a_witness_target(graph, source):
             FindAttestationsInput(claim_or_conjecture_id=witness_id, query="明月"),
             authored_by=AGENT,
         )
+
+
+def test_find_attestations_carries_restrictive_license_terms_onto_the_witness(graph, tmp_path):
+    import hashlib
+    import zipfile
+    from io import BytesIO
+
+    entry_path = "Bookcase/CBETA/XML/T/T02/T02n0099_001.xml"
+    document = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<TEI><teiHeader><fileDesc>synthetic fixture</fileDesc></teiHeader>"
+        "<text>諸行無常。是生滅法。</text></TEI>\n"
+    ).encode("utf-8")
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(entry_path, document)
+    archive_bytes = buf.getvalue()
+    path = tmp_path / "synthetic-cbeta.zip"
+    path.write_bytes(archive_bytes)
+    digest = hashlib.sha256(archive_bytes).hexdigest()
+
+    cbeta_source = CbetaReader(path, digest, index={entry_path: ["諸行無常"]})
+    claim_id = graph.propose_claim(ClaimPayload(text="a claim about impermanence"), authored_by=AGENT)
+    find_attestations(
+        graph, cbeta_source,
+        FindAttestationsInput(claim_or_conjecture_id=claim_id, query="諸行無常"),
+        authored_by=AGENT,
+    )
+    witness = graph.get_node("witness:T02n0099")
+    assert "CC BY-NC-SA-equivalent" in witness.payload["source_terms"]
+    assert entry_path in witness.payload["source_terms"]
 
 
 def _conjecture_input(**overrides):

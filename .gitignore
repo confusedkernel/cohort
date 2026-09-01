@@ -7,3 +7,8 @@ __pycache__/
 *.sqlite
 *.sqlite.lock
 *.jsonl
+
+# hand-maintained CbetaReader search index (HANDOFF.md step 4): entry_path ->
+# known excerpts. The excerpts are corpus bytes copied from the real CBETA
+# archive and must never be committed, same rule as the archive itself.
+cbeta_index.json

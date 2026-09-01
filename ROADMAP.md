@@ -2,14 +2,6 @@
 
 ## Scope revision
 
-After comparing COHORT against `epistemic-swarm` (a labmate's parallel project
-built from the same "evidential pluralism made auditable" brief), the user
-decided to deliberately widen COHORT's scope toward four of that project's
-capabilities: a graded verification/assurance model, a richer falsifiable-
-conjecture dossier, a persistent multi-agent society, and production-grade
-observability — while explicitly staying on SQLite/single-writer (no
-Postgres, no durable queue; that lift was considered and declined).
-
 This is a conscious reversal of two `DESIGN.md` passages, not a drift.
 `DESIGN.md`'s own standing rule is: *"when a rule here cannot be honoured,
 say so and stop... The predecessor's central problem was documentation
@@ -74,12 +66,11 @@ Decisions already made:
   `agent_report()`, etc.), consumed by a separate JS/React frontend. The
   core system's CLI/library usage must never require the UI to be
   installed or running — same "optional" pattern already established by
-  the `agents` extra in `pyproject.toml`. Deliberately not
-  epistemic-swarm's shape even though the backend/frontend split rhymes
-  with theirs: no Postgres, no queue — FastAPI reads the same single
-  SQLite file `graph.py` already owns, through the one process that holds
-  the write lock. Not started; stage 5 remains lowest-priority per the
-  design doc's own cut order ("cut stage 5 before stage 3").
+  the `agents` extra in `pyproject.toml`. Deliberately kept minimal: no
+  Postgres, no queue — FastAPI reads the same single SQLite file
+  `graph.py` already owns, through the one process that holds the write
+  lock. Not started; stage 5 remains lowest-priority per the design doc's
+  own cut order ("cut stage 5 before stage 3").
 
 ---
 
@@ -342,16 +333,16 @@ deliberately not a score — reputation *scoring* and the `asyncio` fan-out
 needed for real multi-agent interleaving are explicitly deferred, not built
 in this pass.
 
-**Declined outright, not just deprioritized**: epistemic-swarm's inter-agent
-social actions ("ask a question," "propose collaboration," "form/leave a
-research group") need some channel for agents to address each other, which
-is principle 3 verbatim ("no agent-to-agent messaging, no shared
-transcript") — a direct contradiction, not a stylistic mismatch. Most of the
-rest of their social-action vocabulary already has a COHORT-native equivalent
-for free: `contradicts` edges are "challenge"; re-adding an existing edge
-already accumulates authorship via the convergence mechanism, which *is*
-"endorse"; `supersedes` already exists unused in the vocabulary and is the
-natural fit for "revise/retract," left for whenever it's actually needed.
+**Declined outright, not just deprioritized**: inter-agent social actions
+("ask a question," "propose collaboration," "form/leave a research group")
+need some channel for agents to address each other, which is principle 3
+verbatim ("no agent-to-agent messaging, no shared transcript") — a direct
+contradiction, not a stylistic mismatch. Most of that social-action
+vocabulary already has a COHORT-native equivalent for free: `contradicts`
+edges are "challenge"; re-adding an existing edge already accumulates
+authorship via the convergence mechanism, which *is* "endorse"; `supersedes`
+already exists unused in the vocabulary and is the natural fit for
+"revise/retract," left for whenever it's actually needed.
 
 ---
 
@@ -420,12 +411,10 @@ contribution; a large swarm without one is the thing being critiqued.
 
 **Open decisions this document does not resolve** (design doc §14): corpus
 markup format (does CBETA's real TEI carry usable parallel/cross-reference
-apparatus? — determines how close stage 4 is once the archive exists);
-chronology scheme (translation vs. composition vs. recension date,
-coordinate with CWN.dia); division of labour across rich/Tyler/Chunki for
-stages 2 and 4 (stage 3 probably isn't separable). The development-corpus
-question itself is resolved (CBETA, see "Scope revision") — what's
-outstanding now is purely logistical: obtaining the archive. See
+apparatus? — a first answer now exists, see `HANDOFF.md`); chronology
+scheme (translation vs. composition vs. recension date, coordinate with
+CWN.dia). The development-corpus question itself is resolved (CBETA, see
+"Scope revision") and the archive itself has since been obtained — see
 `HANDOFF.md` for the current concrete state and next steps.
 
 ---

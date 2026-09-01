@@ -149,21 +149,42 @@ class CbetaReader(Source):
     def __init__(
         self, archive_path: str | Path, expected_sha256: str, *,
         version: str = "v061", max_entry_bytes: int = DEFAULT_MAX_ENTRY_BYTES,
+        index: dict[str, list[str]] | None = None,
     ) -> None:
         self.archive_path = Path(archive_path)
         self.expected_sha256 = expected_sha256
         self.version = version
         self.max_entry_bytes = max_entry_bytes
+        #: optional hand-maintained `entry_path -> known excerpts` mapping
+        #: (HANDOFF.md "suggested first session", step 4) — never a
+        #: full-corpus index. Loaded by the caller from wherever it likes;
+        #: this class stores only what it's given, and never persists it
+        #: back into the repository itself (the excerpts are corpus bytes).
+        self.index = index
         verify_archive_hash(self.archive_path, expected_sha256)  # fail at construction, not mid-run
 
     def search(self, query: str, max_results: int = 20) -> list[SearchHit]:
-        raise NotImplementedError(
-            "CbetaReader has no search index — there is no local full-corpus "
-            "index to build without deciding on one against the real archive. "
-            "fetch() by a caller-supplied 'entry_path::excerpt' ref is what's "
-            "implemented; wiring search() to a real index is corpus-integration "
-            "work that waits on the actual archive (see ROADMAP.md)."
-        )
+        if self.index is None:
+            raise NotImplementedError(
+                "CbetaReader has no search index — there is no local full-corpus "
+                "index to build without deciding on one against the real archive. "
+                "fetch() by a caller-supplied 'entry_path::excerpt' ref is what's "
+                "implemented; wiring search() to a real index is corpus-integration "
+                "work that waits on the actual archive (see ROADMAP.md)."
+            )
+        hits: list[SearchHit] = []
+        for entry_path, excerpts in self.index.items():
+            for excerpt in excerpts:
+                if query not in excerpt:
+                    continue
+                hits.append(SearchHit(
+                    ref=f"{entry_path}::{excerpt}",
+                    title=_t_number_from_entry_path(entry_path),
+                    snippet=excerpt,
+                ))
+                if len(hits) >= max_results:
+                    return hits
+        return hits
 
     def fetch(self, ref: str) -> SourceRecord:
         """`ref` is `"entry_path::excerpt_text"` — the caller already knows

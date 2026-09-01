@@ -142,6 +142,29 @@ def test_cbeta_reader_search_raises_not_implemented(archive):
         reader.search("諸行無常")
 
 
+def test_cbeta_reader_search_uses_supplied_index(archive):
+    path, digest = archive
+    reader = CbetaReader(path, digest, index={ENTRY_PATH: ["諸行無常", "是生滅法"]})
+    hits = reader.search("諸行無常")
+    assert len(hits) == 1
+    assert hits[0].ref == f"{ENTRY_PATH}::諸行無常"
+    assert hits[0].title == "T02n0099"
+    assert hits[0].snippet == "諸行無常"
+
+    record = reader.fetch(hits[0].ref)
+    assert record.witness_ref == "T02n0099"
+
+
+def test_cbeta_reader_search_respects_max_results(archive):
+    path, digest = archive
+    reader = CbetaReader(
+        path, digest,
+        index={ENTRY_PATH: ["諸行無常", "諸行", "諸行無常，是生滅法"]},
+    )
+    hits = reader.search("諸行", max_results=2)
+    assert len(hits) == 2
+
+
 def test_cbeta_reader_fetch_end_to_end(archive):
     path, digest = archive
     reader = CbetaReader(path, digest)

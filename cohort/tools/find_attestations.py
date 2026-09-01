@@ -66,6 +66,7 @@ def find_attestations(
                     confidence=DatingRoute.UNKNOWN,
                     basis="not yet dated by this worker; no dating route run",
                 ),
+                source_terms=record.note,
             ),
             authored_by=authored_by, model_call_id=model_call_id,
         )
