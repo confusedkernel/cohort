@@ -6,6 +6,18 @@ because the caller is a web request instead of a shell.
 
 Four things make that true, and each is a constraint rather than a feature:
 
+**0. A run is one *or several* agents.** Several workers share one process,
+one `Graph` and therefore one lock, so a swarm is not a harder concurrency
+problem than a single agent — `AttestationWorker.run_async()` already argues
+why (its `to_thread` is scoped to the one blocking HTTP call, and no graph
+write is ever inside that window). What several agents buy is the thing the
+design actually claims: **declared viewpoint diversity**. Each agent carries
+its own `corpus_scope` and `method_label`, and those are real research
+commitments that change what it looks at — not persona prompts layered over an
+identical view (ROADMAP.md, "viewpoint formation without persona theater").
+Agents still cannot address each other; there is no channel and no shared
+transcript (DESIGN.md §5 principle 3).
+
 **1. One run at a time, enforced by the same lock as everything else.** An
 agent run holds the graph's exclusive `flock` for its whole duration —
 minutes, not milliseconds — because it writes continuously. So while a run is
@@ -48,6 +60,7 @@ from typing import Any
 from ..agents.attestation_worker import AttestationWorker
 from ..agents.budget import BudgetedTransport, BudgetExceeded
 from ..agents.openrouter import OpenRouterError, load_openrouter_config
+from ..agents.swarm import run_swarm
 from ..eventlog import read_refusals
 from ..graph import Graph
 from ..schemas import AgentKind, AgentProfile
@@ -62,20 +75,52 @@ DEFAULT_MAX_BUDGET_USD = 1.00
 #: turns is usually looping, not thinking.
 DEFAULT_MAX_TURNS = 8
 
+#: How many agents one run may fan out to. Bounded because every agent
+#: multiplies the spend against one shared cap, and because past a handful
+#: the count starts being the claim rather than the mechanism — which
+#: DESIGN.md §9 lists as an anti-goal.
+DEFAULT_MAX_AGENTS = 4
+
 
 class RunRejected(RuntimeError):
     """A run could not be started. Carries a reason meant to be shown."""
 
 
-class Run:
-    """One agent run's observable state. Written by the worker thread, read by
-    request threads, so every mutation happens under `_lock`."""
+class AgentSpec:
+    """One agent's assignment. `corpus_scope` and `method_label` are its
+    declared research commitments, not flavour text — see this module's
+    docstring."""
 
-    def __init__(self, run_id: str, instructions: str, agent_id: str, budget_usd: float,
+    def __init__(self, agent_id: str, instructions: str,
+                 corpus_scope: str = "", method_label: str = "") -> None:
+        self.agent_id = agent_id.strip()
+        self.instructions = instructions.strip()
+        self.corpus_scope = corpus_scope.strip()
+        self.method_label = method_label.strip()
+
+    def as_json(self) -> dict[str, Any]:
+        return {
+            "agent_id": self.agent_id,
+            "instructions": self.instructions,
+            "corpus_scope": self.corpus_scope,
+            "method_label": self.method_label,
+        }
+
+
+class Run:
+    """One run's observable state — one agent or several. Written by the worker
+    thread, read by request threads, so every mutation happens under `_lock`."""
+
+    def __init__(self, run_id: str, specs: list[AgentSpec], budget_usd: float,
                  max_turns: int, model: str) -> None:
         self.id = run_id
-        self.instructions = instructions
-        self.agent_id = agent_id
+        self.specs = specs
+        #: per-agent tool calls, keyed by agent id, so a live view can say
+        #: *which* agent made a call rather than only that one happened
+        self.per_agent: dict[str, list[dict[str, Any]]] = {s.agent_id: [] for s in specs}
+        self.agent_errors: dict[str, str] = {}
+        self.instructions = specs[0].instructions if len(specs) == 1 else ""
+        self.agent_id = specs[0].agent_id if len(specs) == 1 else f"{len(specs)} agents"
         self.budget_usd = budget_usd
         self.max_turns = max_turns
         self.model = model
@@ -101,6 +146,14 @@ class Run:
                 "agent_id": self.agent_id,
                 "model": self.model,
                 "instructions": self.instructions,
+                "agents": [
+                    {
+                        **spec.as_json(),
+                        "tool_calls": list(self.per_agent.get(spec.agent_id, [])),
+                        "error": self.agent_errors.get(spec.agent_id),
+                    }
+                    for spec in self.specs
+                ],
                 "max_turns": self.max_turns,
                 "started_at": self.started_at,
                 "ended_at": self.ended_at,
@@ -131,6 +184,7 @@ class RunManager:
         self, db_path: Path, log_path: Path, source: Source | None,
         *, max_budget_usd: float = DEFAULT_MAX_BUDGET_USD,
         max_turns: int = DEFAULT_MAX_TURNS,
+        max_agents: int = DEFAULT_MAX_AGENTS,
         transport_factory=None,
     ) -> None:
         self.db_path = db_path
@@ -138,6 +192,7 @@ class RunManager:
         self.source = source
         self.max_budget_usd = max_budget_usd
         self.max_turns = max_turns
+        self.max_agents = max_agents
         #: test seam, mirroring `complete()`'s own `transport` parameter
         self._transport_factory = transport_factory or (
             lambda budget, on_call: BudgetedTransport(budget, on_call=on_call)
@@ -163,6 +218,7 @@ class RunManager:
             "max_budget_usd": self.max_budget_usd,
             "default_budget_usd": min(0.25, self.max_budget_usd),
             "max_turns": self.max_turns,
+            "max_agents": self.max_agents,
         }
 
     def current(self) -> dict[str, Any] | None:
@@ -193,17 +249,36 @@ class RunManager:
     # --- starting -------------------------------------------------------
 
     def start(
-        self, instructions: str, *, agent_id: str, budget_usd: float,
-        max_turns: int | None = None, corpus_scope: str = "", method_label: str = "",
+        self, agents: list[AgentSpec], *, budget_usd: float,
+        max_turns: int | None = None,
     ) -> dict[str, Any]:
+        """Start one run of one or more agents. Every refusal raises
+        `RunRejected` with a reason meant to be read, not a status code."""
         if self.source is None:
             raise RunRejected(
                 "no corpus is configured on this server, so an agent would have "
-                "nothing to search. Start it with --archive/--fts, or set "
+                "nothing to search. Start it with --corpus/--allow-runs, or set "
                 "CBETA_ARCHIVE_PATH and CBETA_FTS_PATH."
             )
-        if not instructions.strip():
-            raise RunRejected("instructions are required: an agent needs a task")
+        if not agents:
+            raise RunRejected("at least one agent is required")
+        if len(agents) > self.max_agents:
+            raise RunRejected(
+                f"{len(agents)} agents exceeds this server's limit of "
+                f"{self.max_agents}. The limit is set when the server starts, "
+                "not by the browser."
+            )
+        for spec in agents:
+            if not spec.agent_id:
+                raise RunRejected("every agent needs an id")
+            if not spec.instructions:
+                raise RunRejected(f"{spec.agent_id} has no task: an agent needs one")
+        ids = [a.agent_id for a in agents]
+        if len(set(ids)) != len(ids):
+            raise RunRejected(
+                "two agents share an id. Ids are how contributions are "
+                "attributed, so distinct agents need distinct ids."
+            )
         if budget_usd <= 0:
             raise RunRejected("budget must be positive")
         if budget_usd > self.max_budget_usd:
@@ -223,16 +298,16 @@ class RunManager:
             if self._current is not None and self._current.state in ("starting", "running"):
                 raise RunRejected(
                     f"run {self._current.id} is already in progress. Only one run at "
-                    "a time: an agent run holds this graph's writer lock for its "
-                    "whole duration (DESIGN.md §5 principle 7)."
+                    "a time: a run holds this graph's writer lock for its whole "
+                    "duration (DESIGN.md §5 principle 7). Several agents inside one "
+                    "run are fine — they share the process and the lock."
                 )
-            run = Run(uuid.uuid4().hex[:12], instructions.strip(), agent_id,
-                      budget_usd, turns, model)
+            run = Run(uuid.uuid4().hex[:12], agents, budget_usd, turns, model)
             self._current = run
             self._history.append(run)
 
         thread = threading.Thread(
-            target=self._execute, args=(run, corpus_scope, method_label),
+            target=self._execute, args=(run,),
             name=f"cohort-run-{run.id}", daemon=True,
         )
         thread.start()
@@ -240,10 +315,17 @@ class RunManager:
 
     # --- the worker thread ----------------------------------------------
 
-    def _execute(self, run: Run, corpus_scope: str, method_label: str) -> None:
+    def _execute(self, run: Run) -> None:
         """Owns its own Graph and event loop. Every exception is captured onto
-        the run rather than raised: this thread has no caller to catch it, and
-        a run that died silently would be worse than one that reports why."""
+        the run rather than raised: this thread has no caller to catch it, and a
+        run that died silently would be worse than one that reports why.
+
+        One `Graph`, one lock and one shared budget for the whole swarm. Sharing
+        the budget is the point of a per-run cap — three agents with a cap each
+        would be three caps, and the number the researcher typed would bound
+        none of them. `BudgetedTransport` is thread-safe and its check and
+        accumulate happen under one lock, so concurrent workers cannot both pass
+        the check before either records its spend."""
         graph: Graph | None = None
         refusals_before = 0
         try:
@@ -251,15 +333,6 @@ class RunManager:
                 refusals_before = len(read_refusals(self.log_path))
 
             graph = Graph.open(self.db_path, self.log_path)
-
-            profile = graph.agent_profile(run.agent_id)
-            if profile is None:
-                profile = AgentProfile(
-                    id=run.agent_id, kind=AgentKind.WORKER,
-                    corpus_scope=corpus_scope or "not declared for this run",
-                    method_label=method_label or "not declared for this run",
-                )
-                graph.register_agent(profile, authored_by=run.agent_id)
 
             def on_call(call: dict) -> None:
                 with run._lock:
@@ -272,19 +345,48 @@ class RunManager:
                     }
 
             transport = self._transport_factory(run.budget_usd, on_call)
-            worker = AttestationWorker(
-                graph, source=self.source, authored_by=run.agent_id,
-                profile=profile, transport=transport,
-            )
+
+            assignments = []
+            for spec in run.specs:
+                profile = graph.agent_profile(spec.agent_id)
+                if profile is None:
+                    profile = AgentProfile(
+                        id=spec.agent_id, kind=AgentKind.WORKER,
+                        corpus_scope=spec.corpus_scope or "not declared for this run",
+                        method_label=spec.method_label or "not declared for this run",
+                    )
+                    graph.register_agent(profile, authored_by=spec.agent_id)
+                worker = AttestationWorker(
+                    graph, source=self.source, authored_by=spec.agent_id,
+                    profile=profile, transport=transport,
+                )
+                assignments.append((worker, spec.instructions))
 
             with run._lock:
                 run.state = "running"
 
-            log = self._run_turns(run, worker)
+            results = self._run_turns(run, assignments)
 
+            # `run_swarm` returns exceptions in place, so a transport failure in
+            # one agent is reported against that agent instead of failing the run
             with run._lock:
-                run.tool_calls = log
-                run.state = "stopped" if run._cancel.is_set() else "finished"
+                for spec, result in zip(run.specs, results):
+                    if isinstance(result, BaseException):
+                        run.agent_errors[spec.agent_id] = f"{type(result).__name__}: {result}"
+                    else:
+                        run.per_agent[spec.agent_id] = list(result)
+                run.tool_calls = [
+                    {**entry, "agent_id": spec.agent_id}
+                    for spec in run.specs
+                    for entry in run.per_agent.get(spec.agent_id, [])
+                ]
+                if run._cancel.is_set():
+                    run.state = "stopped"
+                elif run.agent_errors and len(run.agent_errors) == len(run.specs):
+                    run.state = "failed"
+                    run.error = "every agent failed; see per-agent errors"
+                else:
+                    run.state = "finished"
         except BudgetExceeded as e:
             with run._lock:
                 run.stopped_early = str(e)
@@ -299,9 +401,9 @@ class RunManager:
                     graph.close()
                 except Exception:  # noqa: BLE001, S110 — closing must not mask the real error
                     pass
-            # Refusals this run produced. Read after the lock is released so
-            # the log is complete, and diffed against the count from before so
-            # a pre-existing history is not attributed to this run.
+            # Refusals this run produced. Read after the lock is released so the
+            # log is complete, and diffed against the count from before so a
+            # pre-existing history is not attributed to this run.
             try:
                 if self.log_path.is_file():
                     new = read_refusals(self.log_path)[refusals_before:]
@@ -315,28 +417,29 @@ class RunManager:
                 if self._current is run:
                     self._current = None
 
-    def _run_turns(self, run: Run, worker: AttestationWorker) -> list[dict[str, Any]]:
-        """Drive the worker's own loop once, reporting progress as it goes.
+    def _run_turns(self, run: Run, assignments) -> list:
+        """Drive `run_swarm` once, reporting progress per agent as it goes.
 
         The tempting shape — call `run_async(max_turns=1)` in a loop so each
         turn can be observed — is wrong: `run_async` builds its message list
         from scratch on entry, so every call would restart the conversation,
         discard all prior tool results, and pay the model to rediscover them.
-        Progress reporting must not change what the agent knows. So the worker
-        keeps its single continuous loop and reports outward through
-        `on_tool_call`, and cancellation is checked by the same loop between
-        turns via `should_stop`.
-        """
-        def on_tool_call(entry: dict[str, Any]) -> None:
+        Progress reporting must not change what the agent knows. So the workers
+        keep their single continuous loops and report outward through
+        `on_tool_call`, and cancellation is checked by the same loops between
+        turns via `should_stop`."""
+        def on_tool_call(worker, entry: dict[str, Any]) -> None:
             with run._lock:
-                run.tool_calls = [*run.tool_calls, entry]
+                calls = run.per_agent.setdefault(worker.authored_by, [])
+                calls.append(entry)
+                run.tool_calls = [*run.tool_calls, {**entry, "agent_id": worker.authored_by}]
 
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
             return loop.run_until_complete(
-                worker.run_async(
-                    run.instructions, max_turns=run.max_turns,
+                run_swarm(
+                    assignments, max_turns=run.max_turns,
                     on_tool_call=on_tool_call,
                     should_stop=run._cancel.is_set,
                 )

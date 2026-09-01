@@ -25,12 +25,18 @@ from cohort.graph import Graph  # noqa: E402
 from cohort.schemas import ClaimPayload  # noqa: E402
 from cohort.sources.local_reader import LocalReader  # noqa: E402
 from cohort.ui.api import create_app  # noqa: E402
-from cohort.ui.runs import RunManager, RunRejected  # noqa: E402
+from cohort.ui.runs import AgentSpec, RunManager, RunRejected  # noqa: E402
 
 from pathlib import Path  # noqa: E402
 
 AGENT = "agent:worker-1"
+
+
 FIXTURE = Path(__file__).parent.parent / "examples" / "local_corpus"
+
+
+def spec(agent_id="agent:ui-worker", instructions="go", scope="", method=""):
+    return AgentSpec(agent_id, instructions, scope, method)
 
 
 @pytest.fixture
@@ -202,7 +208,7 @@ def _await_finish(manager, timeout=10.0):
 
 def test_a_run_started_from_the_api_writes_to_the_graph(manager, graph_files):
     manager.start(
-        "propose a claim about the moon", agent_id="agent:ui-worker", budget_usd=0.10,
+        [spec(instructions="propose a claim about the moon")], budget_usd=0.10,
     )
     run = _await_finish(manager)
 
@@ -224,14 +230,14 @@ def test_the_client_cannot_raise_the_servers_budget_ceiling(manager):
     """The browser proposes a budget; the server bounds it. A client-supplied
     number nothing checks is a suggestion, not a cap."""
     with pytest.raises(RunRejected, match="exceeds this server's ceiling"):
-        manager.start("go", agent_id="agent:x", budget_usd=999.0)
+        manager.start([spec()], budget_usd=999.0)
 
 
 def test_only_one_run_at_a_time(manager):
-    manager.start("go", agent_id="agent:ui-worker", budget_usd=0.10)
+    manager.start([spec()], budget_usd=0.10)
     try:
         with pytest.raises(RunRejected, match="already in progress"):
-            manager.start("go again", agent_id="agent:ui-worker", budget_usd=0.10)
+            manager.start([spec(instructions="go again")], budget_usd=0.10)
     finally:
         _await_finish(manager)
 
@@ -242,12 +248,12 @@ def test_a_run_without_a_corpus_is_refused_with_a_reason(graph_files, monkeypatc
     db_path, log_path = graph_files
     m = RunManager(db_path, log_path, None)
     with pytest.raises(RunRejected, match="no corpus is configured"):
-        m.start("go", agent_id="a", budget_usd=0.1)
+        m.start([spec(agent_id="agent:a")], budget_usd=0.1)
 
 
 def test_empty_instructions_are_refused(manager):
-    with pytest.raises(RunRejected, match="instructions are required"):
-        manager.start("   ", agent_id="a", budget_usd=0.1)
+    with pytest.raises(RunRejected, match="has no task"):
+        manager.start([spec(instructions="   ")], budget_usd=0.1)
 
 
 def test_a_runs_refusals_are_attributed_to_that_run(graph_files, source, monkeypatch):
@@ -271,7 +277,7 @@ def test_a_runs_refusals_are_attributed_to_that_run(graph_files, source, monkeyp
         db_path, log_path, source, max_budget_usd=0.5,
         transport_factory=lambda budget, on_call: transport,
     )
-    m.start("attest something", agent_id="agent:ui-worker", budget_usd=0.1)
+    m.start([spec(instructions="attest something")], budget_usd=0.1)
     run = _await_finish(m)
 
     assert run["state"] == "finished"
@@ -347,3 +353,145 @@ class _HoldingTransport:
                          "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0.0},
         }).encode()
+
+
+# --- swarms ------------------------------------------------------------------
+
+def test_several_agents_run_in_one_run_and_calls_are_attributed(
+    graph_files, source, monkeypatch
+):
+    """Stage 5's "many agents" half. Three agents share one process, one graph,
+    one lock and one budget — and every tool call must say which agent made it,
+    because with distinct declared scopes that attribution is the whole reason
+    to run several."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
+    db_path, log_path = graph_files
+    transport = FakeRunTransport()
+    m = RunManager(
+        db_path, log_path, source, max_budget_usd=0.50,
+        transport_factory=lambda budget, on_call: transport,
+    )
+
+    m.start(
+        [
+            spec("agent:moon", "attest 明月", scope="Tang poetry", method="phrase"),
+            spec("agent:hill", "attest 空山", scope="landscape verse", method="phrase"),
+            spec("agent:third", "attest 明月 again", scope="all", method="phrase"),
+        ],
+        budget_usd=0.30,
+    )
+    run = _await_finish(m, timeout=20.0)
+
+    assert run["state"] == "finished", run
+    assert run["agent_id"] == "3 agents"
+    by_id = {a["agent_id"]: a for a in run["agents"]}
+    assert set(by_id) == {"agent:moon", "agent:hill", "agent:third"}
+    for a in by_id.values():
+        assert a["tool_calls"], f"{a['agent_id']} made no tool call"
+        assert a["error"] is None
+    # every call in the flat list is attributed
+    assert all(c.get("agent_id") for c in run["tool_calls"])
+
+    # declared scope reached the graph as a real profile, not a prompt flourish
+    g = Graph.open_read_only(db_path)
+    try:
+        assert g.agent_profile("agent:moon").corpus_scope == "Tang poetry"
+        assert g.agent_report("agent:hill").proposed > 0
+    finally:
+        g.close()
+
+
+def test_one_shared_budget_across_the_swarm_not_one_each(graph_files, source, monkeypatch):
+    """Three agents with a cap each would be three caps, and the number the
+    researcher typed would bound none of them."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
+    db_path, log_path = graph_files
+    seen = []
+
+    def factory(budget, on_call):
+        seen.append(budget)
+        return FakeRunTransport()
+
+    m = RunManager(db_path, log_path, source, max_budget_usd=0.5, transport_factory=factory)
+    m.start([spec("agent:a", "go"), spec("agent:b", "go")], budget_usd=0.2)
+    _await_finish(m, timeout=20.0)
+    assert seen == [0.2], "the swarm must share exactly one budgeted transport"
+
+
+def test_agents_must_have_distinct_ids(manager):
+    with pytest.raises(RunRejected, match="share an id"):
+        manager.start([spec("agent:same", "a"), spec("agent:same", "b")], budget_usd=0.1)
+
+
+def test_the_client_cannot_exceed_the_agent_limit(manager):
+    too_many = [spec(f"agent:{i}", "go") for i in range(9)]
+    with pytest.raises(RunRejected, match="exceeds this server's limit"):
+        manager.start(too_many, budget_usd=0.1)
+
+
+def test_one_agents_transport_failure_does_not_fail_the_run(
+    graph_files, source, monkeypatch
+):
+    """`run_swarm` returns exceptions in place, so a failure is reported against
+    the agent that had it rather than taking the others down with it."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
+    db_path, log_path = graph_files
+
+    ok = FakeRunTransport()
+
+    class Flaky:
+        """Fails for one agent, answers normally for the other. Which agent a
+        request belongs to is visible in the instructions it carries."""
+
+        def __call__(self, url, headers, body, timeout):
+            if "BREAK" in body.decode("utf-8", "replace"):
+                return 500, json.dumps({"error": {"message": "forced"}}).encode()
+            return ok(url, headers, body, timeout)
+
+    m = RunManager(
+        db_path, log_path, source, max_budget_usd=0.5,
+        transport_factory=lambda budget, on_call: Flaky(),
+    )
+    m.start(
+        [spec("agent:good", "attest 明月"), spec("agent:bad", "BREAK")],
+        budget_usd=0.2,
+    )
+    run = _await_finish(m, timeout=20.0)
+
+    by_id = {a["agent_id"]: a for a in run["agents"]}
+    assert by_id["agent:bad"]["error"], "the failing agent should carry its error"
+    assert by_id["agent:good"]["error"] is None
+    assert by_id["agent:good"]["tool_calls"]
+    assert run["state"] == "finished", "one agent failing must not fail the run"
+
+
+def test_the_api_accepts_both_the_single_and_swarm_shapes(graph_files, source, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
+    db_path, log_path = graph_files
+    m = RunManager(
+        db_path, log_path, source, max_budget_usd=0.5,
+        transport_factory=lambda budget, on_call: FakeRunTransport(),
+    )
+    client = TestClient(create_app(db_path, log_path, source=source, run_manager=m))
+
+    single = client.post(
+        "/api/run", json={"instructions": "attest 明月", "budget_usd": 0.1},
+    )
+    assert single.status_code == 200, single.text
+    assert len(single.json()["agents"]) == 1
+    _await_finish(m, timeout=20.0)
+
+    swarm = client.post("/api/run", json={
+        "budget_usd": 0.1,
+        "agents": [
+            {"agent_id": "agent:x", "instructions": "attest 明月", "corpus_scope": "a"},
+            {"agent_id": "agent:y", "instructions": "attest 空山", "corpus_scope": "b"},
+        ],
+    })
+    assert swarm.status_code == 200, swarm.text
+    assert len(swarm.json()["agents"]) == 2
+    _await_finish(m, timeout=20.0)

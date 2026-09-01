@@ -110,11 +110,11 @@ class _FakeSource:
 
 def test_verify_exact_span_passes_against_a_real_source(graph, source):
     claim_id = graph.propose_claim(ClaimPayload(text="a claim about the moon"), authored_by=AGENT)
-    passage_ids = find_attestations(
+    passages = find_attestations(
         graph, source, FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
         authored_by=AGENT,
-    )
-    verification_id = verify_exact_span(graph, source, passage_ids[0], authored_by=AGENT)
+    ).passages
+    verification_id = verify_exact_span(graph, source, passages[0], authored_by=AGENT)
     node = graph.get_node(verification_id)
     assert node.payload["result"] == VerificationResult.PASS
     assert node.payload["span_start"] is not None

@@ -7,7 +7,7 @@ multi-agent textual research (`DESIGN.md` for the design, `ROADMAP.md` for
 architecture/tech-stack/build-order — read both before changing anything).
 It is not a prototype of an idea; it runs, live, against a real model.
 
-**What's actually been proven, not just written**: 254 tests pass
+**What's actually been proven, not just written**: 260 tests pass
 (`pytest -q`); `demo.py` runs end-to-end with no corpus or API key needed;
 `scripts/smoke_openrouter.py` has completed a real OpenRouter call;
 `scripts/run_swarm_demo.py` has completed two *concurrent* real agents
@@ -675,6 +675,68 @@ into a different picture at every width.
 fill dropped the small type/status labels to 2.66:1 (dark) and 4.17:1 (light);
 one step up the grey ramp restores 5.23 / 5.88 without letting them compete
 with the title.
+
+
+**Update: the stage-4 tools are registered, and the UI can run a swarm.** The
+two remaining gap-analysis items, plus one defect the live run exposed.
+
+**1. `link_parallels` and `collate_editions` are now agent tools.** They had
+been withheld because a wrong `parallel_of` edge *suppresses* independent
+support and edges have no retraction. What settles it: **neither tool takes a
+judgement as input.** Both accept only a `witness_id`; the content comes from
+the corpus's own `<cb:docNumber>` and `<app>` markup, and `link_parallels`
+already refuses `cf.`/`Part of` references, ambiguous Taisho resolutions and
+witnesses absent from the graph. The model chooses *what to read*, not *what is
+true* — the same discretion `find_attestations` always had. `PROMPT_VERSION` →
+`attestation_worker/v5-stage4-tools`; the system prompt now also states that a
+`parallel_of` edge *reduces* support, so recording one is describing the
+evidence correctly rather than weakening it.
+
+**2. A run is now one or several agents.** `RunManager` takes a list of
+`AgentSpec`s and drives `run_swarm()`; `POST /api/run` accepts either the
+single-agent shape or `{agents: [...]}`. The UI grows an agent card per worker
+asking for **corpus scope** and **method** — real research commitments, not
+personas (ROADMAP.md, "viewpoint formation without persona theater"). Bounded
+at 4 agents: past a handful the count starts being the claim rather than the
+mechanism, which DESIGN.md §9 lists as an anti-goal.
+
+Four properties, all tested: several agents share **one** graph, **one** lock
+and **one** budget (three caps would mean the number the researcher typed bound
+none of them); every tool call is attributed to the agent that made it; one
+agent's transport failure is reported against that agent instead of failing the
+run; and ids must be distinct, because ids are how contributions are attributed.
+`run_swarm()` gained optional `on_tool_call(worker, entry)`/`should_stop` —
+passing progress *outward* to one observer is not agent-to-agent messaging, and
+no worker can see another's callback, results or transcript (§5 principle 3).
+
+**Live-verified**: two agents with distinct declared scopes, $0.00336, 62.8s,
+16 model calls, genuinely interleaved (`heart-sutra=6 apparatus=2` mid-run), and
+`link_parallels` and `collate_editions` both reached by a real model for the
+first time.
+
+**3. The defect that run exposed.** Eight of those sixteen calls were refused,
+and none of the refusals was avoidable: `find_attestations` returned only
+*passage* ids while the stage-4 tools take a *witness* id, so the agents guessed
+— `B01n0001`, `B01n0001_002`, the passage id — and were correctly refused each
+time until one stumbled onto `witness:B01n0001`. That is a gap in the tool, not
+a model mistake, and the same shape as the missing `propose_claim`.
+
+`find_attestations` now returns a `FindAttestationsReport` with `passages` **and**
+`witnesses` (deduplicated — several hits routinely land in one witness), and its
+description tells the agent to pass those ids on and never construct one.
+Verified deterministically against the real archive rather than by paying for
+another run: 3 passages → 2 witnesses, and both stage-4 tools accept
+`report.witnesses[0]` verbatim with zero refusals (232 apparatus entries
+collated, joint sigla not split).
+
+**One honest note on that verification.** The confirming *live* run failed
+before reaching `link_parallels`: OpenRouter returned a malformed response
+(`OpenRouterError: Invalid OpenRouter response`). The failure paths behaved
+correctly — the error was isolated to that agent and surfaced with its reason,
+the run was marked `failed` rather than silently finished, and the unpriced
+response was **charged** $0.01 as an estimate rather than treated as free, which
+is exactly what `budget.py` documents. But it means the end-to-end no-guessing
+path is proven deterministically, not live.
 
 
 **Update: the researcher UI (stage 5) is built and serving — read-only.**

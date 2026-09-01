@@ -32,6 +32,12 @@ from ..sources.base import Source
 from ..tools.find_attestations import DESCRIPTION as FIND_ATTESTATIONS_DESCRIPTION
 from ..tools.find_attestations import NAME as FIND_ATTESTATIONS_NAME
 from ..tools.find_attestations import FindAttestationsInput, find_attestations
+from ..tools.collate_editions import DESCRIPTION as COLLATE_EDITIONS_DESCRIPTION
+from ..tools.collate_editions import NAME as COLLATE_EDITIONS_NAME
+from ..tools.collate_editions import CollateEditionsInput, collate_editions
+from ..tools.link_parallels import DESCRIPTION as LINK_PARALLELS_DESCRIPTION
+from ..tools.link_parallels import NAME as LINK_PARALLELS_NAME
+from ..tools.link_parallels import LinkParallelsInput, link_parallels
 from ..tools.record_contradiction import DESCRIPTION as RECORD_CONTRADICTION_DESCRIPTION
 from ..tools.record_contradiction import NAME as RECORD_CONTRADICTION_NAME
 from ..tools.record_contradiction import RecordContradictionInput, record_contradiction
@@ -45,7 +51,7 @@ from .openrouter import complete, default_transport, load_openrouter_config
 
 #: bump whenever SYSTEM_PROMPT or TOOLS changes shape, so logged model_call
 #: events can be grouped by which prompt/tool contract actually produced them.
-PROMPT_VERSION = "attestation_worker/v4-contradiction"
+PROMPT_VERSION = "attestation_worker/v5-stage4-tools"
 
 SYSTEM_PROMPT = (
     "You are an attestation worker in COHORT, an evidence graph for textual "
@@ -149,6 +155,33 @@ TOOLS = [
             "name": RECORD_CONTRADICTION_NAME,
             "description": RECORD_CONTRADICTION_DESCRIPTION,
             "parameters": RecordContradictionInput.model_json_schema(),
+        },
+    },
+    # The stage-4 pair. Registered late and deliberately: both write structure
+    # with real epistemic consequences, so the question was whether a model
+    # should be able to mint a `parallel_of` edge at all — a wrong one
+    # *suppresses* independent support, and edges have no retraction.
+    #
+    # What settles it is that neither tool takes a judgement as input. Both
+    # accept only a `witness_id`; the content comes from the corpus's own
+    # `<cb:docNumber>` and `<app>` markup, and `link_parallels` already refuses
+    # `cf.`/`Part of` references, ambiguous Taisho resolutions, and witnesses
+    # absent from the graph. The model chooses *what to read*, not *what is
+    # true*, which is the same discretion `find_attestations` already has.
+    {
+        "type": "function",
+        "function": {
+            "name": LINK_PARALLELS_NAME,
+            "description": LINK_PARALLELS_DESCRIPTION,
+            "parameters": LinkParallelsInput.model_json_schema(),
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": COLLATE_EDITIONS_NAME,
+            "description": COLLATE_EDITIONS_DESCRIPTION,
+            "parameters": CollateEditionsInput.model_json_schema(),
         },
     },
 ]
@@ -300,10 +333,22 @@ class AttestationWorker:
                 return False, find_attestations(
                     self.graph, self.source, parsed, authored_by=self.authored_by,
                     model_call_id=model_call_id,
-                )
+                ).model_dump(mode="json")
             if name == PROPOSE_CONJECTURE_NAME:
                 parsed = ProposeConjectureInput.model_validate(args)
                 return False, propose_conjecture(
+                    self.graph, self.source, parsed, authored_by=self.authored_by,
+                    model_call_id=model_call_id,
+                )
+            if name == LINK_PARALLELS_NAME:
+                parsed = LinkParallelsInput.model_validate(args)
+                return False, link_parallels(
+                    self.graph, self.source, parsed, authored_by=self.authored_by,
+                    model_call_id=model_call_id,
+                ).model_dump(mode="json")
+            if name == COLLATE_EDITIONS_NAME:
+                parsed = CollateEditionsInput.model_validate(args)
+                return False, collate_editions(
                     self.graph, self.source, parsed, authored_by=self.authored_by,
                     model_call_id=model_call_id,
                 )

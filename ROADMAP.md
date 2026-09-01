@@ -396,8 +396,8 @@ sent instructions.
 | 1 | Graph store, event log, vocabulary, ladder, rebuild | **Done** — `cohort/{schemas,errors,eventlog,graph}.py`, 47 tests, `demo.py` |
 | 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done, live-verified, now corpus-wide** — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`. The CBETA archive is obtained and hash-verified, and `cohort/sources/cbeta_fts.py` indexes all 20,190 entries (15.28M citable spans, ~1.1 GB, built by `scripts/build_cbeta_index.py`), so `CbetaReader.search()` covers the real corpus rather than a hand-listed fixture. Searchable spans are exactly the citable ones, so every hit is fetchable by construction. Results are corpus-ordered, deliberately unranked — see `HANDOFF.md` |
 | 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done, live-verified.** `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) |
-| 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Unblocked; `parallel_of` and collation halves done, live-verified.** `cohort/sources/cbeta_markup.py` parses `<cb:docNumber>` cross-references and `<app>` apparatus; `cohort/tools/link_parallels.py` writes `parallel_of` edges (asserted references only, and only to witnesses already in the graph); `cohort/tools/collate_editions.py` records `CROSS_EDITION_COLLATION` verifications. `scripts/run_stage4_demo.py` shows `independent_support` flipping on three real Heart Sutra translations, derived from the corpus rather than hand-added. Still open: `descends_from` extraction (the markup asserts parallelism, not descent) and contradiction surfacing — see `HANDOFF.md` |
-| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified**. Researcher UI **built, read-only** — `cohort/ui/api.py` (FastAPI over `graph.py`'s reader surface) + `cohort/ui/frontend/` (React/Vite), both behind the optional `ui` extra; served by `scripts/serve_ui.py` against a graph seeded from the real archive. Serves while an agent run holds the write lock, via the new `Graph.open_read_only()`. Renders §10's requirements (status as a visual channel, discounting edges distinct from supporting ones, contradiction as visible as agreement, provenance on click). **Accept/reject deliberately not built**: those are writes, and a writing UI would hold the exclusive lock for as long as a tab is open — an open decision, see `HANDOFF.md` |
+| 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Unblocked; `parallel_of` and collation halves done, live-verified.** `cohort/sources/cbeta_markup.py` parses `<cb:docNumber>` cross-references and `<app>` apparatus; `cohort/tools/link_parallels.py` writes `parallel_of` edges (asserted references only, and only to witnesses already in the graph); `cohort/tools/collate_editions.py` records `CROSS_EDITION_COLLATION` verifications. `scripts/run_stage4_demo.py` shows `independent_support` flipping on three real Heart Sutra translations, derived from the corpus rather than hand-added. Contradiction surfacing now has a producer: `cohort/tools/record_contradiction.py` writes `contradicts` edges with a mandatory stated reason (edges gained a `reason` column, migration 3), and it is registered in `AttestationWorker`. Still open: `descends_from` extraction — the markup asserts parallelism, not descent, so there is no corpus channel for it — and *automatic* contradiction detection across witnesses, which needs locus alignment COHORT does not have and does not claim. `link_parallels`/`collate_editions` are **now registered as agent tools** and have been called by a real model — neither takes a judgement as input (only a `witness_id`; the corpus supplies the content), which is what settled the question. See `HANDOFF.md` |
+| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified**. Researcher UI **built, read-only** — `cohort/ui/api.py` (FastAPI over `graph.py`'s reader surface) + `cohort/ui/frontend/` (React/Vite), both behind the optional `ui` extra; served by `scripts/serve_ui.py` against a graph seeded from the real archive. Serves while an agent run holds the write lock, via the new `Graph.open_read_only()`. Renders §10's requirements (status as a visual channel, discounting edges distinct from supporting ones, contradiction as visible as agreement, provenance on click). **Accept/reject is now built** (`--allow-writes`), which retires this row's earlier claim that a writing UI would have to hold the exclusive lock "for as long as a tab is open" — that was wrong. Each write takes the lock for one request and releases it; a run holding the lock yields a 409 with a stated reason, so single-writer discipline is unchanged rather than relaxed. The UI also reaches parity with the Python API on two further fronts: corpus browse/search (`--corpus`) and an agent-run launcher (`--allow-runs`) with a per-run spend cap the browser cannot raise. Live-verified end to end over HTTP. The "many agents" half is **now reachable from the UI**: a run is one or several agents, each with its own declared corpus scope and method, sharing one graph, one lock and one budget cap; live-verified with two concurrent agents. See `HANDOFF.md` |
 | 6 | ATELIER integration: source interface becomes an adapter; cumulative-coverage policy | Not started |
 
 Design doc's own cut order still applies if time runs short: **cut stage 5
@@ -429,8 +429,22 @@ the current concrete state and next steps.
 
 ## Verification
 
-When stage 1 is implemented: `pytest -q` green, `demo.py` runs and prints
-the `independent_support()` flip, and a manual rebuild check (delete the
-sqlite file, re-run from the event log, diff against a saved snapshot) — the
-same shape as the `test_rebuild_matches_live_after_full_workflow` test, just
-run by hand once.
+Stage 1's original check — `pytest -q` green, `demo.py` printing the
+`independent_support()` flip, and a manual rebuild diff — is done and has
+stayed green through every stage since (254 tests). `demo.py` still runs with
+no corpus and no API key.
+
+What the live scripts have additionally proven, each run by hand and never
+automated: a real OpenRouter call (`smoke_openrouter.py`); two *concurrent*
+real agents writing to one graph (`run_swarm_demo.py`); attestation against
+the real hash-verified CBETA archive (`run_cbeta_demo.py`); the stage-4
+`parallel_of` flip on three real Heart Sutra translations
+(`run_stage4_demo.py`); a conjecture through the falsifiability gate with a
+real prior-art search (`run_conjecture_demo.py`, $0.004); and an agent run
+started from the browser (`$0.00236`, 4 calls) that used `propose_claim` and
+`find_attestations` with **zero** invented-node-id refusals — the five such
+refusals in the earlier conjecture run were the gap `propose_claim` closed.
+
+Rebuild fidelity and payload integrity are re-checked after each live run, not
+assumed: the last one replayed 81 events to 37 nodes / 43 edges matching the
+live projection, with 0 mismatched payload hashes.

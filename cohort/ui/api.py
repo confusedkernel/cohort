@@ -48,7 +48,7 @@ from ..graph import Graph
 from ..schemas import RESEARCHER, EdgeType, NodeType
 from ..sources.base import Source
 from ..sources.cbeta_markup import strip_markup_for_display
-from .runs import RunManager, RunRejected
+from .runs import AgentSpec, RunManager, RunRejected
 
 #: edge types that *discount* support rather than add it (DESIGN.md §4): two
 #: witnesses linked by either are evidence of shared descent, not independent
@@ -460,21 +460,50 @@ def create_app(
 
         @app.post("/api/run")
         def run_start(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-            """Start one agent run.
+            """Start one run of one or more agents.
+
+            Accepts either `{instructions, agent_id, ...}` for a single agent or
+            `{agents: [{...}, ...]}` for a swarm. Several agents share one
+            process, one graph, one lock and one spend cap — see
+            `cohort/ui/runs.py`.
 
             Every refusal here is a 409 with a reason meant to be read, not a
             400: "a run is already in progress", "that budget exceeds the
             server's ceiling", "no corpus is configured" are all states the
             researcher can act on, and flattening them to a validation error
             would throw away the only useful part."""
+            raw = body.get("agents")
+            if raw is None:
+                # single-agent shape, kept working: one agent is the common case
+                # and callers (including the earlier UI) should not have to wrap
+                # it in a list to say so
+                raw = [{
+                    "agent_id": body.get("agent_id") or "agent:ui-worker",
+                    "instructions": body.get("instructions") or "",
+                    "corpus_scope": body.get("corpus_scope") or "",
+                    "method_label": body.get("method_label") or "",
+                }]
+            if not isinstance(raw, list):
+                raise HTTPException(status_code=422, detail="`agents` must be a list")
+            try:
+                specs = [
+                    AgentSpec(
+                        str(a.get("agent_id") or ""),
+                        str(a.get("instructions") or ""),
+                        str(a.get("corpus_scope") or ""),
+                        str(a.get("method_label") or ""),
+                    )
+                    for a in raw
+                ]
+            except AttributeError as e:
+                raise HTTPException(
+                    status_code=422, detail="each agent must be an object"
+                ) from e
             try:
                 return run_manager.start(
-                    str(body.get("instructions") or ""),
-                    agent_id=str(body.get("agent_id") or "agent:ui-worker"),
+                    specs,
                     budget_usd=float(body.get("budget_usd") or 0.0),
                     max_turns=int(body["max_turns"]) if body.get("max_turns") else None,
-                    corpus_scope=str(body.get("corpus_scope") or ""),
-                    method_label=str(body.get("method_label") or ""),
                 )
             except RunRejected as e:
                 raise HTTPException(status_code=409, detail=str(e)) from e

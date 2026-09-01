@@ -24,12 +24,36 @@ from .attestation_worker import AttestationWorker
 
 async def run_swarm(
     assignments: list[tuple[AttestationWorker, str]], *, max_turns: int = 6,
+    on_tool_call=None, should_stop=None,
 ) -> list[list[dict[str, Any]] | BaseException]:
     """Runs every (worker, instructions) pair concurrently. Returns results
     in the same order as `assignments`; a worker that raised gets its
     exception object in that slot instead of a log, rather than aborting
-    every other in-flight worker."""
+    every other in-flight worker.
+
+    `on_tool_call(worker, entry)` fires as each worker makes a tool call, and
+    `should_stop()` is consulted between turns by every worker. Both are
+    optional, so a script's behaviour is unchanged. They exist for a caller
+    watching a swarm in progress (the web UI): without the worker identity in
+    the callback, a live view could show *that* six tool calls happened but not
+    *which agent* made them — and with distinct declared scopes per agent, that
+    attribution is the whole point of running several.
+
+    Deliberately still no channel between workers. Passing progress *outward*
+    to one observer is not agent-to-agent messaging (DESIGN.md §5 principle 3):
+    no worker can see another's callback, results, or transcript."""
+    def _hook(worker: AttestationWorker):
+        if on_tool_call is None:
+            return None
+        return lambda entry: on_tool_call(worker, entry)
+
     return await asyncio.gather(
-        *(worker.run_async(instructions, max_turns=max_turns) for worker, instructions in assignments),
+        *(
+            worker.run_async(
+                instructions, max_turns=max_turns,
+                on_tool_call=_hook(worker), should_stop=should_stop,
+            )
+            for worker, instructions in assignments
+        ),
         return_exceptions=True,
     )

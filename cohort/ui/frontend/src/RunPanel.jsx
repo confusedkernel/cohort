@@ -18,15 +18,21 @@ import { getRunConfig, getRuns, startRun, stopRun } from './api'
 //   * Refusals are shown as results, not as errors. A run whose agent was
 //     refused five times did not fail; that is the write boundary working, and
 //     it is the most interesting thing on the screen (DESIGN.md §15).
+//
+// A run is one *or several* agents. What several buy is declared viewpoint
+// diversity, so each row asks for a corpus scope and a method — real research
+// commitments that change what an agent looks at — rather than a personality.
+// The agents cannot see each other: there is no channel and no shared
+// transcript (DESIGN.md §5 principle 3), and the panel says so rather than
+// letting a viewer assume they collaborate.
 
 const ACTIVE = new Set(['starting', 'running'])
 
 export default function RunPanel({ instructionSeed, onGraphChanged }) {
   const [config, setConfig] = useState(null)
   const [runs, setRuns] = useState(null)
-  const [instructions, setInstructions] = useState('')
+  const [agents, setAgents] = useState([blankAgent(0)])
   const [budget, setBudget] = useState('')
-  const [agentId, setAgentId] = useState('agent:ui-worker')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const settledRef = useRef(null)
@@ -38,11 +44,17 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
   }, [])
 
   useEffect(() => {
-    if (instructionSeed) {
-      setInstructions((prev) =>
-        prev ? prev : `Find attestations for the phrase ${instructionSeed} and propose one claim about its distribution.`,
-      )
-    }
+    if (!instructionSeed) return
+    setAgents((prev) => {
+      if (prev[0].instructions) return prev
+      const next = [...prev]
+      next[0] = {
+        ...next[0],
+        instructions:
+          `Find attestations for the phrase ${instructionSeed} and propose one claim about its distribution.`,
+      }
+      return next
+    })
   }, [instructionSeed])
 
   const poll = useCallback(async () => {
@@ -80,15 +92,22 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
   const last = runs?.history?.[0]
   const shown = current || last
 
+  const update = (i, patch) =>
+    setAgents((prev) => prev.map((a, j) => (j === i ? { ...a, ...patch } : a)))
+
   const submit = async (e) => {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
       await startRun({
-        instructions,
         budget_usd: Number(budget),
-        agent_id: agentId,
+        agents: agents.map((a) => ({
+          agent_id: a.agent_id,
+          instructions: a.instructions,
+          corpus_scope: a.corpus_scope,
+          method_label: a.method_label,
+        })),
       })
       settledRef.current = null
       await poll()
@@ -117,15 +136,72 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
       )}
 
       <form className="run-form" onSubmit={submit}>
-        <label className="field">
-          <span>Task</span>
-          <textarea
-            rows={3}
-            placeholder="e.g. Find attestations for 色即是空 across the corpus and propose one claim about how it is distributed."
-            value={instructions}
-            onChange={(e) => setInstructions(e.target.value)}
-          />
-        </label>
+        {agents.map((a, i) => (
+          <div className="agent-card" key={a.key}>
+            <div className="agent-head">
+              <span className="agent-n">Agent {i + 1}</span>
+              <input
+                className="agent-id"
+                value={a.agent_id}
+                onChange={(e) => update(i, { agent_id: e.target.value })}
+                aria-label={`Agent ${i + 1} id`}
+              />
+              {agents.length > 1 && (
+                <button
+                  type="button" className="btn tiny"
+                  onClick={() => setAgents(agents.filter((_, j) => j !== i))}
+                >remove</button>
+              )}
+            </div>
+            <label className="field">
+              <span>Task</span>
+              <textarea
+                rows={3}
+                placeholder="e.g. Find attestations for 色即是空 and propose one claim about how it is distributed."
+                value={a.instructions}
+                onChange={(e) => update(i, { instructions: e.target.value })}
+              />
+            </label>
+            <div className="field-row">
+              <label className="field">
+                <span>Corpus scope</span>
+                <input
+                  placeholder="e.g. Prajñāpāramitā translations only"
+                  value={a.corpus_scope}
+                  onChange={(e) => update(i, { corpus_scope: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>Method</span>
+                <input
+                  placeholder="e.g. phrase distribution"
+                  value={a.method_label}
+                  onChange={(e) => update(i, { method_label: e.target.value })}
+                />
+              </label>
+            </div>
+            <p className="hint small">
+              Scope and method are recorded on the agent&apos;s profile and
+              prepended to its instructions. Give two agents different ones and
+              their disagreement means something.
+            </p>
+          </div>
+        ))}
+
+        <div className="agent-add">
+          <button
+            type="button" className="btn"
+            disabled={agents.length >= (config.max_agents || 1)}
+            onClick={() => setAgents([...agents, blankAgent(agents.length)])}
+          >
+            + Add agent
+          </button>
+          <span className="hint small">
+            {agents.length} of {config.max_agents} · they run concurrently
+            against one graph and share the budget below. They cannot see each
+            other&apos;s work.
+          </span>
+        </div>
 
         <div className="field-row">
           <label className="field">
@@ -136,22 +212,17 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
               onChange={(e) => setBudget(e.target.value)}
             />
             <small>
-              hard cap; server ceiling ${config.max_budget_usd.toFixed(2)}
+              hard cap for the whole run; server ceiling ${config.max_budget_usd.toFixed(2)}
             </small>
-          </label>
-          <label className="field">
-            <span>Agent id</span>
-            <input value={agentId} onChange={(e) => setAgentId(e.target.value)} />
-            <small>its declared scope shapes what it looks at</small>
           </label>
         </div>
 
         <div className="run-actions">
           <button
             className="btn accept" type="submit"
-            disabled={busy || active || blocked || !instructions.trim()}
+            disabled={busy || active || blocked || agents.some((a) => !a.instructions.trim())}
           >
-            {active ? 'Run in progress…' : 'Start run'}
+            {active ? 'Run in progress…' : `Start run (${agents.length} agent${agents.length === 1 ? '' : 's'})`}
           </button>
           {active && (
             <button className="btn reject" type="button" onClick={() => stopRun().then(poll)}>
@@ -160,9 +231,9 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
           )}
         </div>
         <p className="hint small">
-          Model {config.model || '—'} · at most {config.max_turns} turns · the run
-          holds this graph&apos;s writer lock, so accept/reject will conflict until
-          it finishes.
+          Model {config.model || '—'} · at most {config.max_turns} turns each · the
+          run holds this graph&apos;s writer lock, so accept/reject will conflict
+          until it finishes.
         </p>
       </form>
 
@@ -171,6 +242,16 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
       {shown && <RunReport run={shown} active={active} />}
     </section>
   )
+}
+
+function blankAgent(i) {
+  return {
+    key: `a${i}-${Math.random().toString(36).slice(2, 7)}`,
+    agent_id: `agent:ui-${i + 1}`,
+    instructions: '',
+    corpus_scope: '',
+    method_label: '',
+  }
 }
 
 function RunReport({ run, active }) {
@@ -205,11 +286,18 @@ function RunReport({ run, active }) {
       {run.stopped_early && <p className="warn small">{run.stopped_early}</p>}
       {run.error && <p className="error">{run.error}</p>}
 
-      {run.tool_calls.length > 0 && (
-        <>
-          <h3>Tool calls ({run.tool_calls.length})</h3>
+      {(run.agents || []).map((a) => (
+        <div className="agent-report" key={a.agent_id}>
+          <h3>
+            {a.agent_id}
+            {a.corpus_scope && <em> · {a.corpus_scope}</em>}
+          </h3>
+          {a.error && <p className="error">{a.error}</p>}
+          {a.tool_calls.length === 0 && !a.error && (
+            <p className="hint small">No tool calls yet.</p>
+          )}
           <ul className="tool-calls">
-            {run.tool_calls.map((c, i) => (
+            {a.tool_calls.map((c, i) => (
               <li key={i} className={c.is_error ? 'refused' : ''}>
                 <div className="tc-head">
                   <code>{c.tool}</code>
@@ -221,8 +309,8 @@ function RunReport({ run, active }) {
               </li>
             ))}
           </ul>
-        </>
-      )}
+        </div>
+      ))}
 
       {run.refusals.length > 0 && (
         <>

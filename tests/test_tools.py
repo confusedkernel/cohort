@@ -45,15 +45,19 @@ def test_find_attestations_locates_and_attests_a_matching_passage(graph, source)
         ClaimPayload(text="The moon appears in Tang poetry as a figure for homesickness"),
         authored_by=AGENT,
     )
-    passage_ids = find_attestations(
+    report = find_attestations(
         graph, source,
         FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
         authored_by=AGENT,
     )
-    assert len(passage_ids) == 1
-    passage = graph.get_node(passage_ids[0])
+    assert len(report.passages) == 1
+    # the witness ids come back too, because the stage-4 tools take those and an
+    # agent has no other way to obtain one
+    assert report.witnesses == [graph.edges(edge_type=EdgeType.PART_OF, src=report.passages[0])[0].dst]
+    passages = report.passages
+    passage = graph.get_node(passages[0])
     assert passage.status == NodeStatus.ATTESTED  # mechanically attested by the tool
-    assert graph.edges(edge_type=EdgeType.ATTESTS, src=passage_ids[0], dst=claim_id)
+    assert graph.edges(edge_type=EdgeType.ATTESTS, src=passages[0], dst=claim_id)
 
     # the claim is now attestable, because it has an attested-passage backer
     graph.attest(claim_id, authored_by=AGENT)
@@ -259,15 +263,15 @@ def test_searched_for_still_refuses_a_query_pointing_at_a_passage(graph, source)
         ProposeClaimInput(text="a claim", grounding_query="明月"),
         authored_by=AGENT,
     )
-    passage_ids = find_attestations(
+    passages = find_attestations(
         graph, source,
         FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
         authored_by=AGENT,
-    )
+    ).passages
     query_id = graph.edges(edge_type=EdgeType.SEARCHED_FOR, dst=claim_id)[0].src
     with pytest.raises(EdgeDomainViolation):
         graph.add_edge(
-            EdgeType.SEARCHED_FOR, query_id, passage_ids[0], authored_by=AGENT,
+            EdgeType.SEARCHED_FOR, query_id, passages[0], authored_by=AGENT,
         )
 
 
