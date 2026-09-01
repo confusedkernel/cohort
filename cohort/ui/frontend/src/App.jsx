@@ -1,21 +1,29 @@
-import { useEffect, useState } from 'react'
-import { getGraph, getHealth } from './api'
+import { useCallback, useEffect, useState } from 'react'
+import { getGraph, getHealth, getRefusals } from './api'
 import DetailPanel from './DetailPanel'
 import GraphView from './GraphView'
+import RefusalsPanel from './RefusalsPanel'
 import { EDGE_STYLE } from './graph-model'
 
 export default function App() {
   const [data, setData] = useState(null)
   const [health, setHealth] = useState(null)
+  const [refusals, setRefusals] = useState(null)
   const [error, setError] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [showAudit, setShowAudit] = useState(false)
+  const [showRefusals, setShowRefusals] = useState(false)
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     Promise.all([getGraph(), getHealth()])
       .then(([g, h]) => { setData(g); setHealth(h) })
       .catch((e) => setError(e.message))
+    // A missing log is a legitimate state, not an error, so a failure here
+    // must not blank the whole view.
+    getRefusals().then(setRefusals).catch(() => setRefusals(null))
   }, [])
+
+  useEffect(reload, [reload])
 
   if (error) {
     return (
@@ -36,7 +44,9 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <h1>COHORT</h1>
-          <span className="tag">evidence graph · read-only</span>
+          <span className="tag">
+            evidence graph · {health?.writes_enabled ? 'researcher' : 'read-only'}
+          </span>
         </div>
         <div className="counts">
           {health && Object.entries(health.nodes).map(([type, n]) => (
@@ -44,14 +54,34 @@ export default function App() {
           ))}
           <span className="count"><strong>{health?.edges}</strong> edges</span>
         </div>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={showAudit}
-            onChange={(e) => setShowAudit(e.target.checked)}
-          />
-          show audit nodes
-        </label>
+        <div className="topbar-controls">
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={showAudit}
+              onChange={(e) => setShowAudit(e.target.checked)}
+            />
+            show audit nodes
+          </label>
+          {/* Refusals are an output of this system, not a debug view
+              (DESIGN.md §15), so the count is always on screen — a zero is
+              itself a fact worth showing. */}
+          <button
+            className={`refusal-tab ${showRefusals ? 'on' : ''}`}
+            onClick={() => setShowRefusals((v) => !v)}
+            disabled={!refusals?.available}
+            title={
+              refusals?.available
+                ? 'Writes this graph refused, and which rule refused them'
+                : 'No event log beside this projection, so refusals cannot be read'
+            }
+          >
+            refused writes
+            <span className="refusal-count">
+              {refusals?.available ? refusals.total : '—'}
+            </span>
+          </button>
+        </div>
       </header>
 
       {data.truncated && (
@@ -70,8 +100,14 @@ export default function App() {
             onSelect={setSelectedId}
             showAudit={showAudit}
           />
+          {showRefusals && <RefusalsPanel refusals={refusals} />}
         </main>
-        <DetailPanel nodeId={selectedId} onSelect={setSelectedId} />
+        <DetailPanel
+          nodeId={selectedId}
+          onSelect={setSelectedId}
+          canWrite={!!health?.writes_enabled}
+          onChanged={reload}
+        />
       </div>
     </div>
   )

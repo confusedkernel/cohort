@@ -1,7 +1,15 @@
 """Serve the researcher UI against a graph projection (build order stage 5).
 
-Read-only: the server never takes the writer lock, so it is safe to run while
-an agent run is writing to the same graph (see `cohort/ui/api.py`).
+Reads never take the writer lock, so this is safe to run while an agent run
+is writing to the same graph (see `cohort/ui/api.py`).
+
+`--allow-writes` additionally mounts the researcher's accept/reject/reopen
+endpoints. Off by default, for two reasons: the read-only deployment stays the
+default, and those endpoints act as `RESEARCHER`, the one privileged identity
+in the promotion ladder. Passing the flag is the operator asserting that
+whoever can reach this port is the researcher. Each write holds the exclusive
+lock for one request only; if an agent run holds it, the endpoint answers 409
+rather than waiting.
 
 Binds 127.0.0.1 by default and deliberately: this is a shared lab machine, and
 the corpus behind the graph is licensed CC BY-NC-SA-equivalent, so the default
@@ -27,6 +35,14 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--reload", action="store_true")
+    parser.add_argument(
+        "--allow-writes", action="store_true",
+        help="mount the researcher's accept/reject/reopen endpoints (acts as RESEARCHER)",
+    )
+    parser.add_argument(
+        "--log", default=None,
+        help="event log path (default: the --db path with a .jsonl suffix)",
+    )
     args = parser.parse_args()
 
     try:
@@ -60,8 +76,17 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    print(f"serving {db_path} at http://{args.host}:{args.port} (read-only)")
-    uvicorn.run(create_app(db_path), host=args.host, port=args.port)
+    mode = "read-only + researcher writes" if args.allow_writes else "read-only"
+    print(f"serving {db_path} at http://{args.host}:{args.port} ({mode})")
+    if args.allow_writes:
+        print(
+            "  writes enabled: accept/reject/reopen act as RESEARCHER, and take the "
+            "writer lock\n  for one request each (409 while an agent run holds it)"
+        )
+    uvicorn.run(
+        create_app(db_path, args.log, allow_writes=args.allow_writes),
+        host=args.host, port=args.port,
+    )
 
 
 if __name__ == "__main__":

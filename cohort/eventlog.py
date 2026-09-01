@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .errors import UnknownEventType
-from .schemas import EVENT_TYPES, EdgeType, Event, ModelCallSummary, NodeType
+from .schemas import EVENT_TYPES, EdgeType, Event, ModelCallSummary, NodeType, Refusal
 
 
 class EventLog:
@@ -119,3 +119,38 @@ def summarize_model_calls(path: str | Path) -> ModelCallSummary:
         total_latency_ms=total_latency,
         total_cost_usd=total_cost,
     )
+
+
+def read_refusals(path: str | Path, *, limit: int | None = None) -> list[Refusal]:
+    """Every refused write in the log, oldest first — a pure log scan, same
+    pattern as `summarize_model_calls`.
+
+    This exists because a refusal is an output of this system, not a
+    diagnostic (DESIGN.md §15). Before it, the only way to see refusals was
+    an ad-hoc list comprehension over `read_events` in `demo.py`, which meant
+    the most distinctive thing COHORT does was visible in terminal output and
+    nowhere else.
+
+    A log scan rather than a `Graph` method on purpose: a refused write, by
+    definition, changed no graph state, so there is nothing in the SQLite
+    projection to read it from. `limit` keeps the *most recent* n (the tail),
+    since that is what a reader actually wants when a log has grown long.
+    """
+    refusals = [
+        Refusal(
+            seq=ev.seq,
+            at=ev.at,
+            authored_by=ev.authored_by,
+            attempted=ev.detail.get("attempted", "unknown"),
+            rule=ev.detail.get("rule", "unknown"),
+            message=ev.detail.get("message", ""),
+            node_id=ev.node_id,
+            edge_id=ev.edge_id,
+            node_type=ev.node_type,
+            edge_type=ev.edge_type,
+            model_call_id=ev.model_call_id,
+        )
+        for ev in read_events(path)
+        if ev.event == "refused"
+    ]
+    return refusals[-limit:] if limit is not None else refusals

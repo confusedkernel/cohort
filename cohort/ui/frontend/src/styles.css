@@ -213,3 +213,151 @@ button:hover { color: var(--text); border-color: var(--text-faint); }
 .authorship time { margin-left: auto; color: var(--text-faint); font-size: 11px; }
 .reason { color: var(--rejected); }
 .error { color: var(--contradicts); }
+
+/* --- researcher decision (only rendered with --allow-writes) -------------- */
+.verdict {
+  margin: 14px 0 18px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accepted);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.verdict h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.reason-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  resize: vertical;
+}
+.reason-input:focus { outline: none; border-color: var(--text-dim); }
+.verdict-actions { display: flex; gap: 8px; margin-top: 4px; }
+.btn {
+  flex: 1;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.accept { border-color: var(--accepted); color: var(--accepted); }
+.btn.reject { border-color: var(--contradicts); color: var(--contradicts); }
+.btn.reopen { border-color: var(--text-dim); }
+
+/* A refusal in the UI is an answer, not an error toast — it keeps the rule
+   name, because the rule is the informative part. */
+.refusal {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--contradicts);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+}
+.refusal.conflict { border-left-color: var(--proposed, var(--text-dim)); }
+.refusal strong { display: block; margin-bottom: 3px; font-family: var(--mono); font-size: 12px; }
+.refusal p { margin: 0; color: var(--text-dim); }
+
+/* --- refused writes panel ------------------------------------------------ */
+.topbar-controls { display: flex; align-items: center; gap: 14px; }
+.refusal-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.refusal-tab:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
+.refusal-tab:disabled { opacity: 0.4; cursor: not-allowed; }
+.refusal-tab.on { border-color: var(--contradicts); color: var(--contradicts); }
+.refusal-count {
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.refusals {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+.refusals h2 { margin: 0 0 4px; font-size: 15px; }
+.refusal-total {
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--contradicts);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+}
+.rule-tally { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 12px; }
+.rule-chip {
+  padding: 3px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.rule-chip strong { color: var(--text); }
+.refusal-list { margin: 0; padding: 0; list-style: none; }
+.refusal-item {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.refusal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+.refusal-rule { font-family: var(--mono); font-weight: 700; color: var(--contradicts); }
+.refusal-attempted { color: var(--text); background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 3px; }
+.refusal-head .refusal-author { color: var(--text-dim); }
+.refusal-head time { margin-left: auto; color: var(--text-dim); font-size: 11px; }
+.refusal-message { margin: 5px 0 0; font-size: 13px; }
+.refusal-note { margin: 4px 0 0; font-size: 12px; color: var(--text-dim); font-style: italic; }
+.refusal-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 11px; }
+.refusal-meta code { color: var(--text-dim); word-break: break-all; }
+
+/* --- edge reasons -------------------------------------------------------- */
+.edge-line { display: flex; align-items: center; gap: 8px; }
+.edge-reason {
+  margin: 4px 0 0 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.hint.small, .small { font-size: 12px; }

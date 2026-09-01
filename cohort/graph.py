@@ -437,7 +437,7 @@ class Graph:
 
     def add_edge(
         self, edge_type: EdgeType, src: str, dst: str, *, authored_by: str,
-        model_call_id: int | None = None,
+        model_call_id: int | None = None, reason: str | None = None,
     ) -> str:
         if src == dst:
             self._refuse(
@@ -476,7 +476,10 @@ class Graph:
         ev = self.event_log_or_raise().append(
             "add_edge", authored_by=authored_by, edge_id=edge_id, edge_type=edge_type,
             model_call_id=model_call_id,
-            detail={"src": src, "dst": dst, "converge": existing is not None},
+            detail={
+                "src": src, "dst": dst, "converge": existing is not None,
+                **({"reason": reason} if reason else {}),
+            },
         )
         self._apply(ev)
         return edge_id
@@ -825,11 +828,12 @@ class Graph:
             self._add_authorship("edge", ev.edge_id, ev.authored_by, "converged", ev.at, ev.seq)
             self.conn.commit()
             return
-        self._insert_edge_row(ev.edge_id, ev.edge_type, src, dst, ev.seq)
+        reason = ev.detail.get("reason")
+        self._insert_edge_row(ev.edge_id, ev.edge_type, src, dst, ev.seq, reason)
         self._add_authorship("edge", ev.edge_id, ev.authored_by, "proposed", ev.at, ev.seq)
         if ev.edge_type in SYMMETRIC_EDGE_TYPES:
             rev_id = f"{ev.edge_id}:rev"
-            self._insert_edge_row(rev_id, ev.edge_type, dst, src, ev.seq)
+            self._insert_edge_row(rev_id, ev.edge_type, dst, src, ev.seq, reason)
             self._add_authorship("edge", rev_id, ev.authored_by, "proposed", ev.at, ev.seq)
         self.conn.commit()
 
@@ -869,7 +873,45 @@ class Graph:
                 node_type=node_type, edge_type=edge_type,
                 detail={"attempted": attempted, "rule": type(error).__name__, "message": str(error)},
             )
+            #: so a caller further out (the tool boundary, `log_refusal`) can
+            #: tell an already-recorded refusal from one that would otherwise
+            #: go unrecorded, instead of logging the same refusal twice.
+            error.logged_to_event_log = True
         raise error
+
+    def log_refusal(
+        self, attempted: str, authored_by: str, error: Exception, *,
+        node_id: str | None = None, model_call_id: int | None = None,
+    ) -> None:
+        """Record a refused *agent action* that the write boundary itself
+        never saw.
+
+        `_refuse` only fires for rules `graph.py` enforces on a write it was
+        actually asked to perform. A tool call can be refused earlier than
+        that and for equally real reasons — a node id that does not exist
+        (`NodeNotFound`, raised by lookup, not by a write), a payload pydantic
+        rejects, a tool's own precondition — and those never reached the log.
+        The live conjecture run made the cost concrete: five refused
+        `find_attestations` calls against invented node ids were reported to
+        the model and then lost, so the log recorded a clean run and
+        DESIGN.md §15's "refusals are part of its scholarly output" held only
+        for the subset of refusals that happened to be write-boundary rules.
+
+        Idempotent with `_refuse`: an error already logged there carries
+        `logged_to_event_log` and is skipped, so one refusal is one event.
+        No-op on a read-only graph, which has no log to append to."""
+        if self.event_log is None or getattr(error, "logged_to_event_log", False):
+            return
+        self.event_log.append(
+            "refused", authored_by=authored_by, node_id=node_id,
+            model_call_id=model_call_id,
+            detail={
+                "attempted": attempted,
+                "rule": type(error).__name__,
+                "message": str(error),
+            },
+        )
+        error.logged_to_event_log = True
 
     def _require_researcher(self, authored_by: str, *, action: str, node_id: str | None = None) -> None:
         if authored_by != RESEARCHER:
@@ -918,10 +960,14 @@ class Graph:
         ).fetchone()
         return row is not None
 
-    def _insert_edge_row(self, edge_id: str, edge_type: EdgeType, src: str, dst: str, seq: int) -> None:
+    def _insert_edge_row(
+        self, edge_id: str, edge_type: EdgeType, src: str, dst: str, seq: int,
+        reason: str | None = None,
+    ) -> None:
         self.conn.execute(
-            "INSERT INTO edges (id, type, src, dst, created_seq) VALUES (?, ?, ?, ?, ?)",
-            (edge_id, edge_type, src, dst, seq),
+            "INSERT INTO edges (id, type, src, dst, created_seq, reason) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (edge_id, edge_type, src, dst, seq, reason),
         )
 
     def _insert_node_row(
@@ -974,6 +1020,7 @@ class Graph:
         return Edge(
             id=row["id"], type=row["type"], src=row["src"], dst=row["dst"],
             authorship=authorship, created_seq=row["created_seq"],
+            reason=row["reason"],
         )
 
     def _count(self, table: str) -> int:

@@ -32,6 +32,9 @@ from ..sources.base import Source
 from ..tools.find_attestations import DESCRIPTION as FIND_ATTESTATIONS_DESCRIPTION
 from ..tools.find_attestations import NAME as FIND_ATTESTATIONS_NAME
 from ..tools.find_attestations import FindAttestationsInput, find_attestations
+from ..tools.record_contradiction import DESCRIPTION as RECORD_CONTRADICTION_DESCRIPTION
+from ..tools.record_contradiction import NAME as RECORD_CONTRADICTION_NAME
+from ..tools.record_contradiction import RecordContradictionInput, record_contradiction
 from ..tools.propose_claim import DESCRIPTION as PROPOSE_CLAIM_DESCRIPTION
 from ..tools.propose_claim import NAME as PROPOSE_CLAIM_NAME
 from ..tools.propose_claim import ProposeClaimInput, propose_claim
@@ -42,7 +45,7 @@ from .openrouter import complete, default_transport, load_openrouter_config
 
 #: bump whenever SYSTEM_PROMPT or TOOLS changes shape, so logged model_call
 #: events can be grouped by which prompt/tool contract actually produced them.
-PROMPT_VERSION = "attestation_worker/v3-propose-claim"
+PROMPT_VERSION = "attestation_worker/v4-contradiction"
 
 SYSTEM_PROMPT = (
     "You are an attestation worker in COHORT, an evidence graph for textual "
@@ -138,6 +141,14 @@ TOOLS = [
             "name": PROPOSE_CONJECTURE_NAME,
             "description": PROPOSE_CONJECTURE_DESCRIPTION,
             "parameters": ProposeConjectureInput.model_json_schema(),
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": RECORD_CONTRADICTION_NAME,
+            "description": RECORD_CONTRADICTION_DESCRIPTION,
+            "parameters": RecordContradictionInput.model_json_schema(),
         },
     },
 ]
@@ -245,7 +256,17 @@ class AttestationWorker:
     def _dispatch(self, name: str, args: dict, model_call_id: int | None = None) -> tuple[bool, Any]:
         """Returns (is_error, result). A CohortError (a refused write) is
         reported back to the model as a tool error, not raised — the worker
-        should see refusals and adjust, the same way the audit log does."""
+        should see refusals and adjust, the same way the audit log does.
+
+        Every refused tool call is also recorded to the event log here, not
+        just returned. `graph._refuse()` covers rules the write boundary
+        enforces on a write it was asked to make, but a tool call can be
+        refused before reaching it — most commonly a node id that does not
+        exist, which `get_node` raises from a *lookup*. The live conjecture
+        run lost five such refusals that way: the model saw them, adapted,
+        and the log recorded a clean run, which understates what the system
+        actually did. `log_refusal()` is idempotent with `_refuse()`, so a
+        write-boundary refusal is still one event, not two."""
         try:
             if name == PROPOSE_CLAIM_NAME:
                 parsed = ProposeClaimInput.model_validate(args)
@@ -265,6 +286,21 @@ class AttestationWorker:
                     self.graph, self.source, parsed, authored_by=self.authored_by,
                     model_call_id=model_call_id,
                 )
+            if name == RECORD_CONTRADICTION_NAME:
+                parsed = RecordContradictionInput.model_validate(args)
+                return False, record_contradiction(
+                    self.graph, parsed, authored_by=self.authored_by,
+                    model_call_id=model_call_id,
+                )
             return True, f"unknown tool: {name}"
         except Exception as e:  # noqa: BLE001 — deliberately broad: report to the model, don't crash the loop
+            self.graph.log_refusal(
+                name, self.authored_by, e,
+                node_id=(
+                    args.get("claim_or_conjecture_id")
+                    or args.get("witness_id")
+                    or args.get("node_a_id")
+                ),
+                model_call_id=model_call_id,
+            )
             return True, f"{type(e).__name__}: {e}"

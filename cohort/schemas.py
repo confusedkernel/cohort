@@ -294,6 +294,11 @@ class Edge(_Model):
     dst: str
     authorship: list[Authorship] = Field(default_factory=list)
     created_seq: int
+    #: why this edge was drawn. Optional because most edge types carry their
+    #: meaning in the type plus their endpoints; required in practice for
+    #: `contradicts`, which `record_contradiction` will not write without one
+    #: (see that tool for the argument).
+    reason: str | None = None
 
 
 class IndependentSupport(_Model):
@@ -371,6 +376,38 @@ class Event(_Model):
         if v not in EVENT_TYPES:
             raise ValueError(f"unknown event type: {v!r}")
         return v
+
+
+class Refusal(_Model):
+    """One refused write, read back out of the log.
+
+    Refusals are part of the scholarly output (DESIGN.md §15: "whose
+    refusals are part of its scholarly output"), not error telemetry, so
+    they get a real read model rather than being reassembled from raw
+    `detail` dicts at every call site. `rule` is the exception class name —
+    the rule the design claims, named in `errors.py` — which is what makes a
+    refusal legible as "the system declined, and here is which commitment
+    made it decline".
+
+    Deliberately a projection of the log rather than a row in SQLite: a
+    refusal never changed graph state, so storing it in the projection would
+    put something in there that `nodes`/`edges` cannot account for.
+    """
+
+    seq: int
+    at: str
+    authored_by: str
+    #: the write that was attempted: "propose", "attest", "accept", "add_edge", ...
+    attempted: str
+    #: the `errors.py` class name of the rule that refused it
+    rule: str
+    message: str
+    node_id: str | None = None
+    edge_id: str | None = None
+    node_type: NodeType | None = None
+    edge_type: EdgeType | None = None
+    #: set when a model call caused the refused write, pointing at its event seq
+    model_call_id: int | None = None
 
 
 class ModelCallSummary(_Model):

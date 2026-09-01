@@ -16,8 +16,15 @@ import pytest
 from cohort.agents.attestation_worker import AttestationWorker
 from cohort.agents.openrouter import OpenRouterError
 from cohort.agents.swarm import run_swarm
-from cohort.eventlog import summarize_model_calls
-from cohort.schemas import RESEARCHER, AgentKind, AgentProfile, ConjecturePayload, EdgeType
+from cohort.eventlog import read_refusals, summarize_model_calls
+from cohort.schemas import (
+    RESEARCHER,
+    AgentKind,
+    AgentProfile,
+    ClaimPayload,
+    ConjecturePayload,
+    EdgeType,
+)
 from cohort.sources.local_reader import LocalReader
 
 AGENT = "agent:worker-1"
@@ -344,3 +351,53 @@ def test_worker_reports_an_ungrounded_claim_back_to_the_model(graph, source):
     assert log[0]["is_error"] is True
     assert "no hits" in log[0]["result"]
     assert not graph.nodes(node_type="claim")
+
+
+def test_a_refused_tool_call_is_recorded_in_the_event_log(graph, source):
+    """The live conjecture run lost five refusals this way: `NodeNotFound`
+    comes from a *lookup*, not from `graph._refuse()`, so it was reported to
+    the model and then vanished — the log recorded a clean run. DESIGN.md §15
+    claims refusals are part of the scholarly output, which has to include
+    the most common one an agent actually hits."""
+    transport = FakeTransport([
+        _response(tool_calls=[_tool_call(
+            "find_attestations",
+            {"claim_or_conjecture_id": "claim:invented_by_the_model", "query": "明月"},
+        )], finish_reason="tool_calls"),
+        _response(content="adjusting", finish_reason="stop"),
+    ])
+    worker = _worker(graph, source=source, transport=transport)
+
+    log = worker.run("attest something")
+    assert log[0]["is_error"] is True
+
+    refusals = read_refusals(graph.event_log.path)
+    assert len(refusals) == 1
+    assert refusals[0].rule == "NodeNotFound"
+    assert refusals[0].attempted == "find_attestations"
+    assert refusals[0].node_id == "claim:invented_by_the_model"
+    assert refusals[0].authored_by == AGENT
+    # linked back to the model call that caused it, so cost and refusal join up
+    assert refusals[0].model_call_id is not None
+
+
+def test_a_write_boundary_refusal_is_logged_once_not_twice(graph, source):
+    """`graph._refuse()` already logs; `_dispatch` must not log it again."""
+    claim_id = graph.propose_claim(ClaimPayload(text="c"), authored_by=AGENT)
+    graph.reject(claim_id, authored_by=RESEARCHER, reason="thrown out")
+    before = len(read_refusals(graph.event_log.path))
+
+    # re-proposing a rejected claim is refused at the write boundary
+    transport = FakeTransport([
+        _response(tool_calls=[_tool_call("record_contradiction", {
+            "node_a_id": claim_id, "node_b_id": claim_id, "reason": "self",
+        })], finish_reason="tool_calls"),
+        _response(content="ok", finish_reason="stop"),
+    ])
+    worker = _worker(graph, source=source, transport=transport)
+    log = worker.run("try it")
+
+    assert log[0]["is_error"] is True
+    after = read_refusals(graph.event_log.path)
+    assert len(after) == before + 1, "a single refusal must produce a single event"
+    assert after[-1].rule == "EdgeSelfLoop"

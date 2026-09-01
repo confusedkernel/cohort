@@ -7,7 +7,7 @@ multi-agent textual research (`DESIGN.md` for the design, `ROADMAP.md` for
 architecture/tech-stack/build-order — read both before changing anything).
 It is not a prototype of an idea; it runs, live, against a real model.
 
-**What's actually been proven, not just written**: 219 tests pass
+**What's actually been proven, not just written**: 235 tests pass
 (`pytest -q`); `demo.py` runs end-to-end with no corpus or API key needed;
 `scripts/smoke_openrouter.py` has completed a real OpenRouter call;
 `scripts/run_swarm_demo.py` has completed two *concurrent* real agents
@@ -318,6 +318,100 @@ the claim id back out of the tool-result message the way a model has to,
 but no real API call has exercised it.
 
 
+**Update: the three gaps between the code and DESIGN.md §15's paper claim are
+closed.** The §15 claim was tested clause by clause; two clauses were not
+actually delivered and one vocabulary entry had no producer.
+
+**1. The researcher now has an interface.** `accept`/`reject`/`reopen` existed
+only as Python calls, so *researcher authority as mechanism* — the one thing
+agents may never do (DESIGN.md §8) — could only be demonstrated by typing
+Python. `POST /api/accept|reject|reopen` now exist behind
+`create_app(..., allow_writes=True)` / `serve_ui.py --allow-writes`, off by
+default.
+
+An earlier version of `cohort/ui/api.py`'s docstring argued a writing UI
+"would have to hold the exclusive lock for as long as a browser tab is open".
+**That was wrong, and it was the only thing blocking this.** Each write calls
+`Graph.open()` for one request and closes it, so the lock is held for
+milliseconds. Single-writer discipline is unchanged, not relaxed: when an
+agent run holds the lock, `flock` refuses and the endpoint answers **409**
+with "Nothing was changed", rather than queueing, retrying, or weakening the
+lock. Verified live against a real held lock, not only in tests. A refused
+write answers **422** with the rule named (`MissingRejectionReason`,
+`RungSkipped`), because a refusal is an answer from this system, not a server
+fault — the UI shows the rule name, since the rule is the informative part.
+
+Writes default to off because these endpoints act as `RESEARCHER`. Enabling
+them is the operator asserting that whoever can reach the port *is* the
+researcher, which is a claim only the operator can make.
+
+**2. Refusals are readable — and some were never being recorded at all.**
+This started as "add an endpoint" and turned up a real defect. `_refuse()`
+only fires for rules the write boundary enforces on a write it was asked to
+perform. `NodeNotFound` is raised by *lookup*, so the five refused
+`find_attestations` calls in the live conjecture run were reported to the
+model, adapted around — and **never written to the log**. `conjecture_run.jsonl`
+records a clean run. §15's "refusals are part of its scholarly output" held
+only for the subset of refusals that happened to be write-boundary rules,
+which excluded the most common one a real agent hits.
+
+Fixed with `Graph.log_refusal()`, called from `AttestationWorker._dispatch`,
+which is the choke point that already knows a tool call failed and who
+authored it. It is idempotent with `_refuse()` (via a `logged_to_event_log`
+marker on the exception), so one refusal is still one event — there is a test
+for exactly that. Both classes now land in the log with the `model_call_id`
+that caused them, so cost and refusal join up.
+
+`cohort.eventlog.read_refusals()` reads them (a pure log scan, same pattern as
+`summarize_model_calls`; a refusal changed no state, so there is no row for it
+in SQLite), `GET /api/refusals` serves them, and a panel in the UI shows them
+with a per-rule tally and a plain-language note per rule. A missing log
+reports `available: false` rather than implying zero refusals.
+
+**3. `contradicts` has a producer.** It had been in the vocabulary since
+stage 1, materialised in both directions, and drawn as heavily as `attests` by
+the UI — while **nothing in the system ever created one**, so "disagreement
+made visible" (§6) had no data behind it. `cohort/tools/record_contradiction.py`
+writes them, requires a stated reason, refuses invented node ids and refuses
+audit/query nodes (a `decision` is not evidence). It is registered in
+`AttestationWorker`, so an agent can record disagreement — the COHORT-native
+equivalent of a "challenge".
+
+**Consequence worth knowing: edges have no ladder and no retraction.** A
+node can be rejected; an edge cannot be removed. A wrong `contradicts` edge is
+permanent, visible, and only annotatable. That is a real cost of registering
+this tool for agents, and it is the reason the reason-string is mandatory
+rather than optional.
+
+**One schema change**: migration 3, `ALTER TABLE edges ADD COLUMN reason TEXT`.
+`contradicts` is the only edge type whose domain is `"any"`, so the write
+boundary can check almost nothing about it while the UI renders it as
+prominently as evidence; "disagreement made visible" has to mean the *grounds*
+are visible too. No backfill — edges written before this carried no reason and
+inventing one would be fabrication. Projections at v2 are refused by
+`open_read_only` until opened once for writing; `demo_graph.sqlite` was
+re-seeded and `conjecture_run.sqlite` migrated.
+
+`seed_demo_graph.py` now also seeds a real contradiction (a claim that the
+wording was fixed in Chinese before the recensions diverged, against the
+conjecture that they descend from a shared Sanskrit recension — incompatible
+predictions about whether an extant Sanskrit witness matches all three) and
+deliberately triggers one refusal, so the UI's contradiction rendering and
+refusals panel both have data behind them.
+
+Files: `cohort/tools/record_contradiction.py` (new),
+`cohort/ui/frontend/src/RefusalsPanel.jsx` (new), `cohort/eventlog.py`,
+`cohort/schemas.py` (`Refusal`, `Edge.reason`), `cohort/graph.py`
+(`log_refusal`, `add_edge(reason=)`), `cohort/migrations.py`,
+`cohort/ui/api.py`, `cohort/agents/attestation_worker.py`,
+`scripts/serve_ui.py`, `scripts/seed_demo_graph.py`, and the frontend's
+`api.js` / `App.jsx` / `DetailPanel.jsx` / `styles.css`.
+`PROMPT_VERSION` is now `attestation_worker/v4-contradiction`.
+
+**Not yet run against a live model**: `record_contradiction` has never been
+called by a real model, same status `propose_claim` is in.
+
+
 **Update: the researcher UI (stage 5) is built and serving — read-only.**
 
 `cohort/ui/api.py` is a FastAPI JSON API over `graph.py`'s reader surface;
@@ -496,14 +590,18 @@ claims built on it would be false from the start.
 
 - Relevance ranking over search results — deliberately absent, see the
   full-corpus index section above. Results come back in corpus order.
-- Stage 4's remaining pieces: `descends_from` extraction (nothing in the
-  markup asserts descent directly — `parallel_of` is what the corpus
-  actually states) and contradiction surfacing. The `parallel_of` and
-  cross-edition-collation halves are built and live-verified (see above).
+- `descends_from` extraction — nothing in the markup asserts descent
+  directly, so there is no corpus channel for it; `parallel_of` is what the
+  corpus actually states, and it is built and live-verified.
+- *Automatic* contradiction detection across witnesses. `record_contradiction`
+  writes the edges, but finding disagreements needs locus alignment between
+  witnesses (knowing passage A here and passage B there are the same place in
+  the text), which COHORT does not have and does not claim. Apparatus markup
+  cannot supply it either — it describes variants within one document.
+- Edge retraction. Nodes have a ladder and can be rejected; edges have
+  neither, so a wrong edge is permanent.
 - Any use of the `<note type="cf1|cf2|cf3">` cross-reference channel (436
   occurrences in the 300-file sample) — only `<cb:docNumber>` is read so far.
-- Accept/reject **from** the UI (stage 5's remaining half) — see the UI
-  section above for why it is a decision rather than an omission.
 - Reputation scoring (agent-society step 5) — deliberately deferred, not
   blocked on anything.
 - ATELIER integration (stage 6) — not started, not needed yet.

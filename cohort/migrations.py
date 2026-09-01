@@ -108,6 +108,13 @@ MIGRATIONS: list[Migration] = [
         "ALTER TABLE nodes ADD COLUMN payload_hash TEXT;",
         backfill=_backfill_payload_hashes,
     ),
+    #: Why an edge needs a reason: `contradicts` is the only edge type whose
+    #: domain is "any", so the write boundary can check almost nothing about
+    #: it, while the UI renders it as prominently as evidence. "Disagreement
+    #: made visible" (DESIGN.md §6) has to mean the *grounds* are visible
+    #: too, not just the line. No backfill: edges written before this
+    #: carried no reason, and inventing one would be fabrication.
+    Migration(3, "edge_reason", "ALTER TABLE edges ADD COLUMN reason TEXT;"),
 ]
 
 #: The `user_version` a fully-migrated projection carries. Derived from

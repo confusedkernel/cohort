@@ -6,9 +6,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from cohort.errors import UnattestableClaim, UnattestableConjecture
+from cohort.errors import NodeNotFound, UnattestableClaim, UnattestableConjecture
 from cohort.schemas import (
+    RESEARCHER,
     ClaimPayload,
     ConjecturePayload,
     Dating,
@@ -21,6 +23,10 @@ from cohort.sources.cbeta_reader import CbetaReader
 from cohort.sources.local_reader import LocalReader
 from cohort.tools.find_attestations import FindAttestationsInput, find_attestations
 from cohort.tools.propose_claim import ProposeClaimInput, propose_claim
+from cohort.tools.record_contradiction import (
+    RecordContradictionInput,
+    record_contradiction,
+)
 from cohort.tools.propose_conjecture import ProposeConjectureInput, propose_conjecture
 
 AGENT = "agent:worker-1"
@@ -263,3 +269,103 @@ def test_searched_for_still_refuses_a_query_pointing_at_a_passage(graph, source)
         graph.add_edge(
             EdgeType.SEARCHED_FOR, query_id, passage_ids[0], authored_by=AGENT,
         )
+
+
+# --- record_contradiction -----------------------------------------------------
+
+def test_record_contradiction_writes_a_symmetric_edge_with_its_reason(graph, source):
+    a = propose_claim(
+        graph, source, ProposeClaimInput(text="claim A", grounding_query="明月"),
+        authored_by=AGENT,
+    )
+    b = propose_claim(
+        graph, source, ProposeClaimInput(text="claim B", grounding_query="空山"),
+        authored_by=AGENT,
+    )
+    edge_id = record_contradiction(
+        graph,
+        RecordContradictionInput(
+            node_a_id=a, node_b_id=b,
+            reason="A dates the passage to the 5th c.; B requires a 7th c. terminus",
+        ),
+        authored_by=AGENT,
+    )
+    assert edge_id
+
+    # symmetric: materialised both ways from one event, so a reader querying
+    # either direction sees the disagreement
+    forward = graph.edges(edge_type=EdgeType.CONTRADICTS, src=a, dst=b)
+    reverse = graph.edges(edge_type=EdgeType.CONTRADICTS, src=b, dst=a)
+    assert len(forward) == 1 and len(reverse) == 1
+    # the grounds travel with the edge, in both directions
+    assert "5th c." in forward[0].reason
+    assert forward[0].reason == reverse[0].reason
+
+
+def test_record_contradiction_refuses_an_invented_node_id(graph, source):
+    a = propose_claim(
+        graph, source, ProposeClaimInput(text="claim A", grounding_query="明月"),
+        authored_by=AGENT,
+    )
+    with pytest.raises(NodeNotFound):
+        record_contradiction(
+            graph,
+            RecordContradictionInput(
+                node_a_id=a, node_b_id="claim:never_existed", reason="whatever",
+            ),
+            authored_by=AGENT,
+        )
+    assert not graph.edges(edge_type=EdgeType.CONTRADICTS)
+
+
+def test_record_contradiction_refuses_audit_nodes(graph, source):
+    """A `decision` is a record of a judgement, not evidence (DESIGN.md §5
+    principle 6); marking one contradictory confuses the two layers."""
+    claim_id = propose_claim(
+        graph, source, ProposeClaimInput(text="a claim", grounding_query="明月"),
+        authored_by=AGENT,
+    )
+    find_attestations(
+        graph, source,
+        FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
+        authored_by=AGENT,
+    )
+    graph.attest(claim_id, authored_by=AGENT)
+    decision_id = graph.accept(claim_id, authored_by=RESEARCHER)
+
+    with pytest.raises(ValueError, match="audit records or retrievals"):
+        record_contradiction(
+            graph,
+            RecordContradictionInput(
+                node_a_id=claim_id, node_b_id=decision_id, reason="nonsense",
+            ),
+            authored_by=AGENT,
+        )
+
+
+def test_record_contradiction_requires_a_reason():
+    """Enforced by pydantic at the tool's edge, before the graph is touched."""
+    with pytest.raises(ValidationError):
+        RecordContradictionInput(node_a_id="a", node_b_id="b", reason="")
+
+
+def test_edge_reason_survives_a_rebuild(graph, source):
+    """The reason is in the event log, so a projection rebuilt from the log
+    must carry it — otherwise the grounds for a disagreement would silently
+    vanish on the next rebuild."""
+    a = propose_claim(
+        graph, source, ProposeClaimInput(text="claim A", grounding_query="明月"),
+        authored_by=AGENT,
+    )
+    b = propose_claim(
+        graph, source, ProposeClaimInput(text="claim B", grounding_query="空山"),
+        authored_by=AGENT,
+    )
+    record_contradiction(
+        graph,
+        RecordContradictionInput(node_a_id=a, node_b_id=b, reason="incompatible datings"),
+        authored_by=AGENT,
+    )
+    report = graph.rebuild()
+    assert report.ok
+    assert graph.edges(edge_type=EdgeType.CONTRADICTS, src=a)[0].reason == "incompatible datings"

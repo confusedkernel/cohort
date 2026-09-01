@@ -44,7 +44,13 @@ from cohort.schemas import (
     WitnessPayload,
 )
 from cohort.sources.cbeta_reader import CbetaArchiveError, CbetaReader
+from cohort.errors import UnattestableConjecture
 from cohort.tools.collate_editions import CollateEditionsInput, collate_editions
+from cohort.tools.propose_claim import ProposeClaimInput, propose_claim
+from cohort.tools.record_contradiction import (
+    RecordContradictionInput,
+    record_contradiction,
+)
 from cohort.tools.link_parallels import LinkParallelsInput, link_parallels
 from cohort.tools.verify_exact_span import verify_exact_span
 
@@ -182,6 +188,50 @@ def main() -> None:
         authored_by=AGENT,
     )
     graph.add_edge(EdgeType.SEARCHED_FOR, query_id, conjecture_id, authored_by=AGENT)
+
+    # A recorded disagreement. `contradicts` has been in the vocabulary since
+    # stage 1 and the UI draws it as heavily as `attests`, but until
+    # `record_contradiction` existed nothing ever wrote one, so the "disagreement
+    # made visible" half of DESIGN.md §6 had no data behind it in any view.
+    # This claim genuinely conflicts with the conjecture above: if the phrase was
+    # already fixed in Chinese before the recensions split, they are not
+    # independent descendants of a Sanskrit parent.
+    rival_claim_id = propose_claim(
+        graph, source,
+        ProposeClaimInput(
+            text=(
+                "The shared wording of this passage was fixed in Chinese before the "
+                "three recensions diverged, so their agreement is inherited"
+            ),
+            grounding_query=EXCERPT,
+        ),
+        authored_by=AGENT,
+    )
+    record_contradiction(
+        graph,
+        RecordContradictionInput(
+            node_a_id=rival_claim_id, node_b_id=conjecture_id,
+            reason=(
+                "Both cannot hold: inherited Chinese wording explains the agreement "
+                "without a shared Sanskrit parent, while descent from a common "
+                "Sanskrit recension requires the agreement to predate the Chinese "
+                "translations. They make incompatible predictions about whether an "
+                "extant Sanskrit witness will match all three."
+            ),
+        ),
+        authored_by=AGENT,
+    )
+    print(f"  contradicts: {rival_claim_id} <-> {conjecture_id}")
+
+    # A refusal, on purpose: the conjecture above has no `tests` edge, so the
+    # falsifiability gate must refuse to attest it. The refused write is logged
+    # and shows up in the UI's "refused writes" panel — DESIGN.md §15 counts
+    # refusals as output, and a demo graph with none would understate what the
+    # system does.
+    try:
+        graph.attest(conjecture_id, authored_by=AGENT)
+    except UnattestableConjecture as e:
+        print(f"  refused (as designed): {type(e).__name__}")
 
     support = graph.independent_support(claim_id)
     integrity = graph.verify_integrity()

@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react'
-import { getNode } from './api'
+import { useCallback, useEffect, useState } from 'react'
+import { acceptNode, getNode, rejectNode, reopenNode } from './api'
 import { EDGE_STYLE, nodeTitle } from './graph-model'
 
-export default function DetailPanel({ nodeId, onSelect }) {
+export default function DetailPanel({ nodeId, onSelect, canWrite, onChanged }) {
   const [node, setNode] = useState(null)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    if (!nodeId) { setNode(null); return }
+  const load = useCallback(() => {
+    if (!nodeId) { setNode(null); return undefined }
     let live = true
     setError(null)
     getNode(nodeId)
@@ -15,6 +15,8 @@ export default function DetailPanel({ nodeId, onSelect }) {
       .catch((e) => live && setError(e.message))
     return () => { live = false }
   }, [nodeId])
+
+  useEffect(load, [load])
 
   if (!nodeId) {
     return (
@@ -39,6 +41,13 @@ export default function DetailPanel({ nodeId, onSelect }) {
 
       <h2>{nodeTitle(node)}</h2>
       <code className="node-id">{node.id}</code>
+
+      {canWrite && (
+        <Verdict
+          node={node}
+          onDone={() => { load(); onChanged?.() }}
+        />
+      )}
 
       {node.rejected_reason && (
         <Section title="Rejected because">
@@ -130,12 +139,99 @@ function EdgeList({ title, edges, field, onSelect }) {
     <Section title={`${title} (${edges.length})`}>
       {edges.map((e) => (
         <div className={`edge-row ${e.discounts ? 'discount' : ''}`} key={e.id}>
-          <span className="edge-type">{EDGE_STYLE[e.type]?.label || e.type}</span>
-          {e.discounts && <span className="chip">discounts</span>}
-          <button onClick={() => onSelect(e[field])}>{short(e[field])}</button>
+          <div className="edge-line">
+            <span className="edge-type">{EDGE_STYLE[e.type]?.label || e.type}</span>
+            {e.discounts && <span className="chip">discounts</span>}
+            <button onClick={() => onSelect(e[field])}>{short(e[field])}</button>
+          </div>
+          {/* A contradicts edge is drawn as heavily as evidence, so the grounds
+              for it belong next to it — an unexplained disagreement asserted
+              this prominently is worse than none. */}
+          {e.reason && <p className="edge-reason">{e.reason}</p>}
         </div>
       ))}
     </Section>
+  )
+}
+
+// The researcher's own actions. Deliberately the only writes in the UI, and
+// only mounted when the server was started with --allow-writes: DESIGN.md §8
+// makes accept/reject the one thing agents may never do, so the interface for
+// it should look like an authority being exercised, not a form being filled.
+function Verdict({ node, onDone }) {
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [refusal, setRefusal] = useState(null)
+
+  const act = async (fn, needsReason) => {
+    if (needsReason && !reason.trim()) {
+      // Mirrors MissingRejectionReason locally so the researcher gets the
+      // answer immediately; the server enforces it regardless.
+      setRefusal({ rule: 'MissingRejectionReason', message: 'a reason is required' })
+      return
+    }
+    setBusy(true)
+    setRefusal(null)
+    try {
+      await fn()
+      setReason('')
+      onDone()
+    } catch (e) {
+      setRefusal({ rule: e.rule, message: e.message, status: e.status })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const isRejected = node.status === 'rejected'
+  const canAccept = node.status === 'attested'
+
+  return (
+    <section className="verdict">
+      <h3>Researcher decision</h3>
+      {!isRejected && (
+        <p className="hint small">
+          {canAccept
+            ? 'Accepting makes this citable and usable as a premise by other agents.'
+            : `Only an attested node can be accepted — this one is ${node.status}.`}
+        </p>
+      )}
+      <textarea
+        className="reason-input"
+        placeholder={isRejected ? 'Why reopen it?' : 'Reason (required to reject)'}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        rows={2}
+      />
+      <div className="verdict-actions">
+        {isRejected ? (
+          <button
+            className="btn reopen" disabled={busy}
+            onClick={() => act(() => reopenNode(node.id, reason), true)}
+          >Reopen</button>
+        ) : (
+          <>
+            <button
+              className="btn accept" disabled={busy || !canAccept}
+              onClick={() => act(() => acceptNode(node.id), false)}
+            >Accept</button>
+            <button
+              className="btn reject" disabled={busy}
+              onClick={() => act(() => rejectNode(node.id, reason), true)}
+            >Reject</button>
+          </>
+        )}
+      </div>
+      {refusal && (
+        <div className={`refusal ${refusal.status === 409 ? 'conflict' : ''}`}>
+          {refusal.rule && <strong>{refusal.rule}</strong>}
+          <p>{refusal.message}</p>
+          {refusal.status === 409 && (
+            <p className="small">Single-writer discipline: nothing was changed.</p>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
