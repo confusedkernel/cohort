@@ -6,9 +6,22 @@ messaging, no shared transcript, no framework beyond the transport itself).
 Replaces the Anthropic SDK entirely (ROADMAP.md "Scope revision", OpenRouter
 workstream) — see `cohort/agents/openrouter.py` for the transport and why it's
 stdlib-only rather than a client library.
+
+`run_async()` is the canonical loop (ROADMAP.md "Scope revision",
+agent-society axis step 4 — real concurrency); `run()` is a thin sync
+wrapper. Safe to run several workers concurrently against one shared
+`Graph`: `to_thread` is scoped only around the one blocking HTTP call in
+`complete()`, and every `graph`/`source` call in `_dispatch()` runs
+synchronously back on the event loop's own thread — a coroutine only yields
+control at its own `to_thread` await, and no graph write is ever inside
+that window, so concurrent workers' writes can never interleave with each
+other. This also satisfies sqlite3's default same-thread restriction for
+free, since `Graph`'s connection is only ever touched from the one thread
+that created it.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any
@@ -136,6 +149,22 @@ class AttestationWorker:
         self.profile = profile
 
     def run(self, instructions: str, *, max_turns: int = 6) -> list[dict[str, Any]]:
+        """Sync convenience wrapper around `run_async()`, for single-worker
+        callers (tests, `demo.py`, `scripts/smoke_openrouter.py`) that don't
+        want to deal with asyncio themselves. Refuses to run if called from
+        inside an already-running event loop (e.g. by mistake, from inside
+        a swarm's own loop) with a clear message, rather than letting
+        `asyncio.run()`'s generic error surface from an unrelated line."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run_async(instructions, max_turns=max_turns))
+        raise RuntimeError(
+            "AttestationWorker.run() cannot be called from inside a running "
+            "event loop — use run_async() directly (e.g. from run_swarm())"
+        )
+
+    async def run_async(self, instructions: str, *, max_turns: int = 6) -> list[dict[str, Any]]:
         """Runs a tool-use loop against `instructions`. Returns the list of
         tool calls made (name, args, and either the result or the refusal),
         in order — this is the worker's own audit trail of its turn.
@@ -145,7 +174,10 @@ class AttestationWorker:
         already-rejected claims/conjectures, if any (see
         `_rejected_context`) — this is what makes persistent rejection hold
         across a live loop for content that has no identity to block on
-        mechanically."""
+        mechanically.
+
+        Safe to await concurrently alongside other workers against the same
+        `Graph` — see this module's docstring for why."""
         parts = [
             p for p in (_profile_context(self.profile), _rejected_context(self.graph)) if p
         ]
@@ -158,8 +190,8 @@ class AttestationWorker:
 
         for _ in range(max_turns):
             started = time.monotonic()
-            response = complete(
-                self.model, messages, TOOLS, api_key=self.api_key, transport=self.transport,
+            response = await asyncio.to_thread(
+                complete, self.model, messages, TOOLS, api_key=self.api_key, transport=self.transport,
             )
             latency_ms = int((time.monotonic() - started) * 1000)
             call_event = self.graph.log_model_call(
