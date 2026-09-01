@@ -512,12 +512,25 @@ Four things it has that the table does not claim, and that COHORT should want:
 1. **Boilerplate is excluded from provenance collapse.** `CbetaCorpus.is_boilerplate()`
    flags colophons and stock openings, and `checks()` unions witnesses only on
    `not d["boilerplate"]` descent links — 100 of 146 shared-passage links in
-   their run were excluded on this ground. This is the sharpest borrowable idea
-   in the repository and COHORT has no equivalent: `independent_support()` flips
-   `independent` to `False` on *any* `descends_from`/`parallel_of` edge, with no
-   notion that a shared *formulaic* passage is not evidence of descent. An agent
-   drawing `parallel_of` from a stock opening would make COHORT understate
-   independence, and nothing would catch it. **Now on the open-gaps list.**
+   their run were excluded on this ground. The shared text among the witnesses
+   they studied was dominated by the attribution colophon itself, which is
+   textbook circular confirmation caught mechanically.
+
+   *A correction to the first version of this section, which called this a live
+   gap in COHORT.* It is not, yet. `independent_support()` does flip
+   `independent` to `False` on any `descends_from`/`parallel_of` edge with no
+   notion of a formulaic passage — but `link_parallels` is COHORT's only writer
+   of `parallel_of` and it writes only CBETA's **asserted** `<cb:docNumber>`
+   cross-references, a curator's statement that two texts are parallel
+   translations rather than an inference from shared text. Nothing writes
+   `descends_from`, and neither front end can draw an edge by hand.
+
+   The difference is where descent comes from: theirs is *detected*, ours is
+   *attested by the corpus*. Their exclusion list is the price of detection.
+   So this is a **prospective** borrowing, and the useful form of it is a
+   sequencing rule: if COHORT ever adds shared-passage detection — which
+   `descends_from` extraction would need — the boilerplate exclusion belongs in
+   the same change, not the one after.
 2. **A deterministic evidence table the models may only cite from.**
    `build_evidence()` computes Burrows's Delta, eigen coverage, register ratios
    and genre baselines mechanically; a worker's claim is dropped unless it cites

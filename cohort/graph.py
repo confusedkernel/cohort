@@ -702,13 +702,40 @@ class Graph:
         return [self._row_to_node(r) for r in rows]
 
     def assurance_for(self, node_id: str) -> AssuranceLevel:
-        """The highest *passing* assurance level across a node's
-        `verifies`-linked verification nodes, or A0_UNCHECKED if none exist
-        or none passed. A computed read, never a second mutable field on the
-        subject node — see `AssuranceLevel`'s docstring."""
+        """The best assurance a node currently holds: the **latest** result
+        from each verification method, then the highest passing level among
+        those. A0_UNCHECKED if nothing has passed. A computed read, never a
+        second mutable field on the subject node — see `AssuranceLevel`'s
+        docstring.
+
+        **Latest-per-method, not the historical maximum.** This took the
+        maximum over every passing verification until 2026-09-02, which meant
+        a later failure could never lower a node's standing: a passage
+        verified at A2, whose excerpt then *moved in the source*, still read
+        `A2_EXACT_SPAN_MATCHED` — `verify_exact_span` detected the move,
+        recorded the FAIL, and the stale PASS outranked it forever. That is
+        the drift `AssuranceLevel`'s own docstring says computing this rather
+        than storing it was supposed to prevent; it just arrived through stale
+        history instead of a stale field. The same shape as the failure
+        `verify_exact_span` guards against internally — "passing review while
+        proving nothing".
+
+        Per *method* rather than simply the latest overall, because different
+        methods establish different things and a node legitimately holds
+        several at once: a later `CROSS_EDITION_COLLATION` must not erase a
+        standing `EXACT_SPAN` result. Only the same check, re-run with a
+        different answer, supersedes itself.
+
+        Nothing is deleted or rewritten by this: every verification stays in
+        the log and on the node, and `verifications()` still returns the whole
+        history. Only the *summary* stops treating a superseded pass as
+        current."""
         self._require_node(node_id)
-        best = AssuranceLevel.A0_UNCHECKED
+        latest: dict[str, Node] = {}
         for node in self.verifications(node_id):
+            latest[node.payload["method"]] = node  # verifications() is seq-ordered
+        best = AssuranceLevel.A0_UNCHECKED
+        for node in latest.values():
             if node.payload["result"] != VerificationResult.PASS:
                 continue
             level = AssuranceLevel(node.payload["assurance_level"])

@@ -40,7 +40,7 @@ from .errors import (
     RebuildMismatch,
     SingleWriterViolation,
 )
-from .eventlog import EventLog, read_refusals
+from .eventlog import EventLog, read_refusals, summarize_refusals
 from .graph import Graph
 from .schemas import RESEARCHER, NodeType
 from .views import edge_json, node_detail_json, node_json
@@ -236,7 +236,10 @@ def cmd_agent(args) -> None:
 def cmd_refusals(args) -> None:
     log = _log_path(args)
     if not log.is_file():
-        payload = {"available": False, "log_path": str(log), "refusals": [], "total": 0}
+        payload = {
+            "available": False, "log_path": str(log), "refusals": [], "total": 0,
+            "census": None,
+        }
     else:
         allr = read_refusals(log)
         shown = allr[-args.limit:]
@@ -244,17 +247,72 @@ def cmd_refusals(args) -> None:
             "available": True, "log_path": str(log), "total": len(allr),
             "truncated": len(shown) < len(allr),
             "refusals": [r.model_dump(mode="json") for r in shown],
+            # Over the whole log, never over `shown`: a census of a truncated
+            # tail would report a smaller total than the log holds while
+            # looking authoritative.
+            "census": summarize_refusals(log).model_dump(mode="json"),
         }
 
     def render(p):
         if not p["available"]:
             print(f"no event log at {p['log_path']}, so refusals cannot be read")
             return
-        for r in p["refusals"]:
-            print(f"#{r['seq']:<5} {r['attempted']:<12} {r['rule']}\n      {r['message']}")
-        # A zero here is a fact, not an absence of news.
-        print(f"\n{p['total']} refused write(s) — the write boundary holding, not failures")
+        if not args.census:
+            for r in p["refusals"]:
+                print(f"#{r['seq']:<5} {r['attempted']:<12} {r['rule']}\n      {r['message']}")
+            print()
+        _render_census(p["census"])
     _emit(args, payload, render)
+
+
+def _render_census(c: dict) -> None:
+    """The summary a researcher reads before deciding which refusals to open.
+
+    Ordered by what it asks of the reader: the count first (a zero is a fact,
+    not an absence of news), then the categories that say which bucket to look
+    in, then the streaks, which say where to look first."""
+    # A zero here is a fact, not an absence of news.
+    print(f"{c['total']} refused write(s) — the write boundary holding, not failures")
+    if not c["total"]:
+        return
+
+    labels = {
+        "evidence": "the corpus did not support it",
+        "standing": "who was writing, or the node's state, forbade it",
+        "expression": "the writer could not say what it meant",
+        "operational": "the system's own preconditions",
+        "unclassified": "rule unknown to this version's taxonomy",
+    }
+    for name, n in c["by_category"].items():
+        if n:
+            print(f"  {n:>4}  {name:<13} {labels.get(name, '')}")
+    for rule, n in c["by_rule"].items():
+        print(f"        {n:>3} x {rule}")
+
+    if not c["streaks"]:
+        return
+    print(
+        f"\n{len(c['streaks'])} streak(s), {c['streaked_count']} of "
+        f"{c['total']} refusals — one agent refused repeatedly by one rule."
+    )
+    for s in c["streaks"]:
+        ids = ", ".join(s["node_ids"][:3]) or "(no node id)"
+        more = f" +{len(s['node_ids']) - 3} more" if len(s["node_ids"]) > 3 else ""
+        print(
+            f"  {s['count']}x {s['rule']} [{s['category']}] "
+            f"by {s['authored_by']} calling {', '.join(s['attempted'])} "
+            f"(#{s['first_seq']}-{s['last_seq']})\n      tried: {ids}{more}"
+        )
+    if any(s["category"] == "expression" for s in c["streaks"]):
+        # Evidence for a reading, never a verdict: whether a tool is missing
+        # is a judgement, and the point of counting is to put it in front of
+        # someone who can make it.
+        print(
+            "\n  A streak in `expression` is worth opening: every one in this\n"
+            "  project's history was a gap in the tool layer rather than a model\n"
+            "  error — an agent adapting, retrying, and being refused again\n"
+            "  because there was no sanctioned way to say what it meant."
+        )
 
 
 def cmd_integrity(args) -> None:
@@ -564,6 +622,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = add("refusals", cmd_refusals, "writes the graph refused, and which rule refused them")
     p.add_argument("--limit", type=int, default=100)
+    p.add_argument("--census", action="store_true",
+                   help="the summary only, without the individual refusals: counts by "
+                        "rule and category, and streaks of one agent refused repeatedly "
+                        "by one rule. The census always covers the whole log, never the "
+                        "--limit tail")
 
     p = add("integrity", cmd_integrity, "re-hash stored payloads against their recorded hashes")
     p.add_argument("--id", default=None, help="check one node instead of all")

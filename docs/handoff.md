@@ -43,9 +43,16 @@ integrity are re-checked after each live run, not assumed.
 - **Two corpus readers.** `LocalReader` (manifest-driven plain text, used by
   every test) and `CbetaReader` (hash-verified archive access, TEI
   header-skipping, unique-span excerpt location). See [corpus.md](corpus.md).
-- **Six agent tools** behind `AttestationWorker`, plus `run_swarm()` for real
+- **Six worker tools** behind `AttestationWorker`, plus `run_swarm()` for real
   concurrent multi-agent execution and a spend cap enforced in code. See
   [tools.md](tools.md) and [agents.md](agents.md).
+- **A reviewer role.** `ReviewWorker` and `review_claim`: an agent may not
+  attest what it authored, nor what an agent on its own model family authored,
+  and the reviewer's judgment can withhold promotion but never supply it.
+- **The refusal census.** `summarize_refusals()` over the event log: counts by
+  rule, by category and by author, plus streaks — one agent refused repeatedly
+  by one rule, which is the shape of a tool gap rather than a model error. On
+  both front ends. See [refusals.md](refusals.md).
 - **Two front ends with the same capabilities.** The `cohort` CLI and the web
   UI cover the same set — graph, provenance, findings, refusals, integrity
   checks, accept/reject/reopen, corpus, agent runs — and `tests/test_parity.py`
@@ -82,26 +89,37 @@ than implying coverage.
   is deliberate — `VerificationMethod` refuses `MODEL_ENTAILMENT` for the same
   reason — but it means "attested" still means "cited and located", never
   "true".
-- **No verification method yields `A3_INDEPENDENCE_CHECKED`.** The level
-  exists and reads "descent/parallelism between supporting witnesses was
-  examined", which is exactly what `review_claim` does — but
-  `VerificationMethod` is a closed set with no method that produces it, so the
-  review records `A2` and puts the independence finding in `detail` instead of
-  grading it. Either the level or a method for it is missing; adding a method
-  needs a recorded argument ([vocabulary.md](vocabulary.md)).
+- **A named-but-unreachable assurance rung.** *Resolved 2026-09-02, and the
+  note that stood here was wrong twice over.* It claimed no verification
+  method yields A3; `collate_editions` does, via `CROSS_EDITION_COLLATION`.
+  The real problem was that the rung was called `A3_INDEPENDENCE_CHECKED`
+  while the only check reaching it established edition support within one
+  document — so the tool carried a standing `limitations` paragraph
+  disclaiming its own grade. Renamed to `A3_EDITION_SUPPORT_CHECKED`;
+  cross-witness independence stays a live computed read and is deliberately
+  ungraded. See [vocabulary.md](vocabulary.md).
 - **Model family is a provider prefix.** The independence floor cannot catch
   the same weights served under two provider names, and an agent that never
   registered a model is not checked at all. Stated in `cohort/families.py`,
   repeated here so it is not mistaken for a guarantee.
-- **Formulaic shared passages count as descent.** `independent_support()` flips
-  `independent` to `False` on *any* `descends_from`/`parallel_of` edge. A stock
-  opening or an attribution colophon shared between two witnesses is not
-  evidence that one descends from the other, so an edge drawn from one makes
-  COHORT *understate* independence, and nothing catches it. The third sibling
-  excludes boilerplate links from its collapse and reported 100 of 146
-  shared-passage links excluded on that ground — the shared text among the
-  witnesses it studied was dominated by the attribution colophon itself. Best
-  idea taken from reading that repository; see compare.md §10.
+- **Formulaic shared passages would count as descent — but nothing can draw
+  such an edge yet.** *Corrected 2026-09-02: this was logged as a live gap and
+  is not one.* `independent_support()` does flip `independent` to `False` on
+  *any* `descends_from`/`parallel_of` edge with no notion that a shared stock
+  opening is not evidence of descent. But `link_parallels` is the only writer
+  of `parallel_of`, and it writes only CBETA's own **asserted**
+  `<cb:docNumber>` cross-references — a curatorial statement that two texts
+  are parallel translations, not an inference from shared text. Nothing writes
+  `descends_from` at all, and neither front end can draw an edge by hand. So no
+  boilerplate passage can currently create a false descent link.
+
+  It becomes a real gap the moment COHORT gains shared-passage detection, which
+  is what `descends_from` extraction (above) would need. The third sibling has
+  the problem precisely because its descent links *are* mechanically detected
+  overlaps: it reported 100 of 146 links excluded as colophon or stock opening,
+  the shared text among its witnesses being dominated by the attribution
+  colophon itself. **Build the exclusion in the same change as the detector,
+  not after** — see compare.md §10.
 - **No deterministic measurement layer.** Tools return spans; agents compute
   everything themselves and can therefore miscount. Both sibling projects now
   measure first and let models only interpret and cite the measurements —
@@ -151,6 +169,10 @@ rather than reusing a copy from elsewhere.
    guess.
 3. **`record_contradiction` has never been called by a live model.** Every
    other registered tool has. One cheap run would close that gap.
+3b. **No run has been censused live.** The census tooling is built and tested
+   ([refusals.md](refusals.md)), and reproduces the historical tool-gap streaks
+   from the demo log. What it has never seen is a *fresh* multi-agent run with
+   a reviewer in it — which is the paper's evidence and needs API calls.
 4. **A measured scaling study.** Scaling still rests on one two-agent run;
    `epistemic-swarm` publishes a four-point table. Needs live API calls.
 5. **A self-hosting position.** OpenRouter is still the only model path — see

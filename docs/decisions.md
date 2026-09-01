@@ -65,6 +65,55 @@ project's own thesis. Retraction is now built (migration 4) on the same terms as
 rejecting a node — researcher only, a reason required, persists against
 redrawing, nothing deleted.
 
+### An assurance rung promised what nothing could check
+**2026-09-02.** `A3_INDEPENDENCE_CHECKED` was named for the concept this
+project cares most about, and the only check that reached it —
+`collate_editions`, via `CROSS_EDITION_COLLATION` — established something
+adjacent and weaker: which edition families support *one witness's own* text.
+Apparatus describes variants within a single document and cannot speak to the
+relation between two witnesses.
+
+The tell was in the tool. Its docstring and a `limitations` paragraph on every
+record it wrote existed partly to talk a reader *out* of the label it was
+obliged to apply. **A tool whose job includes disclaiming its own rung is a
+misnamed rung, not a careful tool.** Renamed `A3_EDITION_SUPPORT_CHECKED`; the
+pre-rename string still reads, because the event log is ground truth and is
+never rewritten.
+
+`roadmap.md` had recorded the same conflation as an achievement —
+"`CROSS_EDITION_COLLATION` is `independent_support()` finally wired into a
+formal, queryable record" — and that row is now corrected in place.
+
+**Cross-witness independence is deliberately not on the ladder at all.** It is
+a pure function of current graph state: `independent_support()` computes it on
+every read and both front ends print it beside the support count. Grading it
+would store a derivable fact (principle 1), and it would be the one rung that
+could go stale with nobody having touched the node — one `parallel_of` edge
+added elsewhere falsifies a recorded "independence checked" without re-running
+anything. There is also no state to grade: COHORT examines independence on
+every read, so "examined" is true of every node with attestations.
+
+### Assurance was a high-water mark, not a current standing
+**2026-09-02.** Found while settling the rung above, and the more consequential
+of the two. `assurance_for()` took the maximum over every *passing*
+verification, so a later failure could never lower a node: a passage verified
+at `A2` whose excerpt then **moved in the source** still read
+`A2_EXACT_SPAN_MATCHED`. `verify_exact_span` detected the move and recorded the
+failure exactly as designed; the summary ignored it.
+
+That is precisely the drift `AssuranceLevel`'s docstring said computing this
+instead of storing it would prevent — it arrived through stale history rather
+than through a stale field — and the same shape as the failure
+`verify_exact_span` guards against internally: "passing review while proving
+nothing".
+
+Now the latest result *per method*, then the best passing level among those.
+Per method because a node legitimately holds several at once and a later
+collation must not withdraw a standing exact-span result; only the same check,
+re-run with a different answer, supersedes itself. Nothing is deleted —
+`verifications()` still returns the whole history, and a check that fails and
+later passes again is current again.
+
 ### An agent could check its own claim
 **2026-09-02.** `attest` was open to any agent, including the one that wrote
 the claim — verification was a tool, not a role. A three-way comparison against

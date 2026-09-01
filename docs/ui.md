@@ -95,7 +95,7 @@ URL path silently truncates at the fragment.
 | `GET /api/citable` | accepted nodes only — the only ones citable by output |
 | `GET /api/rejected?node_type=` | rejected nodes **with their reasons** |
 | `GET /api/agent?id=` | contribution counts, not a score |
-| `GET /api/refusals?limit=` | refused writes, read from the event log |
+| `GET /api/refusals?limit=` | refused writes, read from the event log, plus a `census` over the whole log |
 | `GET /api/integrity?id=` | re-hash stored payloads against their recorded hashes |
 | `GET /api/rebuild` | replay the log and diff it against this projection |
 
@@ -114,6 +114,13 @@ fault in the request.
 `/api/refusals` returns `available: false` when there's no log, rather than an
 empty list — an in-memory or freshly copied projection legitimately has none,
 and saying so beats implying zero refusals.
+
+Its `census` covers the **whole** log even when `refusals` is a truncated tail:
+a census of the tail would report a smaller total than the log holds while
+looking authoritative. The panel renders categories, rule counts and streaks
+from it rather than tallying the rows it was given, which is what it used to do
+— and which quietly understated every rule once a log grew past the limit. See
+[refusals.md](refusals.md).
 
 ### With `--allow-writes`
 

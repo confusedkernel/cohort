@@ -949,3 +949,106 @@ the reviewer cannot, because the falsifiability gate outranks review.
 
 **33 new tests** (362 total), including the one that matters most: a reviewer
 saying `sound` about a citation that does not re-fetch does not move the claim.
+
+## A rung that promised what nothing could check
+
+**2026-09-02.** Chasing what looked like a small vocabulary gap — "no
+`VerificationMethod` yields `A3_INDEPENDENCE_CHECKED`" — turned up two real
+defects and one wrong note. The note was mine, from the day before: A3 *was*
+reachable, via `collate_editions` and `CROSS_EDITION_COLLATION`.
+
+**The rung was misnamed.** `A3_INDEPENDENCE_CHECKED` was named for the concept
+this project cares most about, and the only check that reached it established
+something weaker: which edition families support *one witness's own* text.
+Apparatus describes variants within a single document and cannot speak to the
+relation between two witnesses. The tell was in the tool — its docstring and a
+`limitations` paragraph on every record existed partly to talk a reader out of
+the label it was obliged to apply. A tool whose job includes disclaiming its own
+rung is a misnamed rung, not a careful tool. Now
+`A3_EDITION_SUPPORT_CHECKED`. `roadmap.md` had recorded the same conflation as
+a completed achievement and is corrected in place.
+
+**Cross-witness independence is deliberately not on the ladder.** It is a pure
+function of current graph state, so `independent_support()` computes it live on
+every read and both front ends already print it beside the support count.
+Grading it would store a derivable fact, and it would be the one rung that could
+go stale with nobody having touched the node — one `parallel_of` edge elsewhere
+falsifies a recorded "independence checked" without re-running anything. There
+is also no state to grade: COHORT examines independence on every read, so
+"examined" is true of every node with attestations and distinguishes nothing.
+
+**The bigger find: assurance was a high-water mark.** `assurance_for()` took the
+maximum over every passing verification, so a later failure could never lower a
+node. A passage verified at `A2` whose excerpt then *moved in the source* still
+read `A2_EXACT_SPAN_MATCHED` — `verify_exact_span` detected the move and
+recorded the FAIL exactly as designed, and the summary ignored it. That is the
+drift `AssuranceLevel`'s own docstring says computing this rather than storing it
+was supposed to prevent, arriving through stale history instead of a stale
+field, and the same shape as the failure that tool guards against internally:
+"passing review while proving nothing".
+
+Now the **latest result per method**, then the best passing level among those.
+Per method because a node legitimately holds several at once and a later
+collation must not withdraw a standing exact-span result; only the same check,
+re-run with a different answer, supersedes itself. Nothing is deleted:
+`verifications()` still returns the whole history, and a check that fails and
+later passes again is current again.
+
+**Backward compatibility, on real data.** The event log is ground truth and is
+never rewritten, so a graph seeded before the rename holds the old string in its
+payloads and its log; rewriting those would break the payload hashes
+`verify_integrity()` checks, or make `rebuild()` disagree with the log. So
+`AssuranceLevel._missing_` reads the old name and never writes it. Verified
+against the existing demo graph: 139 events replay clean, integrity reports no
+mismatches, and its three witnesses read `A3_EDITION_SUPPORT_CHECKED` from
+records that say `A3_INDEPENDENCE_CHECKED`.
+
+**4 new tests** (366 total), the load-bearing one being that a passage whose
+excerpt moved no longer reads as verified.
+
+## The refusal census
+
+**2026-09-02.** Refusals have been claimed as scholarly output since
+[design.md](design.md) §15, and readable since `read_refusals()` and the
+`RefusalsPanel`. What was missing is the step that makes a list of them
+*useful*: a flat list of forty answers no question a researcher has. The
+question is always which ones to read.
+
+**A taxonomy that cannot rot.** Every rule in `errors.py` now carries a
+`RefusalCategory` saying what it indicts — `evidence` (go and look at the
+texts), `standing` (the discipline held), `expression` (the writer could not
+say what it meant), `operational`. `tests/test_refusal_census.py` fails if a
+`CohortError` subclass has no category, and fails again if a category names a
+rule that no longer exists, so adding a rule means deciding what it indicts.
+Same discipline `test_parity.py` applies to the two front ends. An unknown rule
+name is `unclassified` and reported — a census that silently dropped what it
+could not classify would understate the thing it counts, and it must keep
+reading logs written by older versions of this code.
+
+**Streaks are the finding.** A run of refusals from one agent, against one
+rule, with nothing else of its own in between. One `expression` refusal is
+usually a model slip; a run of them is the shape of a gap in the tool layer —
+the agent adapted, retried, and was refused again. Consecutive *within one
+author's own sequence*, not the whole log, so several agents interleaving does
+not destroy the signal precisely when the most are running.
+
+Run against the demo graph's own log, with no annotation, it recovers a real
+historical defect: 10 refusals, 9 in `expression`, 7 inside two streaks —
+`agent:apparatus` refused 4× on `NodeNotFound` calling `collate_editions`
+across 4 distinct ids, `agent:heart-sutra` 3× calling `link_parallels` across
+`B01n0001`, `B01n0001_002`, `passage:B01n0001#…`. That is the tool gap that led
+to `find_attestations` returning witness ids, found mechanically from the log.
+
+**It counts; it does not conclude.** Nothing decides that a tool is missing —
+that is a judgement, and the point of counting is to put it in front of someone
+who can make it.
+
+**Both front ends**, over the *whole* log even when the list is a truncated
+tail: `cohort refusals --census` and a `census` object on `GET /api/refusals`,
+with a test asserting the two are the same object rather than two
+implementations that could drift. This also fixed a quiet defect in the panel,
+which tallied rules from the rows it had been given and therefore understated
+every rule once a log grew past the limit.
+
+**17 new tests** (383 total). Not yet run against a fresh multi-agent run —
+that needs API calls and is the piece the paper still wants.

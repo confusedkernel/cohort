@@ -149,16 +149,39 @@ agents. An agent cannot build on a finding the researcher has not signed.
 
 ## Assurance levels — a computed read, not a status
 
-`assurance_for(node_id)` returns the **highest passing** level across a node's
-verifications. It is derived, never stored, and never a confidence score.
+`assurance_for(node_id)` returns the best assurance a node **currently holds**:
+the latest result from each verification method, then the highest passing level
+among those. It is derived, never stored, and never a confidence score.
 
 | Level | Meaning |
 |---|---|
 | `A0_UNCHECKED` | nothing has verified this node |
 | `A1_LOCATOR_VALID` | the reference resolves |
 | `A2_EXACT_SPAN_MATCHED` | the excerpt was re-fetched and matched byte for byte |
-| `A3_INDEPENDENCE_CHECKED` | descent/parallelism between supporting witnesses was examined |
+| `A3_EDITION_SUPPORT_CHECKED` | the witness's TEI apparatus was collated: which edition families support its text, and which adopted readings are modern emendations |
 | `A4_HUMAN_APPROVED` | the researcher signed it |
+
+**Latest per method, not the historical maximum.** A later failure withdraws
+the standing its own earlier pass granted: a passage verified at `A2` whose
+excerpt has since *moved in the source* reads `A0`, not `A2`. Until 2026-09-02
+this took the maximum over all passing verifications, so a stale pass outranked
+a later failure forever — the drift computing this was meant to prevent,
+arriving through stale history rather than a stale field. Per *method* because
+different methods establish different things and a node holds several at once;
+only the same check, re-run with a different answer, supersedes itself. Nothing
+is deleted — `verifications()` still returns the whole history.
+
+**Cross-witness independence is deliberately not on this ladder.** A3 read
+`A3_INDEPENDENCE_CHECKED` until 2026-09-02, and the only check that reached it
+(`collate_editions`) carried a standing `limitations` paragraph explaining that
+it established nothing of the kind — apparatus describes variants *within one
+document*. A tool whose job includes disclaiming its own rung is a misnamed
+rung. Independence is a pure function of current graph state, so
+`independent_support()` computes it live on every read and both front ends
+print it beside the support count; freezing it into a record would store a
+derivable fact, and one `parallel_of` edge added elsewhere would falsify it
+with nobody having touched the node. The old string still *reads* — the event
+log is ground truth and is never rewritten — but is never written again.
 
 ## Verification methods and results
 

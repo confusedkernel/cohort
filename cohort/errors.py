@@ -8,6 +8,8 @@ boundary and nowhere else.
 """
 from __future__ import annotations
 
+from enum import StrEnum
+
 
 class CohortError(Exception):
     """Base for every COHORT rule violation."""
@@ -139,3 +141,96 @@ class NodeNotFound(CohortError):
 
 class SingleWriterViolation(CohortError):
     """Another process already holds the write lock on this graph."""
+
+
+# --- what a refusal indicts (docs/design.md §15) -------------------------------
+#
+# Refusals are scholarly output, not error telemetry — but a flat list of 40
+# refusals answers no question a researcher actually has. The question is
+# *which* refusals to read, and that depends on what each one indicts.
+#
+# This taxonomy is the answer, and it lives here rather than in the reporting
+# module so that adding a rule forces the decision. `tests/test_refusal_census.py`
+# fails if a `CohortError` subclass has no category, the same discipline
+# `tests/test_parity.py` applies to the two front ends.
+
+class RefusalCategory(StrEnum):
+    """What a refused write tells you to go and look at."""
+
+    #: The corpus did not support the move. Well-formed, permitted, and
+    #: refused on the evidence — reading these tells you about the *texts*.
+    #: The falsifiability gate lives here.
+    EVIDENCE = "evidence"
+
+    #: Who was writing, or what state the node was in, forbade it. Reading
+    #: these tells you the discipline held: an agent tried to sign its own
+    #: work, or to skip a rung, or to relitigate something already settled.
+    STANDING = "standing"
+
+    #: The writer could not say what it meant — a reference that does not
+    #: resolve, a malformed input, a relation outside the vocabulary.
+    #:
+    #: **This is the bucket worth reading.** A single one is usually a model
+    #: slip. A *run* of them from one agent against one rule is the signature
+    #: of a gap in the tool layer: the agent adapted, tried again, and was
+    #: refused again, because there was no sanctioned way to express a
+    #: legitimate intention. Every such run in this project's history so far
+    #: turned out to be exactly that — a missing `propose_claim`, witness ids
+    #: the tools never returned, a claim its own author could not advance —
+    #: and each one was a tool fix, not a model failure.
+    EXPRESSION = "expression"
+
+    #: The system's own preconditions, not a judgement about research. These
+    #: rarely reach the refusal log at all (most are raised before a write is
+    #: attempted); they are categorised so the taxonomy is total.
+    OPERATIONAL = "operational"
+
+    #: A rule name this taxonomy does not know. Reported rather than dropped:
+    #: a census that silently ignored what it could not classify would
+    #: understate the very thing it exists to count.
+    UNCLASSIFIED = "unclassified"
+
+
+REFUSAL_CATEGORIES: dict[str, RefusalCategory] = {
+    # the corpus did not support it
+    UnattestableClaim.__name__: RefusalCategory.EVIDENCE,
+    UnattestableConjecture.__name__: RefusalCategory.EVIDENCE,
+    PassageNotLocated.__name__: RefusalCategory.EVIDENCE,
+    # who was writing, or what state it was in
+    NotResearcher.__name__: RefusalCategory.STANDING,
+    SelfAttestation.__name__: RefusalCategory.STANDING,
+    ReviewerNotIndependent.__name__: RefusalCategory.STANDING,
+    RungSkipped.__name__: RefusalCategory.STANDING,
+    PersistentRejection.__name__: RefusalCategory.STANDING,
+    PersistentRetraction.__name__: RefusalCategory.STANDING,
+    EdgeAlreadyRetracted.__name__: RefusalCategory.STANDING,
+    # the writer could not say what it meant
+    NodeNotFound.__name__: RefusalCategory.EXPRESSION,
+    EdgeNotFound.__name__: RefusalCategory.EXPRESSION,
+    EdgeEndpointMissing.__name__: RefusalCategory.EXPRESSION,
+    EdgeSelfLoop.__name__: RefusalCategory.EXPRESSION,
+    EdgeDomainViolation.__name__: RefusalCategory.EXPRESSION,
+    MissingRejectionReason.__name__: RefusalCategory.EXPRESSION,
+    # the system's own preconditions
+    NoEventLog.__name__: RefusalCategory.OPERATIONAL,
+    RebuildMismatch.__name__: RefusalCategory.OPERATIONAL,
+    SingleWriterViolation.__name__: RefusalCategory.OPERATIONAL,
+    UnknownEventType.__name__: RefusalCategory.OPERATIONAL,
+    # Not a CohortError, but it reaches the log by class name like the rest:
+    # `AttestationWorker._dispatch` logs whatever a tool raised, and pydantic
+    # rejects a malformed tool argument before any rule in this module is
+    # consulted. A model that cannot fill in a tool's arguments is failing to
+    # express itself, so it belongs with the rest of that bucket.
+    "ValidationError": RefusalCategory.EXPRESSION,
+}
+
+
+def refusal_category(rule: str) -> RefusalCategory:
+    """The category of a rule name as recorded in the log.
+
+    Takes a string, not a class: the log stores the rule's *name*, and a
+    census reads logs written by versions of this code that may have had
+    rules this one does not. An unknown name is `UNCLASSIFIED`, never an
+    error — a census that crashed on an old log would be useless for exactly
+    the historical reading it exists to support."""
+    return REFUSAL_CATEGORIES.get(rule, RefusalCategory.UNCLASSIFIED)

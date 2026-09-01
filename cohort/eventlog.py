@@ -10,11 +10,21 @@ on one").
 from __future__ import annotations
 
 import os
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterator
 
-from .errors import UnknownEventType
-from .schemas import EVENT_TYPES, EdgeType, Event, ModelCallSummary, NodeType, Refusal
+from .errors import RefusalCategory, UnknownEventType, refusal_category
+from .schemas import (
+    EVENT_TYPES,
+    EdgeType,
+    Event,
+    ModelCallSummary,
+    NodeType,
+    Refusal,
+    RefusalCensus,
+    RefusalStreak,
+)
 
 
 class EventLog:
@@ -119,6 +129,94 @@ def summarize_model_calls(path: str | Path) -> ModelCallSummary:
         total_latency_ms=total_latency,
         total_cost_usd=total_cost,
     )
+
+
+#: A streak needs at least this many consecutive refusals. Two is the lowest
+#: number that can mean anything — one refusal is an event, two of the same
+#: rule from the same agent is the first point at which "it adapted and was
+#: refused again" is even describable.
+MIN_STREAK = 2
+
+
+def summarize_refusals(path: str | Path) -> RefusalCensus:
+    """Arithmetic over a log's refused writes — see `RefusalCensus`.
+
+    A pure log scan, like `summarize_model_calls`: a refused write changed no
+    graph state, so there is nothing in the SQLite projection to read this
+    from. It takes a path rather than a list of `Refusal`s so a caller cannot
+    accidentally census a *truncated* view — `read_refusals(limit=n)` returns
+    the tail, and a census over the tail would report a smaller total than the
+    log holds while looking authoritative.
+    """
+    refusals = read_refusals(path)
+    census = RefusalCensus(
+        total=len(refusals),
+        by_category={c.value: 0 for c in RefusalCategory},
+        first_at=refusals[0].at if refusals else None,
+        last_at=refusals[-1].at if refusals else None,
+    )
+    by_rule: Counter[str] = Counter()
+    by_author: Counter[str] = Counter()
+    by_attempted: Counter[str] = Counter()
+    for r in refusals:
+        by_rule[r.rule] += 1
+        by_author[r.authored_by] += 1
+        by_attempted[r.attempted] += 1
+        census.by_category[refusal_category(r.rule).value] += 1
+
+    # Most frequent first, ties broken by name so the output is stable across
+    # runs — a census that reordered itself between two reads of one log would
+    # be useless for diffing.
+    def ranked(counter: Counter[str]) -> dict[str, int]:
+        return dict(sorted(counter.items(), key=lambda kv: (-kv[1], kv[0])))
+
+    census.by_rule = ranked(by_rule)
+    census.by_author = ranked(by_author)
+    census.by_attempted = ranked(by_attempted)
+    census.expression_count = census.by_category[RefusalCategory.EXPRESSION.value]
+    census.streaks = _streaks(refusals)
+    census.streaked_count = sum(s.count for s in census.streaks)
+    return census
+
+
+def _streaks(refusals: list[Refusal]) -> list[RefusalStreak]:
+    """Runs of the same rule within one author's own sequence.
+
+    Grouping by author before looking for runs is what makes this survive a
+    swarm: several agents interleave their refusals in one log, and a run
+    defined over the raw sequence would be broken by an unrelated agent's
+    refusal landing in between — losing the signal exactly when the most
+    agents are running.
+    """
+    by_author: dict[str, list[Refusal]] = defaultdict(list)
+    for r in refusals:
+        by_author[r.authored_by].append(r)
+
+    streaks: list[RefusalStreak] = []
+    for author, theirs in by_author.items():
+        run: list[Refusal] = []
+        for r in [*theirs, None]:  # a sentinel so the final run is emitted too
+            if run and (r is None or r.rule != run[0].rule):
+                if len(run) >= MIN_STREAK:
+                    streaks.append(
+                        RefusalStreak(
+                            authored_by=author,
+                            rule=run[0].rule,
+                            category=refusal_category(run[0].rule).value,
+                            count=len(run),
+                            first_seq=run[0].seq,
+                            last_seq=run[-1].seq,
+                            attempted=list(dict.fromkeys(x.attempted for x in run)),
+                            node_ids=list(dict.fromkeys(x.node_id for x in run if x.node_id)),
+                        )
+                    )
+                run = []
+            if r is not None:
+                run.append(r)
+    # Longest first: the longest run is the one most likely to be a tool gap
+    # rather than a slip, so it is what a reader should meet first.
+    streaks.sort(key=lambda s: (-s.count, s.first_seq))
+    return streaks
 
 
 def read_refusals(path: str | Path, *, limit: int | None = None) -> list[Refusal]:

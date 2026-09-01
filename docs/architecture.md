@@ -30,10 +30,13 @@ change safely: migrations alter the projection, never the log.
 
 Read the log directly without a database at all:
 
-    from cohort.eventlog import read_events, read_refusals, summarize_model_calls
+    from cohort.eventlog import (read_events, read_refusals,
+                                 summarize_model_calls, summarize_refusals)
 
 `read_refusals()` is a pure log scan. It exists because refusals are output, not
-diagnostics — see below.
+diagnostics — see below. `summarize_refusals()` is the arithmetic over them:
+counts by rule, by category and by author, plus **streaks** — one agent refused
+repeatedly by one rule. See [refusals.md](refusals.md).
 
 ## The projection
 

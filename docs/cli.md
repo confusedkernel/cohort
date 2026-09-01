@@ -14,6 +14,7 @@ functions, so a rule refuses identically whichever way you reach it.
     cohort rejected                           # thrown out, with reasons
     cohort agent agent:worker-1               # contribution counts, not a score
     cohort refusals                           # writes the graph declined
+    cohort refusals --census                  # the summary only: rules, categories, streaks
     cohort integrity                          # re-hash payloads against their hashes
     cohort rebuild                            # replay the log, diff this projection
 

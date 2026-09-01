@@ -51,7 +51,7 @@ def test_verify_creates_a_verification_node_born_accepted(graph):
     claim_id = _claim(graph)
     verification_id = graph.verify(
         claim_id, method=VerificationMethod.CROSS_EDITION_COLLATION,
-        result=VerificationResult.PASS, assurance_level=AssuranceLevel.A3_INDEPENDENCE_CHECKED,
+        result=VerificationResult.PASS, assurance_level=AssuranceLevel.A3_EDITION_SUPPORT_CHECKED,
         detail="no attesting passages yet, so trivially independent", authored_by=AGENT,
     )
     node = graph.get_node(verification_id)
@@ -101,8 +101,8 @@ def test_assurance_for_ignores_failing_and_indeterminate_results(graph):
     claim_id = _claim(graph)
     graph.verify(
         claim_id, method=VerificationMethod.CROSS_EDITION_COLLATION,
-        result=VerificationResult.FAIL, assurance_level=AssuranceLevel.A3_INDEPENDENCE_CHECKED,
-        detail="two attesting witnesses turned out to be in a copying relation",
+        result=VerificationResult.FAIL, assurance_level=AssuranceLevel.A3_EDITION_SUPPORT_CHECKED,
+        detail="the apparatus for this witness could not be read",
         authored_by=AGENT,
     )
     graph.verify(
@@ -122,10 +122,82 @@ def test_assurance_for_picks_the_highest_passing_level(graph):
     )
     graph.verify(
         claim_id, method=VerificationMethod.CROSS_EDITION_COLLATION,
-        result=VerificationResult.PASS, assurance_level=AssuranceLevel.A3_INDEPENDENCE_CHECKED,
-        detail="independent_support: independent=True", authored_by=AGENT,
+        result=VerificationResult.PASS, assurance_level=AssuranceLevel.A3_EDITION_SUPPORT_CHECKED,
+        detail="four edition families collated", authored_by=AGENT,
     )
-    assert graph.assurance_for(claim_id) == AssuranceLevel.A3_INDEPENDENCE_CHECKED
+    assert graph.assurance_for(claim_id) == AssuranceLevel.A3_EDITION_SUPPORT_CHECKED
+
+
+def test_a_later_failure_lowers_the_assurance_its_pass_granted(graph):
+    """The bug this guards: `assurance_for` took the maximum over every
+    passing verification, so a stale PASS outranked a later FAIL forever. A
+    passage verified at A2 whose excerpt then *moved in the source* still read
+    `A2_EXACT_SPAN_MATCHED` — `verify_exact_span` detected the move, recorded
+    the failure, and the summary ignored it. Passing review while proving
+    nothing, which is the failure that tool's own docstring guards against
+    internally."""
+    claim_id = _claim(graph)
+    graph.verify(
+        claim_id, method=VerificationMethod.EXACT_SPAN,
+        result=VerificationResult.PASS, assurance_level=AssuranceLevel.A2_EXACT_SPAN_MATCHED,
+        detail="matched at the recorded span", authored_by=AGENT,
+    )
+    assert graph.assurance_for(claim_id) == AssuranceLevel.A2_EXACT_SPAN_MATCHED
+
+    graph.verify(
+        claim_id, method=VerificationMethod.EXACT_SPAN,
+        result=VerificationResult.FAIL, assurance_level=AssuranceLevel.A0_UNCHECKED,
+        detail="excerpt moved or changed since the last recorded verification",
+        authored_by=AGENT,
+    )
+    assert graph.assurance_for(claim_id) == AssuranceLevel.A0_UNCHECKED
+    # nothing was deleted: the summary changed, the record did not
+    assert len(graph.verifications(claim_id)) == 2
+
+
+def test_a_different_method_does_not_erase_a_standing_result(graph):
+    """Latest-*per-method*, not latest overall. Different methods establish
+    different things and a node holds several at once, so a later collation
+    must not withdraw a standing exact-span result — only the same check,
+    re-run with a different answer, supersedes itself."""
+    claim_id = _claim(graph)
+    graph.verify(
+        claim_id, method=VerificationMethod.EXACT_SPAN,
+        result=VerificationResult.PASS, assurance_level=AssuranceLevel.A2_EXACT_SPAN_MATCHED,
+        detail="matched at the recorded span", authored_by=AGENT,
+    )
+    graph.verify(
+        claim_id, method=VerificationMethod.CROSS_EDITION_COLLATION,
+        result=VerificationResult.FAIL, assurance_level=AssuranceLevel.A0_UNCHECKED,
+        detail="no apparatus in this witness", authored_by=AGENT,
+    )
+    assert graph.assurance_for(claim_id) == AssuranceLevel.A2_EXACT_SPAN_MATCHED
+
+
+def test_re_verifying_restores_what_a_failure_withdrew(graph):
+    """The other direction: a check that fails and later passes again is
+    current again. Assurance is the node's standing now, not a high-water
+    mark and not a permanent mark against it."""
+    claim_id = _claim(graph)
+    for result, level in (
+        (VerificationResult.PASS, AssuranceLevel.A2_EXACT_SPAN_MATCHED),
+        (VerificationResult.FAIL, AssuranceLevel.A0_UNCHECKED),
+        (VerificationResult.PASS, AssuranceLevel.A2_EXACT_SPAN_MATCHED),
+    ):
+        graph.verify(
+            claim_id, method=VerificationMethod.EXACT_SPAN, result=result,
+            assurance_level=level, detail="re-checked", authored_by=AGENT,
+        )
+    assert graph.assurance_for(claim_id) == AssuranceLevel.A2_EXACT_SPAN_MATCHED
+
+
+def test_the_pre_rename_assurance_string_still_reads(graph):
+    """The event log is ground truth and is never rewritten, so a graph seeded
+    before A3 was renamed holds the old string in its payloads and its log.
+    Rewriting those would break the payload hashes `verify_integrity()` checks,
+    or make `rebuild()` disagree with the log — so the old name is read and
+    never written."""
+    assert AssuranceLevel("A3_INDEPENDENCE_CHECKED") is AssuranceLevel.A3_EDITION_SUPPORT_CHECKED
 
 
 def test_citable_excludes_verification_nodes(graph):
@@ -154,7 +226,7 @@ def test_rebuild_matches_live_with_verification_events_present(tmp_path):
     claim_id = _claim(g)
     g.verify(
         claim_id, method=VerificationMethod.CROSS_EDITION_COLLATION,
-        result=VerificationResult.PASS, assurance_level=AssuranceLevel.A3_INDEPENDENCE_CHECKED,
+        result=VerificationResult.PASS, assurance_level=AssuranceLevel.A3_EDITION_SUPPORT_CHECKED,
         detail="n/a", limitations="single-witness sample", authored_by=AGENT,
     )
     report = g.rebuild()

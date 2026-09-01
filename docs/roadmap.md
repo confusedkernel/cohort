@@ -318,7 +318,9 @@ content — born directly at `status=accepted`, same reasoning as `decision`.
 `AssuranceLevel` (`A0_UNCHECKED` → `A4_HUMAN_APPROVED`) is a **computed
 read** (`Graph.assurance_for()`, the max *passing* level across a node's
 verification nodes), never a second mutable field — the graph stays a
-projection. Five domain-appropriate `VerificationMethod`s
+projection. *(Superseded 2026-09-02: the max over all passing verifications
+let a stale pass outrank a later failure, so it is now the latest result per
+method. See [vocabulary.md](vocabulary.md).)* Five domain-appropriate `VerificationMethod`s
 (`locator_resolution`, `exact_span`, `cross_edition_collation` — which
 wraps `independent_support()` — `dating_route_confidence`,
 `human_review`); deliberately no numerical/statistical/code/database
@@ -424,7 +426,7 @@ contribution; a large swarm without one is the thing being critiqued.
 | Axis | Status |
 |---|---|
 | Observability envelope | **Done** — `Event` fields, `log_model_call()`, `summarize_model_calls()`, threaded through the worker and both tools |
-| Verification/assurance model | **Done** — `verify()`, `assurance_for()`, five domain-appropriate methods; `CROSS_EDITION_COLLATION` is `independent_support()` finally wired into a formal, queryable record (the same workstream as stage 4's "`independent_support` over real witnesses") |
+| Verification/assurance model | **Done** — `verify()`, `assurance_for()`, five domain-appropriate methods. *(This row claimed `CROSS_EDITION_COLLATION` was "`independent_support()` finally wired into a formal, queryable record". **That was wrong**, and the same conflation the A3 rename corrected on 2026-09-02: apparatus describes variants within one document and says nothing about the relation between two witnesses. `independent_support()` is a live computed read and is deliberately not recorded as a verification.)* |
 | Conjecture dossier | **Done** — four required `ConjecturePayload` fields, `searched_for` edge, search-then-propose in the tool. The falsifiability gate itself is unchanged |
 | Multi-agent society, steps 1-3 | **Done** — `agents` table, `register_agent()`, `AttestationWorker(profile=...)`, `agent_report()` (counts only) |
 | Multi-agent society, step 4 (real concurrency) | **Done, live-verified** — `cohort/agents/swarm.py::run_swarm()`; `AttestationWorker.run_async()` is now the canonical loop, with `asyncio.to_thread` scoped only around the one blocking HTTP call so concurrent workers' graph writes can never interleave |

@@ -208,7 +208,10 @@ def test_collation_flags_editorial_emendations(graph, source):
 
 
 def test_collation_always_states_its_limitations(graph, source):
-    """An A3 label must never imply cross-witness independence was checked."""
+    """The rung says edition support, not independence — but the boundary is
+    still worth stating on every record, because a reader who sees a witness
+    at A3 beside a support count could still join the two into a claim about
+    cross-witness independence that nothing here checked."""
     w251, _ = _add_witness(graph, source, ENTRY_251, "ALPHA")
     vid = collate_editions(
         graph, source, CollateEditionsInput(witness_id=w251), authored_by=AGENT
@@ -230,9 +233,9 @@ def test_collation_is_indeterminate_without_apparatus(graph, source):
     assert graph.assurance_for(w250) == AssuranceLevel.A0_UNCHECKED
 
 
-def test_passing_collation_grants_a3_assurance(graph, source):
+def test_passing_collation_grants_edition_support_assurance(graph, source):
     w251, _ = _add_witness(graph, source, ENTRY_251, "ALPHA")
     collate_editions(
         graph, source, CollateEditionsInput(witness_id=w251), authored_by=AGENT
     )
-    assert graph.assurance_for(w251) == AssuranceLevel.A3_INDEPENDENCE_CHECKED
+    assert graph.assurance_for(w251) == AssuranceLevel.A3_EDITION_SUPPORT_CHECKED

@@ -89,13 +89,47 @@ class AssuranceLevel(StrEnum):
     §5 principle 1). Orthogonal to `NodeStatus`: a claim can be `accepted`
     with no verification ever run, or `proposed` with several. StrEnum
     values are stable strings so a later rung can be inserted without
-    renumbering or touching already-recorded verification nodes."""
+    renumbering or touching already-recorded verification nodes.
+
+    **A3 was renamed on 2026-09-02, and the rename is the point.** It read
+    `A3_INDEPENDENCE_CHECKED`, and the only check that reaches it —
+    `collate_editions`, via `CROSS_EDITION_COLLATION` — had to carry a
+    standing `limitations` paragraph explaining that it establishes nothing of
+    the kind: apparatus describes variants *within one document*, so it cannot
+    speak to the relation between two witnesses. A tool whose job includes
+    disclaiming its own rung is a misnamed rung, not a careful tool.
+
+    **Cross-witness independence is deliberately not on this ladder.** It is
+    a pure function of current graph state, so `independent_support()` computes
+    it live on every read and both front ends print it beside the support count.
+    Freezing it into a verification record would store a derivable fact
+    (against principle 1) and would be the one rung that could go stale with
+    nobody having touched the node — adding one `parallel_of` edge elsewhere
+    would falsify a recorded "independence checked" without re-running
+    anything. There is also no state to grade: COHORT examines independence on
+    every read, so "independence examined" is true of every node with
+    attestations and distinguishes nothing.
+    """
 
     A0_UNCHECKED = "A0_UNCHECKED"
     A1_LOCATOR_VALID = "A1_LOCATOR_VALID"
     A2_EXACT_SPAN_MATCHED = "A2_EXACT_SPAN_MATCHED"
-    A3_INDEPENDENCE_CHECKED = "A3_INDEPENDENCE_CHECKED"
+    A3_EDITION_SUPPORT_CHECKED = "A3_EDITION_SUPPORT_CHECKED"
     A4_HUMAN_APPROVED = "A4_HUMAN_APPROVED"
+
+    @classmethod
+    def _missing_(cls, value):
+        """Accept the pre-rename string so recorded nodes and replayed logs
+        still parse.
+
+        The event log is ground truth and is never rewritten, so a graph
+        seeded before the rename holds `A3_INDEPENDENCE_CHECKED` in its
+        payloads and in its log. Rewriting those would either break the
+        payload hashes `verify_integrity()` checks or make `rebuild()`
+        disagree with the log — so the old name is read, never written."""
+        if value == "A3_INDEPENDENCE_CHECKED":
+            return cls.A3_EDITION_SUPPORT_CHECKED
+        return None
 
 
 class VerificationMethod(StrEnum):
@@ -443,3 +477,74 @@ class ModelCallSummary(_Model):
     total_output_tokens: int
     total_latency_ms: int
     total_cost_usd: float
+
+
+class RefusalStreak(_Model):
+    """One agent refused repeatedly by one rule, with nothing else of its own
+    in between.
+
+    The signal the census exists to surface. A single `expression` refusal is
+    usually a model slip; a *run* of them is the signature of a gap in the
+    tool layer — the agent adapted, tried again, and was refused again,
+    because there was no sanctioned way to say what it meant. Every such run
+    in this project's history turned out to be exactly that.
+
+    Consecutive **within one author's own sequence**, not within the whole
+    log: two agents working concurrently interleave their refusals, and a
+    definition that broke a streak whenever another agent was refused would
+    make the signal vanish precisely when several agents are running.
+
+    This is evidence for a human reading, not a verdict. `RefusalCategory`
+    says which bucket to look in; a streak says where to look first. Neither
+    concludes that a tool is missing — that is a judgement, and the point of
+    counting is to put it in front of someone who can make it.
+    """
+
+    authored_by: str
+    rule: str
+    category: str
+    #: how many consecutive refusals this run contains (always >= 2)
+    count: int
+    first_seq: int
+    last_seq: int
+    #: the writes attempted across the run, in order, deduplicated — an agent
+    #: hitting one wall from several angles looks different from one repeating
+    #: itself verbatim, and the distinction matters when reading it
+    attempted: list[str] = Field(default_factory=list)
+    #: the node ids it tried, deduplicated. Several distinct ids under one
+    #: rule is the strongest tool-gap tell: the agent was *guessing*.
+    node_ids: list[str] = Field(default_factory=list)
+
+
+class RefusalCensus(_Model):
+    """Arithmetic over a log's refused writes — counted, not asserted
+    (design doc §13), the same habit as `ModelCallSummary`.
+
+    A refusal is scholarly output (design doc §15), but a flat list of forty
+    answers no question a researcher has. The question is *which* to read,
+    and `by_category` is the answer: `evidence` refusals tell you about the
+    texts, `standing` refusals tell you the discipline held, and `expression`
+    refusals are the ones that may indict the tool layer rather than the
+    model.
+
+    Deliberately reports zero as a fact. A log with no refusals is a real
+    result about a run, not an absence of news.
+    """
+
+    total: int
+    #: every rule that fired, most frequent first
+    by_rule: dict[str, int] = Field(default_factory=dict)
+    #: every category, including any that fired zero times — a reader should
+    #: see that `evidence` was empty, not have to notice its absence
+    by_category: dict[str, int] = Field(default_factory=dict)
+    by_author: dict[str, int] = Field(default_factory=dict)
+    #: the write that was attempted: "attest", "add_edge", ...
+    by_attempted: dict[str, int] = Field(default_factory=dict)
+    streaks: list[RefusalStreak] = Field(default_factory=list)
+    #: how many refusals fall in the bucket that may indict the tools, and how
+    #: many of those sit inside a streak. Lifted out of `by_category` because
+    #: it is the number the census is for.
+    expression_count: int = 0
+    streaked_count: int = 0
+    first_at: str | None = None
+    last_at: str | None = None

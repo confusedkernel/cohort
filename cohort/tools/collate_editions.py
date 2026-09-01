@@ -15,9 +15,15 @@ of each other: apparatus describes variants *within one document*, so it
 cannot speak to the relation between two different Taisho texts. That relation
 comes from `parallel_of`/`descends_from` edges (see
 `cohort/tools/link_parallels.py`) and is read by
-`Graph.independent_support()`. The verification's `limitations` field says so
-in every record it writes, rather than leaving a reader to infer a stronger
-claim from an `A3_INDEPENDENCE_CHECKED` label.
+`Graph.independent_support()`.
+
+The rung it earns says this now. It was `A3_INDEPENDENCE_CHECKED` until
+2026-09-02, and this docstring and the `limitations` on every record existed
+partly to talk a reader *out* of the label the tool was obliged to apply —
+which was a misnamed rung rather than a careful tool. `A3_EDITION_SUPPORT_CHECKED`
+names what is actually checked. The `limitations` text stays, because the
+boundary is worth stating on each record, but it is now information rather
+than a disclaimer against the tool's own grade.
 
 **Joint sigla are never split.** `wit="【宋】 【元】 【明】 【宮】"` is one
 shared-descent family reading one way, not four independent confirmations;
@@ -120,7 +126,7 @@ def collate_editions(
     return graph.verify(
         args.witness_id, method=VerificationMethod.CROSS_EDITION_COLLATION,
         result=VerificationResult.PASS,
-        assurance_level=AssuranceLevel.A3_INDEPENDENCE_CHECKED,
+        assurance_level=AssuranceLevel.A3_EDITION_SUPPORT_CHECKED,
         detail=detail, limitations=_LIMITATIONS,
         authored_by=authored_by, model_call_id=model_call_id,
     )

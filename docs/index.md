@@ -12,6 +12,7 @@ multi-agent textual research.*
 | How does it actually work inside? | [architecture.md](architecture.md) |
 | What are the node and edge types? | [vocabulary.md](vocabulary.md) |
 | What can an agent do, and what will it be refused? | [tools.md](tools.md) |
+| The system refused 40 writes — which should I read? | [refusals.md](refusals.md) |
 | How do I run agents, and what does it cost? | [agents.md](agents.md) |
 | How do I point it at a corpus? | [corpus.md](corpus.md) |
 | How do I use the web interface? | [ui.md](ui.md) |

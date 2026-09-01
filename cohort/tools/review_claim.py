@@ -156,19 +156,18 @@ def review_claim(
     if args.verdict == "sound":
         mechanical = f"{mechanical} Reviewer: {args.detail}"
 
-    # A2, not A3, even though the review *did* examine independence.
+    # A2, and independence is deliberately not graded at all.
     #
-    # A3_INDEPENDENCE_CHECKED reads "descent/parallelism between supporting
-    # witnesses was examined", which is literally what happened here — but
-    # `VerificationMethod` is a closed set and has no method that produces it.
-    # Grading A3 off an EXACT_SPAN check would assert a level no method in the
-    # vocabulary yields, which is exactly the kind of drift the closed set
-    # exists to prevent. The independence finding is recorded in `detail`
-    # instead, where it is readable without being graded.
+    # The review re-fetches spans, which is what A2 records. It also computes
+    # independence — but that is not a rung and must not become one: it is a
+    # pure function of current graph state, so `independent_support()` gives
+    # it live on every read, and freezing it here would store a derivable fact
+    # that one later `parallel_of` edge elsewhere could falsify with nobody
+    # having touched this node. See `AssuranceLevel`, which records the
+    # argument and the 2026-09-02 rename that removed the misleading rung.
     #
-    # If a reviewer's independence examination should count as A3, that needs
-    # a verification method of its own and an argument for adding it (see
-    # docs/handoff.md).
+    # The independence finding still goes in `detail`, where it is readable
+    # without being graded.
     verification_id = graph.verify(
         args.claim_id,
         method=VerificationMethod.EXACT_SPAN,

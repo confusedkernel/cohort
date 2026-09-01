@@ -12,6 +12,7 @@ import json
 import pytest
 
 from cohort.cli import main
+from cohort.eventlog import summarize_refusals
 from cohort.graph import Graph
 from cohort.schemas import (
     RESEARCHER,
@@ -195,6 +196,37 @@ def test_cli_and_http_return_the_same_node(seeded, capsys):
     # version of this test compared three keys and missed that the two front
     # ends disagreed about the shape entirely.
     assert from_cli == from_http
+
+
+def test_refusals_census_covers_the_whole_log_not_the_shown_tail(seeded, capsys):
+    """The census is over every refusal; `--limit` only truncates the list. A
+    census of the tail would report a smaller total than the log holds while
+    looking authoritative."""
+    main(["--db", seeded["db"], "--json", "refusals", "--limit", "1"])
+    payload = json.loads(capsys.readouterr().out)
+    assert len(payload["refusals"]) <= 1
+    assert payload["census"]["total"] == payload["total"]
+
+
+def test_refusals_census_flag_prints_the_summary_without_the_list(seeded, capsys):
+    main(["--db", seeded["db"], "refusals", "--census"])
+    out = capsys.readouterr().out
+    assert "refused write(s)" in out
+    assert "the write boundary holding" in out
+
+
+def test_cli_and_http_agree_on_the_census(seeded):
+    """Parity is the promise: the census must be the same object on both
+    surfaces, not two implementations that could drift."""
+    fastapi = pytest.importorskip("fastapi", reason="the `ui` extra is not installed")
+    from fastapi.testclient import TestClient
+
+    from cohort.ui.api import create_app
+
+    client = TestClient(create_app(seeded["db"], seeded["log"]))
+    http = client.get("/api/refusals").json()["census"]
+    direct = summarize_refusals(seeded["log"]).model_dump(mode="json")
+    assert http == direct
 
 
 # --- `run`, without spending anything ---------------------------------------
