@@ -389,7 +389,7 @@ sent instructions.
 | 1 | Graph store, event log, vocabulary, ladder, rebuild | **Done** — `cohort/{schemas,errors,eventlog,graph}.py`, 47 tests, `demo.py` |
 | 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done, live-verified** — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`. Real dev corpus is now confirmed as CBETA (see "Scope revision"), but the archive itself isn't obtained yet — only `examples/local_corpus` (a Tang-poem fixture) has actually been searched, live, against a real model |
 | 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done, live-verified.** `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) |
-| 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Blocked on the CBETA archive.** `cohort/sources/cbeta_reader.py` exists and is tested against a synthetic fixture, but whether CBETA's real TEI carries usable cross-reference/variant apparatus can't be confirmed without the actual files — see `HANDOFF.md` |
+| 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Unblocked; `parallel_of` and collation halves done, live-verified.** `cohort/sources/cbeta_markup.py` parses `<cb:docNumber>` cross-references and `<app>` apparatus; `cohort/tools/link_parallels.py` writes `parallel_of` edges (asserted references only, and only to witnesses already in the graph); `cohort/tools/collate_editions.py` records `CROSS_EDITION_COLLATION` verifications. `scripts/run_stage4_demo.py` shows `independent_support` flipping on three real Heart Sutra translations, derived from the corpus rather than hand-added. Still open: `descends_from` extraction (the markup asserts parallelism, not descent) and contradiction surfacing — see `HANDOFF.md` |
 | 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified** — `cohort/agents/swarm.py::run_swarm()`, two real concurrent agents proven against OpenRouter. Researcher UI not started; tech stack decided — FastAPI JSON API + separate JS/React frontend, optional, no Postgres/queue (see "Decisions already made") |
 | 6 | ATELIER integration: source interface becomes an adapter; cumulative-coverage policy | Not started |
 
@@ -409,13 +409,14 @@ contribution; a large swarm without one is the thing being critiqued.
 | Multi-agent society, step 4 (real concurrency) | **Done, live-verified** — `cohort/agents/swarm.py::run_swarm()`; `AttestationWorker.run_async()` is now the canonical loop, with `asyncio.to_thread` scoped only around the one blocking HTTP call so concurrent workers' graph writes can never interleave |
 | Multi-agent society, step 5 (reputation scoring) | Still deferred, deliberately — concurrency didn't change the reasoning that kept it out: it's about what a score would reward, not when agents run |
 
-**Open decisions this document does not resolve** (design doc §14): corpus
-markup format (does CBETA's real TEI carry usable parallel/cross-reference
-apparatus? — a first answer now exists, see `HANDOFF.md`); chronology
-scheme (translation vs. composition vs. recension date, coordinate with
-CWN.dia). The development-corpus question itself is resolved (CBETA, see
-"Scope revision") and the archive itself has since been obtained — see
-`HANDOFF.md` for the current concrete state and next steps.
+**Open decisions this document does not resolve** (design doc §14):
+chronology scheme (translation vs. composition vs. recension date,
+coordinate with CWN.dia). The development-corpus question is resolved
+(CBETA, see "Scope revision"), the archive has been obtained, and the corpus
+markup-format question is now answered empirically — CBETA's TEI does carry
+usable parallel cross-references (`<cb:docNumber>`) and pervasive variant
+apparatus (`<app>`), both of which stage 4 now reads. See `HANDOFF.md` for
+the current concrete state and next steps.
 
 ---
 

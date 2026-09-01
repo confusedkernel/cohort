@@ -32,7 +32,16 @@ from .base import SearchHit, Source, SourceRecord
 CBETA_ENTRY_PREFIX = "Bookcase/CBETA/XML/"
 DEFAULT_MAX_ENTRY_BYTES = 50_000_000
 
-_T_NUMBER_RE = re.compile(r"(T\d+n\d+)")
+#: The trailing letter is **part of the identity**, not noise: the archive
+#: holds `T02n0128a` and `T02n0128b` (and 75 further such pairs) as separate
+#: texts. An earlier version of this pattern omitted `[A-Za-z]?`, which
+#: silently collapsed each pair onto one `witness` node — two different sutras
+#: sharing one identity, i.e. exactly the misattribution `CbetaArchiveError`
+#: exists to prevent elsewhere in this module.
+_T_NUMBER_RE = re.compile(r"(T\d+n\d+[A-Za-z]?)")
+#: `T08n0251` -> `251`; `T02n0128a` -> `128a`. Leading zeros dropped so the
+#: result compares directly against a `<cb:docNumber>` number.
+_T_REF_PARTS_RE = re.compile(r"^T(\d+)n0*(\d+[A-Za-z]?)$")
 
 
 class CbetaArchiveError(Exception):
@@ -161,7 +170,57 @@ class CbetaReader(Source):
         #: this class stores only what it's given, and never persists it
         #: back into the repository itself (the excerpts are corpus bytes).
         self.index = index
+        self._taisho_index: dict[str, set[str]] | None = None
         verify_archive_hash(self.archive_path, expected_sha256)  # fail at construction, not mid-run
+
+    def _taisho_number_index(self) -> dict[str, set[str]]:
+        """Lazily map Taisho number -> witness refs, from the archive's own
+        entry listing. Built on first use rather than at construction: it
+        needs the full namelist, which callers that only ever `fetch()` a
+        known ref should not pay for."""
+        if self._taisho_index is None:
+            idx: dict[str, set[str]] = {}
+            with zipfile.ZipFile(self.archive_path) as zf:
+                for name in zf.namelist():
+                    if not name.startswith(CBETA_ENTRY_PREFIX) or not name.endswith(".xml"):
+                        continue
+                    match = _T_NUMBER_RE.search(Path(name).name)
+                    if not match:
+                        continue
+                    parts = _T_REF_PARTS_RE.match(match.group(1))
+                    if parts:
+                        idx.setdefault(parts.group(2).lower(), set()).add(match.group(1))
+            self._taisho_index = idx
+        return self._taisho_index
+
+    def resolve_taisho_number(self, number: str) -> list[str]:
+        """Witness refs for a bare `<cb:docNumber>` Taisho number, e.g.
+        `"251"` -> `["T08n0251"]`.
+
+        Returns **every** candidate, sorted, and leaves the caller to refuse
+        an ambiguous one — it must not guess. Two ways ambiguity really
+        arises in v061:
+
+        - a text spanning several volumes shares one number (`220` ->
+          `T05n0220`, `T06n0220`, `T07n0220`);
+        - `<cb:docNumber>` sometimes writes a bare number where the archive
+          distinguishes lettered siblings (`1138` vs `T20n1138a`/`b`). An
+          exact match wins outright; only when there is none does the
+          letter-insensitive fallback apply, and then only its full
+          candidate set is returned, never an arbitrary pick.
+        """
+        idx = self._taisho_number_index()
+        key = number.strip().lower()
+        if key in idx:
+            return sorted(idx[key])
+        stripped = key.rstrip("abcdefghijklmnopqrstuvwxyz")
+        candidates = {
+            ref
+            for k, refs in idx.items()
+            if k.rstrip("abcdefghijklmnopqrstuvwxyz") == stripped
+            for ref in refs
+        }
+        return sorted(candidates)
 
     def search(self, query: str, max_results: int = 20) -> list[SearchHit]:
         if self.index is None:
