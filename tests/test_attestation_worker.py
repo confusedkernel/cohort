@@ -276,3 +276,71 @@ def test_run_swarm_isolates_one_workers_transport_failure(graph):
 
     assert results[0] == []  # the good worker's normal (empty) log
     assert isinstance(results[1], OpenRouterError)
+
+
+class ClaimThenAttestTransport:
+    """Reads the claim id back out of the tool-result message, the way the
+    model itself has to, instead of having it patched in. That makes this a
+    real proof that propose_claim's return value is usable as the next
+    call's input — which is the whole point of adding the tool."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def __call__(self, url, headers, body, timeout):
+        payload = json.loads(body)
+        self.calls.append(payload)
+        tool_results = [m for m in payload["messages"] if m["role"] == "tool"]
+        if not tool_results:
+            resp = _response(tool_calls=[_tool_call("propose_claim", {
+                "text": "The moon figures as homesickness in this corpus",
+                "grounding_query": "明月",
+            })], finish_reason="tool_calls")
+        elif len(tool_results) == 1:
+            claim_id = json.loads(tool_results[0]["content"])["result"]
+            resp = _response(tool_calls=[_tool_call(
+                "find_attestations", {"claim_or_conjecture_id": claim_id, "query": "明月"},
+                id_="call_2",
+            )], finish_reason="tool_calls")
+        else:
+            resp = _response(content="done", finish_reason="stop")
+        return 200, json.dumps(resp).encode("utf-8")
+
+
+def test_worker_proposes_a_claim_then_attests_it_in_one_loop(graph, source):
+    """The round trip the live conjecture run could not make: before
+    propose_claim existed, a worker that wanted attestations for a
+    proposition not yet in the graph had to invent a node id, and was
+    refused five times over. Here it gets the id from its own previous tool
+    call and the loop closes."""
+    worker = _worker(graph, source=source, transport=ClaimThenAttestTransport())
+
+    log = worker.run("propose and attest a claim")
+
+    assert [e["tool"] for e in log] == ["propose_claim", "find_attestations"]
+    assert not any(e["is_error"] for e in log)
+    claim_id = log[0]["result"]
+    assert graph.get_node(claim_id).type == "claim"
+    assert graph.edges(edge_type=EdgeType.ATTESTS, dst=claim_id)
+
+    graph.attest(claim_id, authored_by=AGENT)
+    assert graph.get_node(claim_id).status == "attested"
+
+
+def test_worker_reports_an_ungrounded_claim_back_to_the_model(graph, source):
+    """The grounding guard has to surface as a tool error the model can act
+    on, not as a crash — same contract as every other refusal."""
+    transport = FakeTransport([
+        _response(tool_calls=[_tool_call("propose_claim", {
+            "text": "a claim about nothing in this corpus",
+            "grounding_query": "龍樹菩薩勸誡王頌",
+        })], finish_reason="tool_calls"),
+        _response(content="adjusting", finish_reason="stop"),
+    ])
+    worker = _worker(graph, source=source, transport=transport)
+
+    log = worker.run("propose a claim")
+
+    assert log[0]["is_error"] is True
+    assert "no hits" in log[0]["result"]
+    assert not graph.nodes(node_type="claim")

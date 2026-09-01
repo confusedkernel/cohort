@@ -7,7 +7,7 @@ multi-agent textual research (`DESIGN.md` for the design, `ROADMAP.md` for
 architecture/tech-stack/build-order — read both before changing anything).
 It is not a prototype of an idea; it runs, live, against a real model.
 
-**What's actually been proven, not just written**: 212 tests pass
+**What's actually been proven, not just written**: 219 tests pass
 (`pytest -q`); `demo.py` runs end-to-end with no corpus or API key needed;
 `scripts/smoke_openrouter.py` has completed a real OpenRouter call;
 `scripts/run_swarm_demo.py` has completed two *concurrent* real agents
@@ -214,6 +214,110 @@ matter into infrastructure, which §5 principle 2 refuses. When a conjecture
 rests on a truncated result set, that belongs in
 `ConjecturePayload.selection_risks`.
 
+**Update: `propose_conjecture` has now run live against the real corpus** —
+the last stage-2/3 capability that had never touched real text.
+`scripts/run_conjecture_demo.py`, one agent, four turns, **$0.0039 total**
+(`z-ai/glm-5.3-flash`). Spend is capped *in code*: the script wraps the
+transport (`AttestationWorker` already accepts one, so no core changes) and
+refuses the next request once OpenRouter's reported costs reach the cap — a
+hard stop before a call, since a budget only checked afterwards is not a
+budget. A response with no reported cost is charged an estimate rather than
+zero.
+
+The run produced one conjecture with a complete dossier, a real prior-art
+search over the full corpus (20 hits), a `searched_for` edge, and a `tests`
+edge — so it is attestable by the falsifiability gate. The content is
+genuinely scholarship-shaped: that the four-clause unit
+「色不異空，空不異色，色即是空，空即是色」 was transmitted as a fixed unit
+already stabilised in Chinese before the extant recensions diverged, with
+named alternatives (independent translation using conventional renderings,
+descent from Kumārajīva's 大品般若 wording, scribal harmonisation).
+
+**The interesting result is the failures.** Before succeeding, the agent made
+**five `find_attestations` calls against node ids it invented**
+(`prior_art_色即是空`, `new-claim-色即是空`, …). Every one was refused with
+`NodeNotFound`, reported back to the model as a tool error, and the agent
+adapted and completed the task. That is the write boundary working exactly as
+designed — DESIGN.md §5 principle 4, refusals surfaced rather than silently
+dropped — and it is the first time that path has been exercised by a real
+model rather than a test.
+
+The root cause was a genuine gap: **an agent had no tool for creating a
+`claim`**, so when it wanted attestations for something not yet in the graph
+it fabricated an id instead. **This has since been fixed — see the
+`propose_claim` section below.**
+
+One incidental validation: the model's own `selection_risks` warned that "the
+FTS may normalize punctuation and variant characters, merging distinct
+recensions". That is a real property of FTS5's unicode61 tokenizer — and it is
+already mitigated, because `cbeta_fts.search()` re-checks every candidate for
+an exact substring match in Python, so returned hits are exact. The risk was
+correctly identified and is already handled.
+
+**Update: `propose_claim` is built — the tool the conjecture run showed was
+missing.** An agent can now create a `claim`, so the loop that previously
+dead-ended in five fabricated ids closes: propose the claim, then call
+`find_attestations` on the id the first call returned.
+
+It is deliberately **not** a bare one-field write. `ClaimPayload` asks only
+for `text`, so an unguarded tool would be markedly *cheaper* than
+`propose_conjecture` (four-field dossier, prior-art search, prospective
+query). That asymmetry would be a bypass: anything an agent could not get
+past the falsifiability gate it could relabel as a claim, bolt on whatever
+passages a search returned, and ride the ladder to `attested` with no
+dossier — precisely the "vacuous grounded claim" DESIGN.md §7 says citation
+checking "passes happily, because a claim can be perfectly cited and say
+nothing".
+
+The guard mirrors `propose_conjecture`'s prior-art step: the grounding query
+is run against the corpus *before* the claim node is written, and a query
+with no hits refuses the claim. Nothing is written on the refusal path — no
+orphan claim, no orphan query node (tested). It is a **tool-level** check,
+not a new write-boundary rule: `errors.py` owns state validity raised by
+`graph.py` and nowhere else, so this raises a plain `ValueError`, the same
+way `find_attestations` does for a wrong node type, and the worker reports it
+back to the model like any other refusal.
+
+The guard costs nothing legitimate. A claim whose grounding query returns
+nothing has no passages to cite, so `attest()` would refuse it anyway
+(`UnattestableClaim`) — the refusal just arrives one rung earlier. The one
+case it genuinely turns away is the **negative claim** ("X does not occur in
+this corpus"), and that case belongs in `propose_conjecture` on its merits:
+an absence is settled by a retrieval, not by citation, which is exactly what
+a `tests` edge records. The refusal message says so rather than leaving the
+agent to guess.
+
+The tool does not attach attestations itself — `find_attestations` already
+takes a claim id and records `attests` edges through the same boundary, and
+duplicating that here would give two tools two subtly different ways to
+write evidence.
+
+**One vocabulary change, deliberately minimal**: `searched_for`'s domain
+widened from `{(query, conjecture)}` to also allow `(query, claim)`. A
+claim's grounding search is the same kind of fact about the same kind of
+node — a retrieval actually run before something was proposed — so it
+belongs on that edge rather than on a second near-identical type. The
+vocabulary stays closed; only this type's domain grew. `tests` is
+deliberately **not** widened alongside it: a `tests` edge is what makes a
+conjecture attestable, and letting one point at a claim would open a second
+route past the falsifiability gate. A regression test asserts
+`searched_for` still refuses a `query -> passage` edge.
+
+`PROMPT_VERSION` is bumped to `attestation_worker/v3-propose-claim` so
+logged `model_call` events stay groupable by the tool contract that produced
+them. The system prompt now also says, flatly, never to invent a node id.
+
+The UI needed no change: `query` already has a column and `searched_for`
+already has an edge style.
+
+Files: `cohort/tools/propose_claim.py` (new), `cohort/graph.py`
+(`EDGE_DOMAINS`), `cohort/agents/attestation_worker.py`,
+`tests/test_tools.py`, `tests/test_attestation_worker.py`. **Not yet run
+against a live model** — the loop is proven by a fake transport that reads
+the claim id back out of the tool-result message the way a model has to,
+but no real API call has exercised it.
+
+
 **Update: the researcher UI (stage 5) is built and serving — read-only.**
 
 `cohort/ui/api.py` is a FastAPI JSON API over `graph.py`'s reader surface;
@@ -382,8 +486,9 @@ claims built on it would be false from the start.
   (`entry_path -> known excerpts`) — see the update at the top of this
   file and `cbeta_index.json` (gitignored).
 - `AttestationWorker` (OpenRouter-backed, stdlib `urllib` transport, no
-  client library) with two tools (`find_attestations`, `propose_conjecture`)
-  and `run_swarm()` for real concurrent multi-agent execution.
+  client library) with three tools (`propose_claim`, `find_attestations`,
+  `propose_conjecture`) and `run_swarm()` for real concurrent multi-agent
+  execution.
 - Agent identity (`register_agent`, `AgentProfile`, `agent_report()` as a
   pure contribution count, deliberately not a reputation score).
 
@@ -391,8 +496,6 @@ claims built on it would be false from the start.
 
 - Relevance ranking over search results — deliberately absent, see the
   full-corpus index section above. Results come back in corpus order.
-- `propose_conjecture` run against real Buddhist text — only
-  `find_attestations` has been run against the real archive so far.
 - Stage 4's remaining pieces: `descends_from` extraction (nothing in the
   markup asserts descent directly — `parallel_of` is what the corpus
   actually states) and contradiction surfacing. The `parallel_of` and
@@ -424,6 +527,8 @@ cp .env.example .env               # then fill in OPENROUTER_API_KEY / OPENROUTE
 .venv/bin/python scripts/search_cbeta.py 色即是空  # search the whole corpus (needs that index)
 .venv/bin/python scripts/scan_parallels.py       # corpus-wide parser validation, ~8s, read-only
                                                   # -> ~/cbeta_scan/{parallel_map.jsonl,unparsed.txt,summary.txt}
+.venv/bin/python scripts/run_conjecture_demo.py  # live propose_conjecture, manual only.
+                                                  # Spend is capped in code: --budget (default $0.25)
 ```
 
 Venvs bake in absolute paths — if this repo gets moved again after being

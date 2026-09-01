@@ -1,12 +1,13 @@
-"""The stage-2 tools: find_attestations and propose_conjecture, exercised
-against the write boundary and the local_corpus fixture."""
+"""The stage-2 tools: propose_claim, find_attestations and
+propose_conjecture, exercised against the write boundary and the
+local_corpus fixture."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from cohort.errors import UnattestableConjecture
+from cohort.errors import UnattestableClaim, UnattestableConjecture
 from cohort.schemas import (
     ClaimPayload,
     ConjecturePayload,
@@ -19,6 +20,7 @@ from cohort.schemas import (
 from cohort.sources.cbeta_reader import CbetaReader
 from cohort.sources.local_reader import LocalReader
 from cohort.tools.find_attestations import FindAttestationsInput, find_attestations
+from cohort.tools.propose_claim import ProposeClaimInput, propose_claim
 from cohort.tools.propose_conjecture import ProposeConjectureInput, propose_conjecture
 
 AGENT = "agent:worker-1"
@@ -169,3 +171,95 @@ def test_propose_conjecture_result_is_attestable(graph, source):
     )
     graph.attest(conjecture_id, authored_by=AGENT)
     assert graph.get_node(conjecture_id).status == NodeStatus.ATTESTED
+
+
+# --- propose_claim ------------------------------------------------------------
+
+def test_propose_claim_creates_a_claim_and_records_the_grounding_search(graph, source):
+    claim_id = propose_claim(
+        graph, source,
+        ProposeClaimInput(
+            text="The moon figures as homesickness in this corpus",
+            grounding_query="明月",
+        ),
+        authored_by=AGENT,
+    )
+    node = graph.get_node(claim_id)
+    assert node.type == "claim"
+    assert node.status == NodeStatus.PROPOSED
+
+    searched_for = graph.edges(edge_type=EdgeType.SEARCHED_FOR, dst=claim_id)
+    assert len(searched_for) == 1
+    query_node = graph.get_node(searched_for[0].src)
+    assert query_node.type == "query"
+    assert "明月" in query_node.payload["text"]
+
+
+def test_propose_claim_refuses_an_ungrounded_claim_and_writes_nothing(graph, source):
+    before = len(graph.nodes())
+    with pytest.raises(ValueError, match="no hits"):
+        propose_claim(
+            graph, source,
+            ProposeClaimInput(text="ungrounded", grounding_query="龍樹菩薩勸誡王頌"),
+            authored_by=AGENT,
+        )
+    # the refusal path leaves no orphan claim and no orphan query node
+    assert len(graph.nodes()) == before
+
+
+def test_propose_claim_points_an_absence_at_propose_conjecture(graph, source):
+    """The one legitimate case the grounding guard turns away should say where
+    it belongs, rather than leaving the agent to guess."""
+    with pytest.raises(ValueError, match="conjecture"):
+        propose_claim(
+            graph, source,
+            ProposeClaimInput(
+                text="This phrase never occurs in the corpus",
+                grounding_query="龍樹菩薩勸誡王頌",
+            ),
+            authored_by=AGENT,
+        )
+
+
+def test_propose_claim_result_is_not_attestable_until_it_cites_something(graph, source):
+    """A grounded claim is still only `proposed`: the grounding search
+    establishes that something is citable, not that it has been cited. The
+    ladder's own rule (design doc §8) is what makes the claim wait for real
+    attests edges, and propose_claim must not shortcut it."""
+    claim_id = propose_claim(
+        graph, source,
+        ProposeClaimInput(text="a grounded claim", grounding_query="明月"),
+        authored_by=AGENT,
+    )
+    with pytest.raises(UnattestableClaim):
+        graph.attest(claim_id, authored_by=AGENT)
+
+    find_attestations(
+        graph, source,
+        FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
+        authored_by=AGENT,
+    )
+    graph.attest(claim_id, authored_by=AGENT)
+    assert graph.get_node(claim_id).status == NodeStatus.ATTESTED
+
+
+def test_searched_for_still_refuses_a_query_pointing_at_a_passage(graph, source):
+    """Widening the searched_for domain to claims must not have opened it to
+    everything (design doc: the vocabulary stays closed)."""
+    from cohort.errors import EdgeDomainViolation
+
+    claim_id = propose_claim(
+        graph, source,
+        ProposeClaimInput(text="a claim", grounding_query="明月"),
+        authored_by=AGENT,
+    )
+    passage_ids = find_attestations(
+        graph, source,
+        FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
+        authored_by=AGENT,
+    )
+    query_id = graph.edges(edge_type=EdgeType.SEARCHED_FOR, dst=claim_id)[0].src
+    with pytest.raises(EdgeDomainViolation):
+        graph.add_edge(
+            EdgeType.SEARCHED_FOR, query_id, passage_ids[0], authored_by=AGENT,
+        )

@@ -90,7 +90,18 @@ EDGE_DOMAINS: dict[EdgeType, set[tuple[NodeType, NodeType]] | str] = {
         (NodeType.VERIFICATION, NodeType.PASSAGE),
         (NodeType.VERIFICATION, NodeType.WITNESS),
     },
-    EdgeType.SEARCHED_FOR: {(NodeType.QUERY, NodeType.CONJECTURE)},
+    #: widened from conjecture-only when `propose_claim` arrived: a claim's
+    #: grounding search is the same kind of fact about the same kind of node
+    #: — a retrieval that was actually run before something was proposed —
+    #: so it belongs on this edge rather than on a second, near-identical
+    #: type. The vocabulary stays closed; only this type's domain grew.
+    #: `tests` is deliberately *not* widened alongside it: a `tests` edge is
+    #: what makes a conjecture attestable, and letting one point at a claim
+    #: would offer a second route past the falsifiability gate.
+    EdgeType.SEARCHED_FOR: {
+        (NodeType.QUERY, NodeType.CONJECTURE),
+        (NodeType.QUERY, NodeType.CLAIM),
+    },
 }
 
 #: written as two rows (both directions) from one logged event, so a

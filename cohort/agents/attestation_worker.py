@@ -32,6 +32,9 @@ from ..sources.base import Source
 from ..tools.find_attestations import DESCRIPTION as FIND_ATTESTATIONS_DESCRIPTION
 from ..tools.find_attestations import NAME as FIND_ATTESTATIONS_NAME
 from ..tools.find_attestations import FindAttestationsInput, find_attestations
+from ..tools.propose_claim import DESCRIPTION as PROPOSE_CLAIM_DESCRIPTION
+from ..tools.propose_claim import NAME as PROPOSE_CLAIM_NAME
+from ..tools.propose_claim import ProposeClaimInput, propose_claim
 from ..tools.propose_conjecture import DESCRIPTION as PROPOSE_CONJECTURE_DESCRIPTION
 from ..tools.propose_conjecture import NAME as PROPOSE_CONJECTURE_NAME
 from ..tools.propose_conjecture import ProposeConjectureInput, propose_conjecture
@@ -39,21 +42,29 @@ from .openrouter import complete, default_transport, load_openrouter_config
 
 #: bump whenever SYSTEM_PROMPT or TOOLS changes shape, so logged model_call
 #: events can be grouped by which prompt/tool contract actually produced them.
-PROMPT_VERSION = "attestation_worker/v2-openrouter"
+PROMPT_VERSION = "attestation_worker/v3-propose-claim"
 
 SYSTEM_PROMPT = (
     "You are an attestation worker in COHORT, an evidence graph for textual "
-    "research. You have exactly two tools, both of which write to the graph "
+    "research. You have exactly three tools, all of which write to the graph "
     "through its own enforced rules — you cannot write structure any other "
     "way, and a call that violates a rule is refused and reported back to "
-    "you, not silently dropped. find_attestations searches the corpus for a "
-    "claim or conjecture and records matching passages as evidence. "
+    "you, not silently dropped. Never invent a node id: every id you pass to "
+    "a tool must be one a tool returned to you, or one already in the graph. "
+    "propose_claim creates a claim — an assertion the sources state, which "
+    "must cite passages — and requires a grounding query that is run against "
+    "the corpus first; a query with no hits refuses the claim, because a "
+    "claim with nothing to cite can never be attested. find_attestations "
+    "searches the corpus for a claim or conjecture and records matching "
+    "passages as evidence; use it on the id propose_claim returns. "
     "propose_conjecture proposes something the sources don't state outright, "
     "but requires a full dossier (derivation, corpus boundary, selection "
     "risks, alternative explanations), a prior-art query that is actually "
     "run against the corpus first, and a query that would confirm or "
     "refute the conjecture going forward — a conjecture proposed without "
-    "the prospective query is refused. Call tools; do not narrate progress "
+    "the prospective query is refused. An absence — that something does not "
+    "occur in the corpus — is a conjecture, not a claim, because only a "
+    "retrieval can settle it. Call tools; do not narrate progress "
     "in text. Stop once you've made reasonable progress or run out of "
     "queries worth trying."
 )
@@ -105,6 +116,14 @@ def _profile_context(profile: AgentProfile | None) -> str:
 
 
 TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": PROPOSE_CLAIM_NAME,
+            "description": PROPOSE_CLAIM_DESCRIPTION,
+            "parameters": ProposeClaimInput.model_json_schema(),
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -228,6 +247,12 @@ class AttestationWorker:
         reported back to the model as a tool error, not raised — the worker
         should see refusals and adjust, the same way the audit log does."""
         try:
+            if name == PROPOSE_CLAIM_NAME:
+                parsed = ProposeClaimInput.model_validate(args)
+                return False, propose_claim(
+                    self.graph, self.source, parsed, authored_by=self.authored_by,
+                    model_call_id=model_call_id,
+                )
             if name == FIND_ATTESTATIONS_NAME:
                 parsed = FindAttestationsInput.model_validate(args)
                 return False, find_attestations(
