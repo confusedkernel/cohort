@@ -45,7 +45,8 @@ class FindAttestationsInput(BaseModel):
 
 
 def find_attestations(
-    graph: Graph, source: Source, args: FindAttestationsInput, *, authored_by: str
+    graph: Graph, source: Source, args: FindAttestationsInput, *, authored_by: str,
+    model_call_id: int | None = None,
 ) -> list[str]:
     target = graph.get_node(args.claim_or_conjecture_id)
     if target.type not in (NodeType.CLAIM, NodeType.CONJECTURE):
@@ -66,7 +67,7 @@ def find_attestations(
                     basis="not yet dated by this worker; no dating route run",
                 ),
             ),
-            authored_by=authored_by,
+            authored_by=authored_by, model_call_id=model_call_id,
         )
 
         passage_id = graph.propose_passage(
@@ -74,16 +75,18 @@ def find_attestations(
                 canonical_ref=f"{record.witness_ref}#{hit.ref}",
                 locator=record.locator or hit.ref,
                 excerpt=hit.snippet,
+                source_ref=hit.ref,  # lets verify_exact_span re-fetch this exact record later
             ),
             witness_id=witness_id,
-            authored_by=authored_by,
+            authored_by=authored_by, model_call_id=model_call_id,
         )
 
         if graph.get_node(passage_id).status == NodeStatus.PROPOSED:
-            graph.attest(passage_id, authored_by=authored_by)
+            graph.attest(passage_id, authored_by=authored_by, model_call_id=model_call_id)
 
         graph.add_edge(
-            EdgeType.ATTESTS, passage_id, args.claim_or_conjecture_id, authored_by=authored_by
+            EdgeType.ATTESTS, passage_id, args.claim_or_conjecture_id, authored_by=authored_by,
+            model_call_id=model_call_id,
         )
         passage_ids.append(passage_id)
 

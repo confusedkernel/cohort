@@ -85,32 +85,54 @@ def test_find_attestations_refuses_a_witness_target(graph, source):
         )
 
 
-def test_propose_conjecture_creates_conjecture_query_and_tests_edge(graph):
-    conjecture_id = propose_conjecture(
-        graph,
-        ProposeConjectureInput(
-            text="An earlier Kuchean recension underlies this passage",
-            tests_query_text="search Kuchean fragment catalogues for a parallel",
-        ),
-        authored_by=AGENT,
+def _conjecture_input(**overrides):
+    defaults = dict(
+        text="An earlier Kuchean recension underlies this passage",
+        derivation="vocabulary matches Kuchean loanword patterns",
+        corpus_boundary="only the local_corpus fixture was searched",
+        selection_risks="none identified",
+        alternative_explanations="a later redactor independently chose similar vocabulary",
+        prior_art_query="Kuchean recension",
+        tests_query_text="search Kuchean fragment catalogues for a parallel",
     )
+    defaults.update(overrides)
+    return ProposeConjectureInput(**defaults)
+
+
+def test_propose_conjecture_creates_conjecture_query_and_tests_edge(graph, source):
+    conjecture_id = propose_conjecture(graph, source, _conjecture_input(), authored_by=AGENT)
     node = graph.get_node(conjecture_id)
     assert node.type == "conjecture"
     assert len(graph.edges(edge_type=EdgeType.TESTS, dst=conjecture_id)) == 1
 
 
+def test_propose_conjecture_records_the_prior_art_search_as_run(graph, source):
+    conjecture_id = propose_conjecture(graph, source, _conjecture_input(), authored_by=AGENT)
+    searched_for = graph.edges(edge_type=EdgeType.SEARCHED_FOR, dst=conjecture_id)
+    assert len(searched_for) == 1
+    query_node = graph.get_node(searched_for[0].src)
+    assert query_node.type == "query"
+    assert "Kuchean recension" in query_node.payload["text"]
+
+
 def test_conjecture_without_the_tool_stays_unattestable(graph):
     conjecture_id = graph.propose_conjecture(
-        ConjecturePayload(text="bare conjecture"), authored_by=AGENT
+        ConjecturePayload(
+            text="bare conjecture",
+            derivation="none",
+            corpus_boundary="none",
+            selection_risks="none identified",
+            alternative_explanations="none identified",
+        ),
+        authored_by=AGENT,
     )
     with pytest.raises(UnattestableConjecture):
         graph.attest(conjecture_id, authored_by=AGENT)
 
 
-def test_propose_conjecture_result_is_attestable(graph):
+def test_propose_conjecture_result_is_attestable(graph, source):
     conjecture_id = propose_conjecture(
-        graph,
-        ProposeConjectureInput(text="claim", tests_query_text="a testing query"),
+        graph, source, _conjecture_input(text="claim", tests_query_text="a testing query"),
         authored_by=AGENT,
     )
     graph.attest(conjecture_id, authored_by=AGENT)

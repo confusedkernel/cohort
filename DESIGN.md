@@ -152,6 +152,12 @@ part, not the agent count. In this phase parallelism is bounded by the local
 corpus and by good manners; access-mode gating belongs to ATELIER and arrives
 with it.
 
+> **Superseded, see `ROADMAP.md` "Scope revision".** After comparing against
+> a parallel project, agent count is now allowed to grow, conditioned on
+> demonstrating declared viewpoint diversity rather than being the claim
+> itself. Recorded here rather than deleted, per this document's own rule
+> that a superseded guarantee must say so, not go quiet.
+
 ---
 
 ## 5. Design principles
@@ -327,6 +333,8 @@ Each is a plausible wrong turn that would look like progress.
 - **Content-layer claims.** 工具層 contribution. Do not ship an argument about
   textual history dressed as a demo.
 - **Agent count as a headline number.** A scale claim, not a mechanism.
+  **Superseded, see `ROADMAP.md` "Scope revision"** — allowed now when it
+  demonstrates declared viewpoint diversity, not scale for its own sake.
 
 ---
 
@@ -455,6 +463,10 @@ Do not guess at these.
 **Development corpus.** Must be public-domain or locally-held (section 2, rule
 1), and small enough to iterate on. Michael's Buddhist material may qualify; so
 may a CBETA or Kanripo checkout. Confirm before stage 2.
+
+> **Resolved, see `ROADMAP.md` "Scope revision".** CBETA v061 is the
+> confirmed corpus, accepted as "locally-held" under section 2 rule 1 with
+> its real license terms preserved through the pipeline, not waived.
 
 **Corpus format.** Does the data carry parallel or cross-reference markup
 already? If yes, the first `parallel_of` edges are free

@@ -1,0 +1,143 @@
+"""OpenRouter transport — replaces the Anthropic SDK entirely (ROADMAP.md
+"Scope revision", OpenRouter workstream).
+
+Deliberately stdlib-only: `urllib.request` for the one HTTP call this needs,
+not `httpx`. MEEP has zero HTTP dependencies today; adding a client library
+to replace an SDK would be a lateral dependency swap, not the reduction it
+looks like, and MEEP already hand-rolls narrow, well-understood surfaces
+elsewhere (the FTS5 CJK-unigram trick, the write boundary itself instead of
+an ORM) rather than reaching for a library. One endpoint with a well-defined
+shape doesn't need one either.
+
+OpenRouter's `/chat/completions` is OpenAI-compatible, not Anthropic-shaped.
+epistemic-swarm's own OpenRouter transport doesn't do tool-calling at all
+(it uses structured JSON output) — this wire format is designed fresh
+against the OpenAI tool-calling spec, not ported from anywhere.
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+class OpenRouterError(Exception):
+    """A transport-level failure — not a graph-rule violation, so this
+    lives here rather than in `errors.py` (whose own docstring already
+    draws that line)."""
+
+    def __init__(self, message: str, *, status: int | None = None, cause: str | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.cause = cause  # "network" | "timeout" | "http_error" | "invalid_response" | "config"
+
+
+class _Model(BaseModel):
+    model_config = ConfigDict(extra="ignore")  # tolerate fields OpenRouter adds later
+
+
+class OpenRouterFunctionCall(_Model):
+    name: str
+    arguments: str  # a JSON-encoded STRING, unlike Anthropic's already-parsed .input dict
+
+
+class OpenRouterToolCall(_Model):
+    id: str
+    function: OpenRouterFunctionCall
+
+
+class OpenRouterMessage(_Model):
+    role: str
+    content: str | None = None
+    tool_calls: list[OpenRouterToolCall] | None = None
+
+
+class OpenRouterChoice(_Model):
+    message: OpenRouterMessage
+    finish_reason: str
+
+
+class OpenRouterUsage(_Model):
+    prompt_tokens: int
+    completion_tokens: int
+    #: OpenRouter reports this directly — no guessed pricing table needed.
+    cost: float | None = None
+
+
+class OpenRouterResponse(_Model):
+    id: str
+    model: str
+    choices: list[OpenRouterChoice] = Field(min_length=1)
+    usage: OpenRouterUsage
+
+
+def default_transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> tuple[int, bytes]:
+    req = Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urlopen(req, timeout=timeout) as resp:  # noqa: S310 — url is a fixed constant, not user input
+            return resp.status, resp.read()
+    except HTTPError as e:
+        return e.code, e.read()
+    except URLError as e:
+        cause = "timeout" if "timed out" in str(e.reason).lower() else "network"
+        raise OpenRouterError(f"OpenRouter request failed: {e.reason}", cause=cause) from e
+
+
+def complete(
+    model: str, messages: list[dict], tools: list[dict], *, api_key: str,
+    timeout: float = 30.0, transport=default_transport,
+) -> OpenRouterResponse:
+    """Validated at the boundary before anything touches domain logic — the
+    same discipline MEEP already applies to tool inputs, applied here to a
+    network response. `transport` is the test seam: pass a fake callable in
+    tests, no HTTP-mocking dependency needed."""
+    body = json.dumps({"model": model, "messages": messages, "tools": tools}).encode("utf-8")
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    status, raw = transport(OPENROUTER_URL, headers, body, timeout)
+    if status != 200:
+        raise OpenRouterError(
+            f"OpenRouter request failed (status {status}): {raw.decode('utf-8', errors='replace')}",
+            status=status, cause="http_error",
+        )
+    try:
+        return OpenRouterResponse.model_validate(json.loads(raw))
+    except (ValueError, ValidationError) as e:
+        raise OpenRouterError("Invalid OpenRouter response", status=status, cause="invalid_response") from e
+
+
+def _load_dotenv(path: Path = Path(".env")) -> None:
+    """A small hand-rolled loader, not `python-dotenv`: MEEP's `.env` only
+    ever needs flat `KEY=value` pairs, optionally wrapped in one matching
+    pair of quotes (a common `.env` convention) — no multiline or `export`
+    prefix support needed, so this is sufficient and honest about its
+    limits, not a corner cut."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]  # a single matching pair of quotes, a common .env convention
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def load_openrouter_config() -> tuple[str, str]:
+    _load_dotenv()
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    model = os.environ.get("OPENROUTER_MODEL")
+    if not api_key:
+        raise OpenRouterError("OPENROUTER_API_KEY is not set (see .env.example)", cause="config")
+    if not model:
+        raise OpenRouterError("OPENROUTER_MODEL is not set (see .env.example)", cause="config")
+    return api_key, model

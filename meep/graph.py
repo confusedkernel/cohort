@@ -10,6 +10,7 @@ fresh timestamp, so replay is deterministic.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import itertools
 import json
 import sqlite3
@@ -36,8 +37,12 @@ from .errors import (
     UnattestableConjecture,
 )
 from .eventlog import EventLog, read_events
+from .migrations import apply_migrations
 from .schemas import (
     RESEARCHER,
+    AgentProfile,
+    AgentReport,
+    AssuranceLevel,
     Authorship,
     ClaimPayload,
     ConjecturePayload,
@@ -46,12 +51,16 @@ from .schemas import (
     EdgeType,
     Event,
     IndependentSupport,
+    IntegrityReport,
     Node,
     NodeStatus,
     NodeType,
     PassagePayload,
     QueryPayload,
     RebuildReport,
+    VerificationMethod,
+    VerificationPayload,
+    VerificationResult,
     WitnessPayload,
 )
 
@@ -75,6 +84,13 @@ EDGE_DOMAINS: dict[EdgeType, set[tuple[NodeType, NodeType]] | str] = {
     EdgeType.TESTS: {(NodeType.QUERY, NodeType.CONJECTURE)},
     EdgeType.SUPERSEDES: "same_type",
     EdgeType.PART_OF: {(NodeType.PASSAGE, NodeType.WITNESS)},
+    EdgeType.VERIFIES: {
+        (NodeType.VERIFICATION, NodeType.CLAIM),
+        (NodeType.VERIFICATION, NodeType.CONJECTURE),
+        (NodeType.VERIFICATION, NodeType.PASSAGE),
+        (NodeType.VERIFICATION, NodeType.WITNESS),
+    },
+    EdgeType.SEARCHED_FOR: {(NodeType.QUERY, NodeType.CONJECTURE)},
 }
 
 #: written as two rows (both directions) from one logged event, so a
@@ -83,49 +99,10 @@ EDGE_DOMAINS: dict[EdgeType, set[tuple[NodeType, NodeType]] | str] = {
 #: symmetric on read" weak point, fixed by construction here).
 SYMMETRIC_EDGE_TYPES = {EdgeType.CONTRADICTS, EdgeType.PARALLEL_OF}
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS nodes (
-    id              TEXT PRIMARY KEY,
-    type            TEXT NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'proposed',
-    payload         TEXT NOT NULL,
-    rejected_reason TEXT,
-    created_seq     INTEGER NOT NULL,
-    updated_seq     INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
-CREATE INDEX IF NOT EXISTS idx_nodes_status ON nodes(status);
-
-CREATE TABLE IF NOT EXISTS node_authorship (
-    node_id TEXT NOT NULL,
-    author  TEXT NOT NULL,
-    action  TEXT NOT NULL,
-    at      TEXT NOT NULL,
-    seq     INTEGER NOT NULL,
-    PRIMARY KEY (node_id, seq)
-);
-
-CREATE TABLE IF NOT EXISTS edges (
-    id          TEXT PRIMARY KEY,
-    type        TEXT NOT NULL,
-    src         TEXT NOT NULL,
-    dst         TEXT NOT NULL,
-    created_seq INTEGER NOT NULL,
-    UNIQUE(type, src, dst)
-);
-CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(type, src);
-CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(type, dst);
-
-CREATE TABLE IF NOT EXISTS edge_authorship (
-    edge_id TEXT NOT NULL,
-    author  TEXT NOT NULL,
-    action  TEXT NOT NULL,
-    at      TEXT NOT NULL,
-    seq     INTEGER NOT NULL,
-    PRIMARY KEY (edge_id, seq)
-);
-"""
-
+#: AssuranceLevel is defined low-to-high; StrEnum iteration order is
+#: definition order, so this ranks each rung without hardcoding numbers
+#: that could drift from the enum.
+_ASSURANCE_RANK = {level: i for i, level in enumerate(AssuranceLevel)}
 
 class Graph:
     def __init__(self, db_path: str | Path, event_log: EventLog | None = None) -> None:
@@ -138,8 +115,7 @@ class Graph:
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.executescript(_SCHEMA)
-        self.conn.commit()
+        apply_migrations(self.conn)
 
     @classmethod
     def open(cls, db_path: str | Path, log_path: str | Path) -> "Graph":
@@ -187,13 +163,37 @@ class Graph:
             raise NoEventLog("this Graph has no attached EventLog; writes are disabled")
         return self.event_log
 
+    def log_model_call(
+        self, *, authored_by: str, model: str, provider: str = "openrouter",
+        prompt_version: str | None = None, latency_ms: int | None = None,
+        input_tokens: int | None = None, output_tokens: int | None = None,
+        cost_usd: float | None = None,
+    ) -> Event:
+        """A non-mutating audit marker (design doc §5 principle 1: every
+        mutation is logged — this logs an API call, which is not one, hence
+        `_apply()` treats it as a no-op, same as "refused"). Returns the
+        Event so its `seq` can be threaded through as `model_call_id` on the
+        write(s) it caused."""
+        ev = self.event_log_or_raise().append(
+            "model_call", authored_by=authored_by, model=model, provider=provider,
+            prompt_version=prompt_version, latency_ms=latency_ms,
+            input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=cost_usd,
+        )
+        self._apply(ev)
+        return ev
+
     # --- proposal ----------------------------------------------------------
 
-    def propose_witness(self, payload: WitnessPayload, *, authored_by: str) -> str:
-        return self._propose_source_derived(NodeType.WITNESS, payload, authored_by=authored_by)
+    def propose_witness(
+        self, payload: WitnessPayload, *, authored_by: str, model_call_id: int | None = None
+    ) -> str:
+        return self._propose_source_derived(
+            NodeType.WITNESS, payload, authored_by=authored_by, model_call_id=model_call_id
+        )
 
     def propose_passage(
-        self, payload: PassagePayload, *, witness_id: str, authored_by: str
+        self, payload: PassagePayload, *, witness_id: str, authored_by: str,
+        model_call_id: int | None = None,
     ) -> str:
         if self._get_row(witness_id) is None:
             self._refuse(
@@ -212,6 +212,7 @@ class Graph:
         ev = self.event_log_or_raise().append(
             "propose", authored_by=authored_by, node_id=node_id, node_type=NodeType.PASSAGE,
             edge_id=edge_id, edge_type=(EdgeType.PART_OF if edge_id else None),
+            model_call_id=model_call_id,
             detail={
                 "payload": payload.model_dump(mode="json"),
                 "witness_id": witness_id,
@@ -221,16 +222,30 @@ class Graph:
         self._apply(ev)
         return node_id
 
-    def propose_claim(self, payload: ClaimPayload, *, authored_by: str) -> str:
-        return self._propose_agent_authored(NodeType.CLAIM, payload, authored_by=authored_by)
+    def propose_claim(
+        self, payload: ClaimPayload, *, authored_by: str, model_call_id: int | None = None
+    ) -> str:
+        return self._propose_agent_authored(
+            NodeType.CLAIM, payload, authored_by=authored_by, model_call_id=model_call_id
+        )
 
-    def propose_conjecture(self, payload: ConjecturePayload, *, authored_by: str) -> str:
-        return self._propose_agent_authored(NodeType.CONJECTURE, payload, authored_by=authored_by)
+    def propose_conjecture(
+        self, payload: ConjecturePayload, *, authored_by: str, model_call_id: int | None = None
+    ) -> str:
+        return self._propose_agent_authored(
+            NodeType.CONJECTURE, payload, authored_by=authored_by, model_call_id=model_call_id
+        )
 
-    def propose_query(self, payload: QueryPayload, *, authored_by: str) -> str:
-        return self._propose_agent_authored(NodeType.QUERY, payload, authored_by=authored_by)
+    def propose_query(
+        self, payload: QueryPayload, *, authored_by: str, model_call_id: int | None = None
+    ) -> str:
+        return self._propose_agent_authored(
+            NodeType.QUERY, payload, authored_by=authored_by, model_call_id=model_call_id
+        )
 
-    def _propose_source_derived(self, node_type: NodeType, payload, *, authored_by: str) -> str:
+    def _propose_source_derived(
+        self, node_type: NodeType, payload, *, authored_by: str, model_call_id: int | None = None
+    ) -> str:
         node_id = f"{node_type}:{payload.canonical_ref}"
         existing = self._get_row(node_id)
         if existing is not None and existing["status"] == NodeStatus.REJECTED:
@@ -240,6 +255,7 @@ class Graph:
             )
         ev = self.event_log_or_raise().append(
             "propose", authored_by=authored_by, node_id=node_id, node_type=node_type,
+            model_call_id=model_call_id,
             detail={
                 "payload": payload.model_dump(mode="json"),
                 "converge": existing is not None,
@@ -248,10 +264,13 @@ class Graph:
         self._apply(ev)
         return node_id
 
-    def _propose_agent_authored(self, node_type: NodeType, payload, *, authored_by: str) -> str:
+    def _propose_agent_authored(
+        self, node_type: NodeType, payload, *, authored_by: str, model_call_id: int | None = None
+    ) -> str:
         node_id = f"{node_type}:{uuid.uuid4().hex}"
         ev = self.event_log_or_raise().append(
             "propose", authored_by=authored_by, node_id=node_id, node_type=node_type,
+            model_call_id=model_call_id,
             detail={"payload": payload.model_dump(mode="json"), "converge": False},
         )
         self._apply(ev)
@@ -259,7 +278,9 @@ class Graph:
 
     # --- the ladder (design doc §8) -----------------------------------------
 
-    def attest(self, node_id: str, *, authored_by: str) -> None:
+    def attest(
+        self, node_id: str, *, authored_by: str, model_call_id: int | None = None
+    ) -> None:
         node = self._require_node(node_id)
         if node.status != NodeStatus.PROPOSED:
             self._refuse(
@@ -286,11 +307,15 @@ class Graph:
                     node_id=node_id, node_type=node.type,
                 )
         ev = self.event_log_or_raise().append(
-            "attest", authored_by=authored_by, node_id=node_id, node_type=node.type, detail={},
+            "attest", authored_by=authored_by, node_id=node_id, node_type=node.type,
+            model_call_id=model_call_id, detail={},
         )
         self._apply(ev)
 
-    def accept(self, node_id: str, *, authored_by: str, reason: str | None = None) -> str:
+    def accept(
+        self, node_id: str, *, authored_by: str, reason: str | None = None,
+        model_call_id: int | None = None,
+    ) -> str:
         self._require_researcher(authored_by, action="accept", node_id=node_id)
         node = self._require_node(node_id)
         if node.status != NodeStatus.ATTESTED:
@@ -299,9 +324,11 @@ class Graph:
                 RungSkipped(f"{node_id} is {node.status}, not attested"),
                 node_id=node_id, node_type=node.type,
             )
-        return self._apply_verdict_write(node, "accept", authored_by, reason)
+        return self._apply_verdict_write(node, "accept", authored_by, reason, model_call_id)
 
-    def reject(self, node_id: str, *, authored_by: str, reason: str) -> str:
+    def reject(
+        self, node_id: str, *, authored_by: str, reason: str, model_call_id: int | None = None
+    ) -> str:
         self._require_researcher(authored_by, action="reject", node_id=node_id)
         if not reason or not reason.strip():
             self._refuse(
@@ -314,9 +341,11 @@ class Graph:
                 RungSkipped(f"{node_id} is {node.status}, cannot reject"),
                 node_id=node_id, node_type=node.type,
             )
-        return self._apply_verdict_write(node, "reject", authored_by, reason)
+        return self._apply_verdict_write(node, "reject", authored_by, reason, model_call_id)
 
-    def reopen(self, node_id: str, *, authored_by: str, reason: str) -> str:
+    def reopen(
+        self, node_id: str, *, authored_by: str, reason: str, model_call_id: int | None = None
+    ) -> str:
         self._require_researcher(authored_by, action="reopen", node_id=node_id)
         if not reason or not reason.strip():
             self._refuse(
@@ -329,13 +358,17 @@ class Graph:
                 RungSkipped(f"{node_id} is {node.status}, not rejected"),
                 node_id=node_id, node_type=node.type,
             )
-        return self._apply_verdict_write(node, "reopen", authored_by, reason)
+        return self._apply_verdict_write(node, "reopen", authored_by, reason, model_call_id)
 
-    def _apply_verdict_write(self, node: Node, event: str, authored_by: str, reason: str | None) -> str:
+    def _apply_verdict_write(
+        self, node: Node, event: str, authored_by: str, reason: str | None,
+        model_call_id: int | None = None,
+    ) -> str:
         decision_id = f"{NodeType.DECISION}:{uuid.uuid4().hex}"
         clean_reason = reason.strip() if reason and reason.strip() else None
         ev = self.event_log_or_raise().append(
             event, authored_by=authored_by, node_id=node.id, node_type=node.type,
+            model_call_id=model_call_id,
             detail={"decision_node_id": decision_id, "reason": clean_reason},
         )
         self._apply(ev)
@@ -343,7 +376,10 @@ class Graph:
 
     # --- edges (design doc §6) ----------------------------------------------
 
-    def add_edge(self, edge_type: EdgeType, src: str, dst: str, *, authored_by: str) -> str:
+    def add_edge(
+        self, edge_type: EdgeType, src: str, dst: str, *, authored_by: str,
+        model_call_id: int | None = None,
+    ) -> str:
         if src == dst:
             self._refuse(
                 "add_edge", authored_by, EdgeSelfLoop(f"{src} -> {dst}"), edge_type=edge_type,
@@ -380,10 +416,66 @@ class Graph:
         edge_id = existing["id"] if existing else f"edge:{uuid.uuid4().hex}"
         ev = self.event_log_or_raise().append(
             "add_edge", authored_by=authored_by, edge_id=edge_id, edge_type=edge_type,
+            model_call_id=model_call_id,
             detail={"src": src, "dst": dst, "converge": existing is not None},
         )
         self._apply(ev)
         return edge_id
+
+    def verify(
+        self, subject_node_id: str, *, method: VerificationMethod, result: VerificationResult,
+        assurance_level: AssuranceLevel, detail: str, limitations: str | None = None,
+        source_hash: str | None = None, excerpt_hash: str | None = None,
+        span_start: int | None = None, span_end: int | None = None,
+        authored_by: str, model_call_id: int | None = None,
+    ) -> str:
+        """One verification attempt against a claim/conjecture/passage/
+        witness — a record of a judgement, not evidential content, same
+        footing as `decision` (design doc §5 principle 2). Born directly at
+        status=accepted, like `decision`: subjecting a verification record
+        to its own promotion ladder would be a regress. `HUMAN_REVIEW`
+        requires the researcher, same pattern as `accept()`. The four
+        hash-chain fields are optional and only meaningful for EXACT_SPAN
+        checks (`meep/tools/verify_exact_span.py`)."""
+        subject = self._require_node(subject_node_id)
+        if subject.type not in (NodeType.CLAIM, NodeType.CONJECTURE, NodeType.PASSAGE, NodeType.WITNESS):
+            self._refuse(
+                "verify", authored_by,
+                EdgeDomainViolation(f"cannot verify a {subject.type}"),
+                node_id=subject_node_id, node_type=subject.type,
+            )
+        if method == VerificationMethod.HUMAN_REVIEW:
+            self._require_researcher(authored_by, action="verify", node_id=subject_node_id)
+        payload = VerificationPayload(
+            method=method, result=result, assurance_level=assurance_level,
+            detail=detail, limitations=limitations, source_hash=source_hash,
+            excerpt_hash=excerpt_hash, span_start=span_start, span_end=span_end,
+        )
+        verification_id = f"{NodeType.VERIFICATION}:{uuid.uuid4().hex}"
+        edge_id = f"edge:{uuid.uuid4().hex}"
+        ev = self.event_log_or_raise().append(
+            "verify", authored_by=authored_by, node_id=verification_id,
+            node_type=NodeType.VERIFICATION, edge_id=edge_id, edge_type=EdgeType.VERIFIES,
+            model_call_id=model_call_id,
+            detail={"payload": payload.model_dump(mode="json"), "subject_node_id": subject_node_id},
+        )
+        self._apply(ev)
+        return verification_id
+
+    def register_agent(
+        self, profile: AgentProfile, *, authored_by: str, model_call_id: int | None = None
+    ) -> str:
+        """Declare an agent's identity and (optionally) its corpus/method
+        scope — a sidecar record, not a graph node (see `AgentProfile`'s
+        docstring). Idempotent: re-registering the same id updates the row
+        rather than erroring, so a worker can re-declare its scope without
+        first checking whether it already has."""
+        ev = self.event_log_or_raise().append(
+            "register_agent", authored_by=authored_by, model_call_id=model_call_id,
+            detail={"payload": profile.model_dump(mode="json")},
+        )
+        self._apply(ev)
+        return profile.id
 
     def edges(
         self, *, edge_type: EdgeType | None = None, src: str | None = None, dst: str | None = None
@@ -408,15 +500,77 @@ class Graph:
         return self._require_node(node_id)
 
     def citable(self) -> list[Node]:
-        """Only accepted, non-decision nodes — the only things usable as a
-        premise or citable in output (design doc §5 principle 6). Decision
-        nodes are always status=accepted (they bypass the ladder) but are
-        audit bookkeeping, not evidence."""
+        """Only accepted, non-decision, non-verification nodes — the only
+        things usable as a premise or citable in output (design doc §5
+        principle 6). Decision and verification nodes are always
+        status=accepted (they bypass the ladder) but are audit bookkeeping,
+        not evidence."""
         rows = self.conn.execute(
-            "SELECT * FROM nodes WHERE status=? AND type!=?",
-            (NodeStatus.ACCEPTED, NodeType.DECISION),
+            "SELECT * FROM nodes WHERE status=? AND type NOT IN (?, ?)",
+            (NodeStatus.ACCEPTED, NodeType.DECISION, NodeType.VERIFICATION),
         ).fetchall()
         return [self._row_to_node(r) for r in rows]
+
+    def verifications(self, node_id: str) -> list[Node]:
+        """Every verification attempt recorded against a node, oldest first."""
+        rows = self.conn.execute(
+            "SELECT n.* FROM edges e JOIN nodes n ON n.id = e.src "
+            "WHERE e.type=? AND e.dst=? ORDER BY n.created_seq",
+            (EdgeType.VERIFIES, node_id),
+        ).fetchall()
+        return [self._row_to_node(r) for r in rows]
+
+    def assurance_for(self, node_id: str) -> AssuranceLevel:
+        """The highest *passing* assurance level across a node's
+        `verifies`-linked verification nodes, or A0_UNCHECKED if none exist
+        or none passed. A computed read, never a second mutable field on the
+        subject node — see `AssuranceLevel`'s docstring."""
+        self._require_node(node_id)
+        best = AssuranceLevel.A0_UNCHECKED
+        for node in self.verifications(node_id):
+            if node.payload["result"] != VerificationResult.PASS:
+                continue
+            level = AssuranceLevel(node.payload["assurance_level"])
+            if _ASSURANCE_RANK[level] > _ASSURANCE_RANK[best]:
+                best = level
+        return best
+
+    def agent_profile(self, agent_id: str) -> AgentProfile | None:
+        row = self.conn.execute("SELECT * FROM agents WHERE id=?", (agent_id,)).fetchone()
+        if row is None:
+            return None
+        return AgentProfile(
+            id=row["id"], kind=row["kind"],
+            corpus_scope=row["corpus_scope"], method_label=row["method_label"],
+        )
+
+    def agent_report(self, agent_id: str) -> AgentReport:
+        """A pure contribution-history count for `agent_id` — proposed,
+        attested, accepted, rejected, and discount edges contributed
+        (`descends_from`/`parallel_of`, which surface non-independence
+        rather than hide it). Never a score; see `AgentReport`'s docstring.
+        Works for any agent_id string, registered or not, since registration
+        is informational, not enforced."""
+        def _count(table: str, col: str, action: str) -> int:
+            return self.conn.execute(
+                f"SELECT COUNT(*) AS c FROM {table} WHERE {col}=? AND action=?",
+                (agent_id, action),
+            ).fetchone()["c"]
+
+        discount_edges = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM edge_authorship ea JOIN edges e ON e.id = ea.edge_id "
+            "WHERE ea.author=? AND ea.action='proposed' AND e.type IN (?, ?)",
+            (agent_id, EdgeType.DESCENDS_FROM, EdgeType.PARALLEL_OF),
+        ).fetchone()["c"]
+
+        return AgentReport(
+            agent_id=agent_id,
+            proposed=_count("node_authorship", "author", "proposed"),
+            attested=_count("node_authorship", "author", "attested"),
+            accepted=_count("node_authorship", "author", "accepted"),
+            rejected=_count("node_authorship", "author", "rejected"),
+            discount_edges_contributed=discount_edges,
+        )
 
     def rejected(self, *, node_type: NodeType | None = None) -> list[Node]:
         """Rejected nodes, with their reasons (design doc §8: "the graph
@@ -484,6 +638,34 @@ class Graph:
             nodes=self._count("nodes"), edges=self._count("edges"),
         )
 
+    def verify_integrity(self, node_id: str | None = None) -> IntegrityReport:
+        """An explicit, on-demand check — never an ambient hazard on every
+        read. A tampered row must not turn every future `get_node()`/
+        `citable()` call touching it into a crash; that would make one bad
+        row take down read access to the whole graph, a worse failure mode
+        than the thing being guarded against. Independently re-hashes each
+        row's stored `payload` and compares against its recorded
+        `payload_hash` — the same "re-verify, don't trust a stored claim"
+        discipline `rebuild()` applies to the whole projection, applied here
+        per row."""
+        query = "SELECT id, payload, payload_hash FROM nodes"
+        params: tuple = ()
+        if node_id is not None:
+            query += " WHERE id=?"
+            params = (node_id,)
+        checked = 0
+        mismatched: list[str] = []
+        unhashed: list[str] = []
+        for row in self.conn.execute(query, params).fetchall():
+            checked += 1
+            if row["payload_hash"] is None:
+                unhashed.append(row["id"])
+                continue
+            actual = hashlib.sha256(row["payload"].encode("utf-8")).hexdigest()
+            if actual != row["payload_hash"]:
+                mismatched.append(row["id"])
+        return IntegrityReport(checked=checked, mismatched=mismatched, unhashed=unhashed)
+
     # --- apply: the only place SQL runs (used live and by rebuild) -----------
 
     def _apply(self, ev: Event) -> None:
@@ -499,7 +681,13 @@ class Graph:
             self._apply_verdict(ev, NodeStatus.PROPOSED, "reopened")
         elif ev.event == "add_edge":
             self._apply_add_edge(ev)
+        elif ev.event == "verify":
+            self._apply_verify(ev)
+        elif ev.event == "register_agent":
+            self._apply_register_agent(ev)
         elif ev.event == "refused":
+            pass  # an audit marker only; never mutates state
+        elif ev.event == "model_call":
             pass  # an audit marker only; never mutates state
         else:  # pragma: no cover — Event already validates against EVENT_TYPES
             raise MeepError(f"no _apply handler for event {ev.event!r}")
@@ -511,13 +699,9 @@ class Graph:
             self._add_authorship("node", ev.node_id, ev.authored_by, "converged", ev.at, ev.seq)
             self.conn.execute("UPDATE nodes SET updated_seq=? WHERE id=?", (ev.seq, ev.node_id))
         else:
-            self.conn.execute(
-                "INSERT INTO nodes (id, type, status, payload, rejected_reason, "
-                "created_seq, updated_seq) VALUES (?, ?, ?, ?, NULL, ?, ?)",
-                (
-                    ev.node_id, ev.node_type, NodeStatus.PROPOSED,
-                    json.dumps(detail["payload"]), ev.seq, ev.seq,
-                ),
+            self._insert_node_row(
+                ev.node_id, ev.node_type, NodeStatus.PROPOSED,
+                json.dumps(detail["payload"]), None, ev.seq,
             )
             self._add_authorship("node", ev.node_id, ev.authored_by, "proposed", ev.at, ev.seq)
         if ev.edge_id is not None and ev.edge_type is not None:
@@ -546,10 +730,9 @@ class Graph:
         decision_payload = DecisionPayload(
             subject_node_id=ev.node_id, verdict=verdict, reason=reason
         ).model_dump(mode="json")
-        self.conn.execute(
-            "INSERT INTO nodes (id, type, status, payload, rejected_reason, "
-            "created_seq, updated_seq) VALUES (?, ?, 'accepted', ?, NULL, ?, ?)",
-            (decision_id, NodeType.DECISION, json.dumps(decision_payload), ev.seq, ev.seq),
+        self._insert_node_row(
+            decision_id, NodeType.DECISION, NodeStatus.ACCEPTED,
+            json.dumps(decision_payload), None, ev.seq,
         )
         self._add_authorship("node", decision_id, ev.authored_by, "proposed", ev.at, ev.seq)
         self.conn.commit()
@@ -566,6 +749,29 @@ class Graph:
             rev_id = f"{ev.edge_id}:rev"
             self._insert_edge_row(rev_id, ev.edge_type, dst, src, ev.seq)
             self._add_authorship("edge", rev_id, ev.authored_by, "proposed", ev.at, ev.seq)
+        self.conn.commit()
+
+    def _apply_verify(self, ev: Event) -> None:
+        detail = ev.detail
+        self._insert_node_row(
+            ev.node_id, NodeType.VERIFICATION, NodeStatus.ACCEPTED,
+            json.dumps(detail["payload"]), None, ev.seq,
+        )
+        self._add_authorship("node", ev.node_id, ev.authored_by, "proposed", ev.at, ev.seq)
+        self._insert_edge_row(ev.edge_id, ev.edge_type, ev.node_id, detail["subject_node_id"], ev.seq)
+        self._add_authorship("edge", ev.edge_id, ev.authored_by, "proposed", ev.at, ev.seq)
+        self.conn.commit()
+
+    def _apply_register_agent(self, ev: Event) -> None:
+        payload = ev.detail["payload"]
+        self.conn.execute(
+            "INSERT INTO agents (id, kind, corpus_scope, method_label, created_seq) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, "
+            "corpus_scope=excluded.corpus_scope, method_label=excluded.method_label",
+            (payload["id"], payload["kind"], payload.get("corpus_scope"),
+             payload.get("method_label"), ev.seq),
+        )
         self.conn.commit()
 
     # --- small helpers ---------------------------------------------------------
@@ -636,6 +842,22 @@ class Graph:
             (edge_id, edge_type, src, dst, seq),
         )
 
+    def _insert_node_row(
+        self, node_id: str, node_type: NodeType, status: NodeStatus, payload_json: str,
+        rejected_reason: str | None, seq: int,
+    ) -> None:
+        """The only place a node row is ever inserted — hashes the literal
+        bytes being stored, not a re-serialized dict, so "hash matches
+        bytes" holds by construction (design doc §5 principle 1: the graph
+        is a projection, and a hash computed from anything other than what
+        was actually written could drift from it)."""
+        payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+        self.conn.execute(
+            "INSERT INTO nodes (id, type, status, payload, payload_hash, rejected_reason, "
+            "created_seq, updated_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (node_id, node_type, status, payload_json, payload_hash, rejected_reason, seq, seq),
+        )
+
     def _add_authorship(self, kind: str, id_: str, author: str, action: str, at: str, seq: int) -> None:
         table = "node_authorship" if kind == "node" else "edge_authorship"
         col = "node_id" if kind == "node" else "edge_id"
@@ -696,4 +918,11 @@ class Graph:
             (r["edge_id"], r["author"], r["action"], r["seq"])
             for r in self.conn.execute("SELECT * FROM edge_authorship").fetchall()
         )
-        return {"nodes": nodes, "edges": edges, "node_auth": node_auth, "edge_auth": edge_auth}
+        agents = {
+            r["id"]: (r["kind"], r["corpus_scope"], r["method_label"])
+            for r in self.conn.execute("SELECT * FROM agents").fetchall()
+        }
+        return {
+            "nodes": nodes, "edges": edges, "node_auth": node_auth, "edge_auth": edge_auth,
+            "agents": agents,
+        }

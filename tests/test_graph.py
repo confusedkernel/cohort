@@ -58,7 +58,16 @@ def _claim(g, text="X translated Y in the Tang", *, authored_by=AGENT):
 
 
 def _conjecture(g, text="Y is a lost Kuchean original", *, authored_by=AGENT):
-    return g.propose_conjecture(ConjecturePayload(text=text), authored_by=authored_by)
+    return g.propose_conjecture(
+        ConjecturePayload(
+            text=text,
+            derivation="the passage's vocabulary matches Kuchean loanword patterns",
+            corpus_boundary="only the local_corpus fixture was searched",
+            selection_risks="none identified",
+            alternative_explanations="a later redactor independently chose similar vocabulary",
+        ),
+        authored_by=authored_by,
+    )
 
 
 def _query(g, text="search catalogue for a Kuchean fragment of Y", *, authored_by=AGENT):
@@ -420,3 +429,32 @@ def test_lock_is_released_on_close(tmp_path):
     g1.close()
     g2 = Graph.open(db_path, log_path)  # should not raise — lock was released
     g2.close()
+
+
+# --- observability envelope (design doc §5 principle 1, non-mutating) ------
+
+def test_log_model_call_is_non_mutating(graph):
+    before = graph._snapshot()
+    ev = graph.log_model_call(
+        authored_by=AGENT, model="claude-test", latency_ms=123,
+        input_tokens=10, output_tokens=5, cost_usd=0.001,
+    )
+    assert ev.event == "model_call"
+    assert graph._snapshot() == before  # no nodes/edges/authorship changed
+
+
+def test_model_call_id_threads_through_to_the_write_it_caused(graph):
+    call = graph.log_model_call(authored_by=AGENT, model="claude-test")
+    graph.propose_claim(ClaimPayload(text="a claim"), authored_by=AGENT, model_call_id=call.seq)
+    propose_events = [e for e in read_events(graph.event_log.path) if e.event == "propose"]
+    assert propose_events[-1].model_call_id == call.seq
+
+
+def test_rebuild_matches_live_with_model_call_events_present(tmp_path):
+    log = EventLog(tmp_path / "events.jsonl")
+    g = Graph(tmp_path / "graph.sqlite", event_log=log)
+    call = g.log_model_call(authored_by=AGENT, model="claude-test", input_tokens=1, output_tokens=1)
+    g.propose_claim(ClaimPayload(text="a claim"), authored_by=AGENT, model_call_id=call.seq)
+    report = g.rebuild()
+    assert report.ok is True
+    g.close()

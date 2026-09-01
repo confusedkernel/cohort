@@ -12,7 +12,9 @@ dependencies = ["pydantic>=2.6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-agents = ["anthropic>=0.40"]
+# The agent/LLM layer (meep/agents/) uses OpenRouter over stdlib
+# urllib.request, not a client library — see meep/agents/openrouter.py's
+# module docstring for why. No extra needed for it.
 
 [tool.setuptools.packages.find]
 include = ["meep*"]

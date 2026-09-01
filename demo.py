@@ -1,4 +1,7 @@
-"""MEEP stage 1 demo — no corpus, no agents, no network (design doc §11).
+"""MEEP demo — no corpus, no live API, no network (design doc §11; the
+verification/agent-identity sections added under ROADMAP.md "Scope
+revision" need no corpus or API key either, since they operate on synthetic
+refs and mocked-free graph calls).
 
 Shows the single most important property of the system first: a claim's
 attesting count stays the same while its independence flips to False the
@@ -10,10 +13,13 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from meep.eventlog import read_events
+from meep.eventlog import read_events, summarize_model_calls
 from meep.graph import Graph
 from meep.schemas import (
     RESEARCHER,
+    AgentKind,
+    AgentProfile,
+    AssuranceLevel,
     ClaimPayload,
     ConjecturePayload,
     Dating,
@@ -21,6 +27,8 @@ from meep.schemas import (
     EdgeType,
     PassagePayload,
     QueryPayload,
+    VerificationMethod,
+    VerificationResult,
     WitnessPayload,
 )
 
@@ -32,7 +40,7 @@ def main() -> None:
         tmp_path = Path(tmp)
         g = Graph.open(tmp_path / "graph.sqlite", tmp_path / "events.jsonl")
 
-        print("=== MEEP stage 1 demo ===\n")
+        print("=== MEEP demo ===\n")
 
         w1 = g.propose_witness(
             WitnessPayload(
@@ -89,6 +97,19 @@ def main() -> None:
         print(f"  distinct_witnesses  = {support.distinct_witnesses}")
         print(f"  independent         = {support.independent}   <- the counter-argument to consensus-seeking\n")
 
+        print("--- verification and assurance ---")
+        verification_id = g.verify(
+            claim_id, method=VerificationMethod.CROSS_EDITION_COLLATION,
+            result=(VerificationResult.PASS if support.independent else VerificationResult.FAIL),
+            assurance_level=AssuranceLevel.A3_INDEPENDENCE_CHECKED,
+            detail=f"independent_support: independent={support.independent}, "
+                   f"non_independent_pairs={support.non_independent_pairs}",
+            authored_by=AGENT,
+        )
+        print(f"verify(claim, CROSS_EDITION_COLLATION) -> {g.get_node(verification_id).payload['result']}")
+        print(f"assurance_for(claim) = {g.assurance_for(claim_id)}   "
+              f"<- stays A0_UNCHECKED: the one verification attempt failed, so it grants nothing\n")
+
         decision_id = g.accept(claim_id, authored_by=RESEARCHER)
         citable_ids = {n.id for n in g.citable()}
         print(f"Researcher accepted the claim -> decision node {decision_id}")
@@ -96,7 +117,13 @@ def main() -> None:
 
         print("--- the falsifiability gate ---")
         conjecture_id = g.propose_conjecture(
-            ConjecturePayload(text="An earlier Kuchean recension underlies this passage"),
+            ConjecturePayload(
+                text="An earlier Kuchean recension underlies this passage",
+                derivation="vocabulary in T01n0001p0001a12 matches Kuchean loanword patterns",
+                corpus_boundary="only the two witnesses in this demo were examined",
+                selection_risks="none identified",
+                alternative_explanations="a later redactor independently chose similar vocabulary",
+            ),
             authored_by=AGENT,
         )
         try:
@@ -133,7 +160,13 @@ def main() -> None:
 
         print("--- persistent rejection for content with no identity to block on ---")
         bad_conjecture_id = g.propose_conjecture(
-            ConjecturePayload(text="An earlier Kuchean recension underlies this passage"),
+            ConjecturePayload(
+                text="An earlier Kuchean recension underlies this passage",
+                derivation="vocabulary in T01n0001p0001a12 matches Kuchean loanword patterns",
+                corpus_boundary="only the two witnesses in this demo were examined",
+                selection_risks="none identified",
+                alternative_explanations="a later redactor independently chose similar vocabulary",
+            ),
             authored_by=AGENT,
         )
         g.reject(
@@ -148,6 +181,36 @@ def main() -> None:
         print("(this is exactly what AttestationWorker.run() prepends to its instructions —")
         print(" see meep/agents/attestation_worker.py::_rejected_context)\n")
 
+        print("--- multi-agent identity and contribution history ---")
+        g.register_agent(
+            AgentProfile(
+                id=AGENT, kind=AgentKind.WORKER,
+                corpus_scope="T01n0001, T02n0002", method_label="philological/stemmatic",
+            ),
+            authored_by=AGENT,
+        )
+        second_agent = "agent:demo-worker-2"
+        g.register_agent(
+            AgentProfile(
+                id=second_agent, kind=AgentKind.WORKER,
+                corpus_scope="T99n9999 (uncatalogued)", method_label="doctrinal/thematic",
+            ),
+            authored_by=second_agent,
+        )
+        print(f"{AGENT} scope: {g.agent_profile(AGENT).corpus_scope} "
+              f"({g.agent_profile(AGENT).method_label})")
+        print(f"{second_agent} scope: {g.agent_profile(second_agent).corpus_scope} "
+              f"({g.agent_profile(second_agent).method_label})")
+        print("— declared viewpoint diversity, not agent count, is the point (ROADMAP.md")
+        print("  \"Scope revision\": this is what relaxing the agent-count anti-goal buys)\n")
+
+        report = g.agent_report(AGENT)
+        print(f"agent_report({AGENT!r}):")
+        print(f"  proposed={report.proposed} attested={report.attested} "
+              f"accepted={report.accepted} rejected={report.rejected}")
+        print(f"  discount_edges_contributed={report.discount_edges_contributed}   "
+              f"<- the descends_from edge recorded above; a count, never a score\n")
+
         print("--- rebuild from the event log ---")
         report = g.rebuild()
         print(
@@ -160,6 +223,9 @@ def main() -> None:
         print(f"{len(refused)} refused write(s) recorded in the log:")
         for e in refused:
             print(f"  {e.detail['attempted']} refused: {e.detail['rule']}")
+
+        calls = summarize_model_calls(tmp_path / "events.jsonl")
+        print(f"\n{calls.calls} model call(s) logged (this demo never calls a live model, so 0 is correct)")
 
         g.close()
 

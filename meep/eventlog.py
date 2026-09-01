@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .errors import UnknownEventType
-from .schemas import EVENT_TYPES, EdgeType, Event, NodeType
+from .schemas import EVENT_TYPES, EdgeType, Event, ModelCallSummary, NodeType
 
 
 class EventLog:
@@ -35,6 +35,14 @@ class EventLog:
         node_type: NodeType | None = None,
         edge_type: EdgeType | None = None,
         detail: dict | None = None,
+        model_call_id: int | None = None,
+        model: str | None = None,
+        provider: str | None = None,
+        prompt_version: str | None = None,
+        latency_ms: int | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        cost_usd: float | None = None,
     ) -> Event:
         if event not in EVENT_TYPES:
             raise UnknownEventType(event)
@@ -47,6 +55,14 @@ class EventLog:
             node_type=node_type,
             edge_type=edge_type,
             detail=detail or {},
+            model_call_id=model_call_id,
+            model=model,
+            provider=provider,
+            prompt_version=prompt_version,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
         )
         with self.path.open("a", encoding="utf-8") as f:
             f.write(record.model_dump_json())
@@ -78,3 +94,28 @@ def _next_seq_after(path: Path) -> int:
     for ev in read_events(path):
         last = ev.seq
     return last + 1
+
+
+def summarize_model_calls(path: str | Path) -> ModelCallSummary:
+    """Plain arithmetic over the log's "model_call" events — counted, not
+    asserted, matching the house habit (design doc §13). A pure log scan,
+    not a Graph method: model_call events never touch the SQLite
+    projection, so this is a property of the log, not of graph state."""
+    calls = 0
+    total_input = total_output = total_latency = 0
+    total_cost = 0.0
+    for ev in read_events(path):
+        if ev.event != "model_call":
+            continue
+        calls += 1
+        total_input += ev.input_tokens or 0
+        total_output += ev.output_tokens or 0
+        total_latency += ev.latency_ms or 0
+        total_cost += ev.cost_usd or 0.0
+    return ModelCallSummary(
+        calls=calls,
+        total_input_tokens=total_input,
+        total_output_tokens=total_output,
+        total_latency_ms=total_latency,
+        total_cost_usd=total_cost,
+    )
