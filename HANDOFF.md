@@ -7,7 +7,7 @@ multi-agent textual research (`DESIGN.md` for the design, `ROADMAP.md` for
 architecture/tech-stack/build-order — read both before changing anything).
 It is not a prototype of an idea; it runs, live, against a real model.
 
-**What's actually been proven, not just written**: 167 tests pass
+**What's actually been proven, not just written**: 192 tests pass
 (`pytest -q`); `demo.py` runs end-to-end with no corpus or API key needed;
 `scripts/smoke_openrouter.py` has completed a real OpenRouter call;
 `scripts/run_swarm_demo.py` has completed two *concurrent* real agents
@@ -126,6 +126,67 @@ Because the index is gitignored, a fresh clone has none: both
 `scripts/run_cbeta_demo.py` and `scripts/run_stage4_demo.py` exit with a
 message naming exactly what they expect rather than failing obscurely.
 
+**Update: the full-corpus search index is built and working.**
+
+`cohort/sources/cbeta_fts.py` builds a persistent SQLite FTS5 index, reusing
+the character-unigram trick `local_reader.py` already relies on (FTS5's
+tokenizer treats an unbroken CJK run as one token, so `MATCH "寂寞"` against
+running Chinese matches nothing; indexing a space-separated unigram copy and
+phrase-querying it restores exact character-sequence matching without a
+segmenter).
+
+The design constraint that shaped everything else: **what is searchable and
+what is citable are the same thing.** `fetch()` resolves a ref only if the
+excerpt is a *unique, contiguous, tag-free* substring of the body, so the
+index stores exactly those spans — maximal tag-free runs occurring once in
+their document — and nothing else. An index that could return more would hand
+callers hits `fetch()` then refuses, which is worse than no hit. Two
+consequences worth knowing:
+
+- CBETA marks line beginnings with `<lb/>` every ten to twenty characters, so
+  a query longer than a line generally matches nothing. That is `fetch()`'s
+  boundary, not a new one.
+- FTS5 serves only as a *candidate filter* (the indexed token stream
+  concatenates a document's runs, so a phrase straddling two runs can match
+  the index while existing nowhere contiguously). Every candidate is
+  re-checked in Python, so the guarantee holds by construction — there is a
+  test asserting every search hit round-trips through `fetch()`.
+
+Build it with `scripts/build_cbeta_index.py` (explicit and manual — never
+something a constructor does). Query it from `scripts/search_cbeta.py`, or by
+passing `fts=CbetaFtsIndex(path, sha)` to `CbetaReader`. The index records the
+archive SHA-256 it was built from and **refuses to serve a reader expecting a
+different archive** — otherwise an index could answer queries with offsets
+into a file nobody verified.
+
+Measured on the real archive: build 432s / 1.14 GB / 20,190 entries, 0
+skipped, 15.28M citable runs (1.43M runs dropped as non-unique, 1.13M as too
+short or non-CJK). Corpus-wide search is ~0.04-0.8s and never touches the
+archive. `fetch()` costs ~1.4s warm, because it re-hashes the whole archive
+twice by design; that stays as it is — the guarantee is worth 1.4s.
+
+**One characteristic to know before trusting a result set**: search returns
+corpus order, so `max_results` truncates *arbitrarily* rather than by
+relevance. Common phrases are genuinely common — 色即是空 occurs in 412
+documents across 13 collections, 如是我聞 in 1,462 — so taking the top five
+yields five alphabetically-early witnesses, not the five most pertinent. No
+ranking is applied on purpose: BM25 would favour short commentaries over the
+scriptures they quote, encoding a scholarly judgement about which witnesses
+matter into infrastructure, which §5 principle 2 refuses. When a conjecture
+rests on a truncated result set, that belongs in
+`ConjecturePayload.selection_risks`.
+
+**A second pre-existing bug fixed here.** `CbetaReader` assumed Taisho
+throughout: `_t_number_from_entry_path` matched only `T…` refs, so `search()`
+*and* `fetch()` raised on every other collection — 11,208 of the archive's
+20,190 entries, including all 4,000-plus of X (卍續藏). Witness identity is
+now any CBETA canonical ref (`T02n0099`, `X10n0249`, `J01nA042`,
+`B00na001`, `ZW01n0014a`), validated against all 20,190 filenames with zero
+failures (4,852 distinct texts). This is additive — Taisho refs are unchanged
+— and Taisho stays privileged in exactly one place,
+`resolve_taisho_number()`, because `<cb:docNumber>` cross-references are
+Taisho numbers.
+
 `scripts/run_cbeta_demo.py` (same manual-only discipline as
 `scripts/run_swarm_demo.py`) has now run one real agent, via OpenRouter,
 calling `find_attestations` against the real archive for both claims above
@@ -229,9 +290,8 @@ claims built on it would be false from the start.
 
 ## What does not exist
 
-- A full-corpus search index — only the two-entry hand-maintained
-  `cbeta_index.json` exists so far (see above); `CbetaReader.search()` still
-  raises `NotImplementedError` when constructed without an `index`.
+- Relevance ranking over search results — deliberately absent, see the
+  full-corpus index section above. Results come back in corpus order.
 - `propose_conjecture` run against real Buddhist text — only
   `find_attestations` has been run against the real archive so far.
 - Stage 4's remaining pieces: `descends_from` extraction (nothing in the
@@ -250,7 +310,7 @@ claims built on it would be false from the start.
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q                # should be 167 passed
+.venv/bin/pytest -q                # should be 192 passed
 .venv/bin/python demo.py           # no corpus, no API key needed
 cp .env.example .env               # then fill in OPENROUTER_API_KEY / OPENROUTER_MODEL yourself —
                                     # never paste a real key into a chat session
@@ -261,6 +321,8 @@ cp .env.example .env               # then fill in OPENROUTER_API_KEY / OPENROUTE
 .venv/bin/python scripts/run_stage4_demo.py      # stage 4 on real text: shared descent recognised.
                                                   # No API key and no model call — needs only
                                                   # CBETA_ARCHIVE_PATH and cbeta_index.json
+.venv/bin/python scripts/build_cbeta_index.py    # full-corpus FTS index: ~7 min, ~1.1 GB, one-off
+.venv/bin/python scripts/search_cbeta.py 色即是空  # search the whole corpus (needs that index)
 ```
 
 Venvs bake in absolute paths — if this repo gets moved again after being

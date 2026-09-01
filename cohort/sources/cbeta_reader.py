@@ -7,18 +7,22 @@ A new module, not an extension of `local_reader.py`: CBETA is a single
 hash-verified ZIP archive with TEI-header-skipping and span-location
 concerns `LocalReader`'s manifest-driven plain-text-file model doesn't have.
 
-No real archive exists on this machine, or in the labmate's own parallel
-project's repo, at the time this was written — only a config path
-(`CBETA_ARCHIVE_PATH`) either project would point at once someone actually
-downloads it. Corpus bytes never enter this repository; this module is
-fully exercised against a synthetic fixture (`tests/test_cbeta_reader.py`).
+The archive is configured by path (`CBETA_ARCHIVE_PATH`) and verified by
+hash. Corpus bytes never enter this repository; this module is fully
+exercised against a synthetic fixture (`tests/test_cbeta_reader.py`).
 
-Witness identity is the bare Taisho T-number (e.g. `T02n0099`), not an
-archive-version-qualified string — that's the text's actual scholarly
-identity, stable across CBETA archive version bumps, unlike an
-archive-internal path. The archive version and entry path are provenance
+Witness identity is the bare CBETA canonical ref (`T02n0099`, `X10n0249`,
+`J01nA042`), not an archive-version-qualified string — that's the text's
+actual scholarly identity, stable across CBETA archive version bumps, unlike
+an archive-internal path. The archive version and entry path are provenance
 detail, carried in `SourceRecord.note` (which feeds `WitnessPayload.
 source_terms`), not baked into the identity itself.
+
+Identity spans all 24 collections, not Taisho alone: Taisho is under half the
+archive's 20,190 entries, and restricting identity to it would make the
+remainder unfetchable and unciteable. Taisho stays privileged in exactly one
+place — `resolve_taisho_number()`, because `<cb:docNumber>` cross-references
+are Taisho numbers.
 """
 from __future__ import annotations
 
@@ -32,12 +36,22 @@ from .base import SearchHit, Source, SourceRecord
 CBETA_ENTRY_PREFIX = "Bookcase/CBETA/XML/"
 DEFAULT_MAX_ENTRY_BYTES = 50_000_000
 
+#: Any CBETA canonical ref, across all 24 collections in v061 (T, X, J, A, B,
+#: ZW, ...), not Taisho alone: only 8,982 of the archive's 20,190 entries are
+#: Taisho, and a full-corpus index has to name the rest. Shape is
+#: `{collection}{volume}n{number}`, where the number may carry a leading
+#: letter (`J01nA042`, `B00na001`) or a trailing one (`ZW01n0014a`).
+#:
 #: The trailing letter is **part of the identity**, not noise: the archive
 #: holds `T02n0128a` and `T02n0128b` (and 75 further such pairs) as separate
-#: texts. An earlier version of this pattern omitted `[A-Za-z]?`, which
-#: silently collapsed each pair onto one `witness` node — two different sutras
-#: sharing one identity, i.e. exactly the misattribution `CbetaArchiveError`
-#: exists to prevent elsewhere in this module.
+#: texts. An earlier version of this pattern omitted it, which silently
+#: collapsed each pair onto one `witness` node — two different sutras sharing
+#: one identity, i.e. exactly the misattribution `CbetaArchiveError` exists to
+#: prevent elsewhere in this module.
+_CBETA_REF_RE = re.compile(r"([A-Z]{1,2}\d+n[A-Za-z]?\d+[A-Za-z]?)")
+#: Taisho-only, deliberately narrower than `_CBETA_REF_RE`: `<cb:docNumber>`
+#: cross-references are Taisho numbers, so `resolve_taisho_number()` must not
+#: resolve one onto a same-numbered text in another collection.
 _T_NUMBER_RE = re.compile(r"(T\d+n\d+[A-Za-z]?)")
 #: `T08n0251` -> `251`; `T02n0128a` -> `128a`. Leading zeros dropped so the
 #: result compares directly against a `<cb:docNumber>` number.
@@ -136,10 +150,10 @@ def locate_span(source: bytes, excerpt: str) -> tuple[int, int]:
     return first, first + len(needle)
 
 
-def _t_number_from_entry_path(entry_path: str) -> str:
-    match = _T_NUMBER_RE.search(Path(entry_path).name)
+def _cbeta_ref_from_entry_path(entry_path: str) -> str:
+    match = _CBETA_REF_RE.search(Path(entry_path).name)
     if not match:
-        raise CbetaArchiveError(f"could not extract a Taisho T-number from entry path: {entry_path!r}")
+        raise CbetaArchiveError(f"could not extract a CBETA ref from entry path: {entry_path!r}")
     return match.group(1)
 
 
@@ -159,6 +173,7 @@ class CbetaReader(Source):
         self, archive_path: str | Path, expected_sha256: str, *,
         version: str = "v061", max_entry_bytes: int = DEFAULT_MAX_ENTRY_BYTES,
         index: dict[str, list[str]] | None = None,
+        fts=None,
     ) -> None:
         self.archive_path = Path(archive_path)
         self.expected_sha256 = expected_sha256
@@ -170,6 +185,16 @@ class CbetaReader(Source):
         #: this class stores only what it's given, and never persists it
         #: back into the repository itself (the excerpts are corpus bytes).
         self.index = index
+        #: optional `cbeta_fts.CbetaFtsIndex` — the full-corpus index. Takes
+        #: precedence over `index` when both are supplied, because otherwise
+        #: `search()` results would depend on which source happened to be
+        #: passed. The corpus-wide index covers every citable span of every
+        #: entry, with two deliberate exclusions (runs below
+        #: `cbeta_fts.MIN_RUN_CHARS`, and runs bearing no CJK), so a hand
+        #: index listing only such spans would go unused — no real one does.
+        #: Typed loosely to keep this module importable without `cbeta_fts`,
+        #: which imports from it.
+        self.fts = fts
         self._taisho_index: dict[str, set[str]] | None = None
         verify_archive_hash(self.archive_path, expected_sha256)  # fail at construction, not mid-run
 
@@ -223,13 +248,28 @@ class CbetaReader(Source):
         return sorted(candidates)
 
     def search(self, query: str, max_results: int = 20) -> list[SearchHit]:
+        """Full-corpus `fts` index if one is attached, else the
+        hand-maintained `index` mapping, else refuse.
+
+        Every hit's `ref` is fetchable: both paths only ever return an
+        excerpt that is a unique contiguous substring of its document (see
+        `cbeta_fts`'s docstring), so `fetch()` on a search result cannot fail
+        the uniqueness check."""
+        if self.fts is not None:
+            return [
+                SearchHit(
+                    ref=f"{entry_path}::{excerpt}",
+                    title=_cbeta_ref_from_entry_path(entry_path),
+                    snippet=excerpt,
+                )
+                for entry_path, excerpt in self.fts.search(query, max_results=max_results)
+            ]
         if self.index is None:
             raise NotImplementedError(
-                "CbetaReader has no search index — there is no local full-corpus "
-                "index to build without deciding on one against the real archive. "
-                "fetch() by a caller-supplied 'entry_path::excerpt' ref is what's "
-                "implemented; wiring search() to a real index is corpus-integration "
-                "work that waits on the actual archive (see ROADMAP.md)."
+                "CbetaReader has no search index. Build the full-corpus index "
+                "(scripts/build_cbeta_index.py) and pass it as `fts=`, or pass a "
+                "hand-maintained `index=` mapping; fetch() by a caller-supplied "
+                "'entry_path::excerpt' ref works either way."
             )
         hits: list[SearchHit] = []
         for entry_path, excerpts in self.index.items():
@@ -238,7 +278,7 @@ class CbetaReader(Source):
                     continue
                 hits.append(SearchHit(
                     ref=f"{entry_path}::{excerpt}",
-                    title=_t_number_from_entry_path(entry_path),
+                    title=_cbeta_ref_from_entry_path(entry_path),
                     snippet=excerpt,
                 ))
                 if len(hits) >= max_results:
@@ -268,12 +308,12 @@ class CbetaReader(Source):
         body = document[text_start:]
         locate_span(body, excerpt)  # validated for presence/uniqueness; raises otherwise
 
-        t_number = _t_number_from_entry_path(entry_path)
+        cbeta_ref = _cbeta_ref_from_entry_path(entry_path)
         return SourceRecord(
             ref=ref,
-            title=t_number,
+            title=cbeta_ref,
             text=body.decode("utf-8"),
-            witness_ref=t_number,
+            witness_ref=cbeta_ref,
             locator=entry_path,
             note=f"CBETA {self.version}, {entry_path} — {self.LICENSE_NOTE}",
         )
