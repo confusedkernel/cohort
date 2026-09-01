@@ -396,10 +396,10 @@ sent instructions.
 | Stage | Deliverable | Status |
 |---|---|---|
 | 1 | Graph store, event log, vocabulary, ladder, rebuild | **Done** — `cohort/{schemas,errors,eventlog,graph}.py`, 47 tests, `demo.py` |
-| 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done** against a fixture corpus (`examples/local_corpus`) — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`, 18 more tests. Real dev corpus still open (§14); worker's live API round-trip untested |
-| 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done**, modulo a live API run. `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) — the worker now prepends prior rejections + reasons to its own instructions. What remains: an actual run against a live key to see this drive real model behavior, not just the mocked-client proof that the context gets sent |
-| 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | Not started; open decision — does the corpus carry parallel markup already? (§14) |
-| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Not started; UI tech stack decided — FastAPI JSON API + separate JS/React frontend, optional, no Postgres/queue (see "Decisions already made") |
+| 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done, live-verified** — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`. Real dev corpus is now confirmed as CBETA (see "Scope revision"), but the archive itself isn't obtained yet — only `examples/local_corpus` (a Tang-poem fixture) has actually been searched, live, against a real model |
+| 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done, live-verified.** `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) |
+| 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Blocked on the CBETA archive.** `cohort/sources/cbeta_reader.py` exists and is tested against a synthetic fixture, but whether CBETA's real TEI carries usable cross-reference/variant apparatus can't be confirmed without the actual files — see `HANDOFF.md` |
+| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified** — `cohort/agents/swarm.py::run_swarm()`, two real concurrent agents proven against OpenRouter. Researcher UI not started; tech stack decided — FastAPI JSON API + separate JS/React frontend, optional, no Postgres/queue (see "Decisions already made") |
 | 6 | ATELIER integration: source interface becomes an adapter; cumulative-coverage policy | Not started |
 
 Design doc's own cut order still applies if time runs short: **cut stage 5
@@ -414,16 +414,19 @@ contribution; a large swarm without one is the thing being critiqued.
 | Observability envelope | **Done** — `Event` fields, `log_model_call()`, `summarize_model_calls()`, threaded through the worker and both tools |
 | Verification/assurance model | **Done** — `verify()`, `assurance_for()`, five domain-appropriate methods; `CROSS_EDITION_COLLATION` is `independent_support()` finally wired into a formal, queryable record (the same workstream as stage 4's "`independent_support` over real witnesses") |
 | Conjecture dossier | **Done** — four required `ConjecturePayload` fields, `searched_for` edge, search-then-propose in the tool. The falsifiability gate itself is unchanged |
-| Multi-agent society, steps 1-3 | **Done** — `agents` table, `register_agent()`, `AttestationWorker(profile=...)`, `agent_report()` (counts only). Steps 4-5 (`asyncio` fan-out, four-signal reputation scoring) are explicit follow-on work, not part of this pass |
+| Multi-agent society, steps 1-3 | **Done** — `agents` table, `register_agent()`, `AttestationWorker(profile=...)`, `agent_report()` (counts only) |
+| Multi-agent society, step 4 (real concurrency) | **Done, live-verified** — `cohort/agents/swarm.py::run_swarm()`; `AttestationWorker.run_async()` is now the canonical loop, with `asyncio.to_thread` scoped only around the one blocking HTTP call so concurrent workers' graph writes can never interleave |
+| Multi-agent society, step 5 (reputation scoring) | Still deferred, deliberately — concurrency didn't change the reasoning that kept it out: it's about what a score would reward, not when agents run |
 
-**Open decisions this document does not resolve** (design doc §14,
-unchanged): development corpus (public-domain/locally-held, small enough to
-iterate — Michael's Buddhist material or a CBETA/Kanripo checkout are
-candidates); corpus markup format, which determines how close stage 4 is
-once stage 2 lands; chronology scheme (translation vs. composition vs.
-recension date, coordinate with CWN.dia); division of labour across
-rich/Tyler/Chunki for stages 2 and 4 (stage 3 probably isn't separable).
-None of these block writing stage 1, since stage 1 needs no corpus at all.
+**Open decisions this document does not resolve** (design doc §14): corpus
+markup format (does CBETA's real TEI carry usable parallel/cross-reference
+apparatus? — determines how close stage 4 is once the archive exists);
+chronology scheme (translation vs. composition vs. recension date,
+coordinate with CWN.dia); division of labour across rich/Tyler/Chunki for
+stages 2 and 4 (stage 3 probably isn't separable). The development-corpus
+question itself is resolved (CBETA, see "Scope revision") — what's
+outstanding now is purely logistical: obtaining the archive. See
+`HANDOFF.md` for the current concrete state and next steps.
 
 ---
 
