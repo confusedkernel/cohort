@@ -332,7 +332,14 @@ code { font-family: var(--mono); font-size: .9em; }
 }
 .tab.on:hover { background: var(--bg-elevated); filter: brightness(1.08); }
 
-.counts { display: flex; margin-left: auto; }
+/* Refusals + stats describe the graph, so they ride together and only on the
+   Graph tab. The group keeps its box when hidden rather than unmounting: the
+   tab bar sits to its right, and letting it slide ~290px sideways on every tab
+   change would move the button the pointer is already over. Below 760px the
+   tab bar wraps to its own full-width row, so nothing can shift and the group
+   is dropped outright instead of leaving dead space in a cramped header. */
+.graph-controls { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+.graph-controls.off { visibility: hidden; }
 .topbar-controls { display: flex; align-items: center; gap: 14px; flex: none; }
 .toggle {
   display: flex; align-items: center; gap: 6px;
@@ -952,7 +959,8 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   .topbar { flex-wrap: wrap; row-gap: 10px; }
   .brand { order: 1; }
   .topbar-controls { order: 2; margin-left: auto; }
-  .counts { order: 3; margin-left: 0; }
+  .graph-controls { order: 3; margin-left: 0; }
+  .graph-controls.off { display: none; }
   .tabs { order: 4; width: 100%; }
   .tab { flex: 1; padding: 0 8px; }
 

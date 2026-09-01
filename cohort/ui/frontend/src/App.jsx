@@ -34,6 +34,10 @@ export default function App() {
 
   useEffect(() => { applyTheme(theme) }, [theme])
 
+  // The stats popover hangs off a control that only the Graph tab shows, so
+  // leaving it open while switching away would strand it.
+  useEffect(() => { if (tab !== 'graph') setStatsOpen(false) }, [tab])
+
   useEffect(reload, [reload])
 
   // Escape dismisses the floating inspector — the ordinary gesture for a panel
@@ -63,11 +67,27 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <h1>COHORT</h1>
-          <span className="tag">
-            evidence graph · {health?.writes_enabled ? 'researcher' : 'read-only'}
-          </span>
+          <span className="tag">beta</span>
         </div>
-        <div className="counts">
+        <div className={`graph-controls ${tab === 'graph' ? '' : 'off'}`}>
+          {/* Refusals are an output of this system, not a debug view
+              (docs/design.md §15), so the count is always on screen while the
+              graph is — a zero is itself a fact worth showing. */}
+          <button
+            className={`refusal-tab ${showRefusals ? 'on' : ''}`}
+            onClick={() => setShowRefusals((v) => !v)}
+            disabled={!refusals?.available}
+            title={
+              refusals?.available
+                ? 'Writes this graph refused, and which rule refused them'
+                : 'No event log beside this projection, so refusals cannot be read'
+            }
+          >
+            refused writes
+            <span className="refusal-count">
+              {refusals?.available ? refusals.total : '—'}
+            </span>
+          </button>
           <StatsBar
             health={health}
             open={statsOpen}
@@ -89,24 +109,6 @@ export default function App() {
         </nav>
 
         <div className="topbar-controls">
-          {/* Refusals are an output of this system, not a debug view
-              (docs/design.md §15), so the count is always on screen — a zero is
-              itself a fact worth showing. */}
-          <button
-            className={`refusal-tab ${showRefusals ? 'on' : ''}`}
-            onClick={() => setShowRefusals((v) => !v)}
-            disabled={!refusals?.available}
-            title={
-              refusals?.available
-                ? 'Writes this graph refused, and which rule refused them'
-                : 'No event log beside this projection, so refusals cannot be read'
-            }
-          >
-            refused writes
-            <span className="refusal-count">
-              {refusals?.available ? refusals.total : '—'}
-            </span>
-          </button>
           <Settings
             open={settingsOpen}
             onToggle={(v) => { setSettingsOpen(v); if (v) setStatsOpen(false) }}
@@ -146,7 +148,7 @@ export default function App() {
           {tab === 'run' && (
             <RunPanel instructionSeed={agentSeed} onGraphChanged={reload} />
           )}
-          {showRefusals && <RefusalsPanel refusals={refusals} />}
+          {tab === 'graph' && showRefusals && <RefusalsPanel refusals={refusals} />}
         </main>
         {/* Floating inspector, and only over the graph: it is the graph's
             detail view, so overlaying the corpus or run panels with it would
