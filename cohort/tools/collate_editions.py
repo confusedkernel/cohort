@@ -32,13 +32,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..graph import Graph
 from ..schemas import (
     AssuranceLevel,
-    EdgeType,
     NodeType,
     VerificationMethod,
     VerificationResult,
 )
 from ..sources.base import Source
 from ..sources.cbeta_markup import edition_families, parse_apparatus
+from ._witness_source import source_ref_for_witness
 
 NAME = "collate_editions"
 DESCRIPTION = (
@@ -66,7 +66,7 @@ def collate_editions(
     if witness.type != NodeType.WITNESS:
         raise ValueError(f"{args.witness_id} is a {witness.type}, not a witness")
 
-    source_ref = _source_ref_for_witness(graph, args.witness_id)
+    source_ref = source_ref_for_witness(graph, args.witness_id)
     if source_ref is None:
         return graph.verify(
             args.witness_id, method=VerificationMethod.CROSS_EDITION_COLLATION,
@@ -136,10 +136,3 @@ _LIMITATIONS = (
 )
 
 
-def _source_ref_for_witness(graph: Graph, witness_id: str) -> str | None:
-    for edge in graph.edges(edge_type=EdgeType.PART_OF, dst=witness_id):
-        passage = graph.get_node(edge.src)
-        source_ref = passage.payload.get("source_ref")
-        if source_ref:
-            return source_ref
-    return None

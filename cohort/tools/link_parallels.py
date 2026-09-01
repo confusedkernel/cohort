@@ -37,6 +37,7 @@ from ..graph import Graph
 from ..schemas import EdgeType, NodeType
 from ..sources.base import Source
 from ..sources.cbeta_markup import parse_parallel_refs
+from ._witness_source import source_ref_for_witness
 
 NAME = "link_parallels"
 DESCRIPTION = (
@@ -83,7 +84,7 @@ def link_parallels(
     if witness.type != NodeType.WITNESS:
         raise ValueError(f"{args.witness_id} is a {witness.type}, not a witness")
 
-    source_ref = _source_ref_for_witness(graph, args.witness_id)
+    source_ref = source_ref_for_witness(graph, args.witness_id)
     if source_ref is None:
         raise ValueError(
             f"{args.witness_id} has no passage carrying a source_ref, so its "
@@ -135,19 +136,6 @@ def link_parallels(
         report.linked.append(target_ref)
 
     return report
-
-
-def _source_ref_for_witness(graph: Graph, witness_id: str) -> str | None:
-    """The `source_ref` of any passage belonging to `witness_id`. Any will
-    do: every passage of a witness came from the same archive entry, and the
-    `<cb:docNumber>` being parsed is a property of that document, not of the
-    passage within it."""
-    for edge in graph.edges(edge_type=EdgeType.PART_OF, dst=witness_id):
-        passage = graph.get_node(edge.src)
-        source_ref = passage.payload.get("source_ref")
-        if source_ref:
-            return source_ref
-    return None
 
 
 def _resolve(source: Source, number: str) -> list[str]:

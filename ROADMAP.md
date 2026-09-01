@@ -43,18 +43,21 @@ stage 2 are both now implemented** (see the build roadmap table below).
 Stage 1's `schemas.py`/`errors.py`/`eventlog.py`/`graph.py` are built to the
 §11 spec, with `pytest -q` green and `demo.py` printing the
 `independent_support()` flip. Stage 2's source interface, local FTS5
-reader, the two named tools, and the attestation worker are built and
-tested — **except** the attestation worker's actual Anthropic API round-trip,
-which is untested (no API key was available at build time; the tool-dispatch
-loop itself is covered by a mocked test). The corpus used for stage 2's
-tests (`examples/local_corpus`) is an illustrative fixture of public-domain
-Tang poems, not the real development corpus — that decision is still open
-(see below).
+reader, the named tools, and the attestation worker are built and tested. The
+API round-trip this section once flagged as untested is no longer a gap: the
+worker runs over OpenRouter, not the Anthropic SDK, and has completed real
+calls many times over (see "Verification" below). The corpus used for stage
+2's tests (`examples/local_corpus`) is still an illustrative fixture of
+public-domain Tang poems; the real development corpus (CBETA v061) arrived
+later and is used by the manual live scripts, not by the suite.
 
 Decisions already made:
 - The agent/LLM layer (stage 2's attestation worker, stage 3's conjecture
-  generator) uses the **plain Anthropic Python SDK**, not the Agent SDK or a
-  third-party framework.
+  generator) uses **no client library at all**: OpenRouter over stdlib
+  `urllib.request`. This decision was originally recorded here as "the plain
+  Anthropic Python SDK"; the conclusion it was protecting — not the Agent SDK,
+  not a third-party framework — is unchanged, and the SDK itself turned out to
+  be surplus to it.
 - COHORT's source interface is shaped like ATELIER's `search`/`fetch`
   (`DESIGN.md` §2), and ATELIER's other conventions are the default for
   team consistency (same authors, same Sindia infrastructure track) —
@@ -65,8 +68,8 @@ Decisions already made:
   (`citable()`/`rejected()`/`independent_support()`/`assurance_for()`/
   `agent_report()`, etc.), consumed by a separate JS/React frontend. The
   core system's CLI/library usage must never require the UI to be
-  installed or running — same "optional" pattern already established by
-  the `agents` extra in `pyproject.toml`. Deliberately kept minimal: no
+  installed or running — the same "optional" pattern as the `dev` extra in
+  `pyproject.toml`. Deliberately kept minimal: no
   Postgres, no queue — FastAPI reads the same single SQLite file
   `graph.py` already owns. **Built (read-only), once stage 3 and stage 4's
   main halves were done** — the design doc's cut order ("cut stage 5 before
@@ -76,8 +79,12 @@ Decisions already made:
   *not* run inside the process holding the write lock. It opens its own
   read-only connection via `Graph.open_read_only()`, which takes no lock at
   all, because WAL already makes concurrent readers safe and a reader has no
-  business asking for a writer's lock. Accept/reject, being writes, are not
-  built — see `HANDOFF.md`.
+  business asking for a writer's lock. Accept/reject **is** built, behind
+  `serve_ui.py --allow-writes`: each write takes the exclusive lock for one
+  request and answers 409 if an agent run holds it, so it never blocks a run
+  for longer than a request. An earlier note here predicted a writing UI would
+  have to hold the lock for as long as a browser tab was open, which was simply
+  wrong, and was the only thing that had been blocking it.
 
 ---
 
@@ -151,11 +158,14 @@ the design doc explicitly withholds something (no policy file → no
   same as ATELIER.
 - **setuptools** build backend, `pyproject.toml`, no linter/formatter
   configured (ATELIER runs bare — "match the surrounding style").
-- **stage 2+: plain `anthropic` SDK**, behind an optional `agents` extra
-  (`anthropic>=0.40`) — a tool-use loop over named functions, nothing more.
-  No LangChain, no Agent SDK: the tool layer is already the constraint
-  surface (Principle 4), so a heavier framework would add machinery the
-  design explicitly doesn't need.
+- **stage 2+: OpenRouter over stdlib `urllib.request`** — no client library
+  and no extra to install (`cohort/agents/openrouter.py` says why). This
+  replaced the plain `anthropic` SDK originally planned here, and with it the
+  optional `agents` extra that plan implied: there is no such extra in
+  `pyproject.toml`, because a dependency-free transport needs none. The
+  reasoning that ruled out heavier frameworks still holds and still applies —
+  no LangChain, no Agent SDK: the tool layer is already the constraint surface
+  (Principle 4), so a framework would add machinery the design doesn't need.
 - **stage 2+ local reader**: stdlib SQLite FTS5, reimplementing (not
   importing — COHORT stays standalone per §2) the character-unigram trick from
   `atelier/atelier/adapters/local_corpus_adapter.py`. FTS5's default
@@ -164,13 +174,14 @@ the design doc explicitly withholds something (no policy file → no
   characters and phrase-querying fixes this without a segmenter dependency.
   Directly relevant since the likely corpus (CBETA/Kanripo, per design doc
   §14) is Classical Chinese.
-- **stage 5 (not started): FastAPI** behind a new optional `ui` extra,
-  serving a JSON API over `graph.py`'s read-only surface, plus **a separate
-  JS/React frontend** for the graph view/accept-reject/provenance-on-click
-  UI. Optional in the same sense as the `agents` extra: the core system
-  never depends on it. No Postgres, no queue — FastAPI reads the one
-  SQLite file through the process that already holds the write lock;
-  see "Decisions already made" above.
+- **stage 5 (built): FastAPI** behind an optional `ui` extra, serving a JSON
+  API over `graph.py`'s surface, plus **a separate JS/React frontend** for the
+  graph view / accept-reject / provenance-on-click UI, and a corpus browser and
+  agent-run launcher besides. Optional in the sense `dev` is: the core system
+  never depends on it. No Postgres, no queue — one SQLite file. Reads open
+  their own connection via `Graph.open_read_only()` and take no lock at all,
+  rather than running inside the writer's process as first planned; writes
+  (accept/reject/reopen) take the exclusive lock for one request each.
 
 ---
 
@@ -397,7 +408,7 @@ sent instructions.
 | 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done, live-verified, now corpus-wide** — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`. The CBETA archive is obtained and hash-verified, and `cohort/sources/cbeta_fts.py` indexes all 20,190 entries (15.28M citable spans, ~1.1 GB, built by `scripts/build_cbeta_index.py`), so `CbetaReader.search()` covers the real corpus rather than a hand-listed fixture. Searchable spans are exactly the citable ones, so every hit is fetchable by construction. Results are corpus-ordered, deliberately unranked — see `HANDOFF.md` |
 | 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done, live-verified.** `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) |
 | 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Unblocked; `parallel_of` and collation halves done, live-verified.** `cohort/sources/cbeta_markup.py` parses `<cb:docNumber>` cross-references and `<app>` apparatus; `cohort/tools/link_parallels.py` writes `parallel_of` edges (asserted references only, and only to witnesses already in the graph); `cohort/tools/collate_editions.py` records `CROSS_EDITION_COLLATION` verifications. `scripts/run_stage4_demo.py` shows `independent_support` flipping on three real Heart Sutra translations, derived from the corpus rather than hand-added. Contradiction surfacing now has a producer: `cohort/tools/record_contradiction.py` writes `contradicts` edges with a mandatory stated reason (edges gained a `reason` column, migration 3), and it is registered in `AttestationWorker`. Still open: `descends_from` extraction — the markup asserts parallelism, not descent, so there is no corpus channel for it — and *automatic* contradiction detection across witnesses, which needs locus alignment COHORT does not have and does not claim. `link_parallels`/`collate_editions` are **now registered as agent tools** and have been called by a real model — neither takes a judgement as input (only a `witness_id`; the corpus supplies the content), which is what settled the question. See `HANDOFF.md` |
-| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified**. Researcher UI **built, read-only** — `cohort/ui/api.py` (FastAPI over `graph.py`'s reader surface) + `cohort/ui/frontend/` (React/Vite), both behind the optional `ui` extra; served by `scripts/serve_ui.py` against a graph seeded from the real archive. Serves while an agent run holds the write lock, via the new `Graph.open_read_only()`. Renders §10's requirements (status as a visual channel, discounting edges distinct from supporting ones, contradiction as visible as agreement, provenance on click). **Accept/reject is now built** (`--allow-writes`), which retires this row's earlier claim that a writing UI would have to hold the exclusive lock "for as long as a tab is open" — that was wrong. Each write takes the lock for one request and releases it; a run holding the lock yields a 409 with a stated reason, so single-writer discipline is unchanged rather than relaxed. The UI also reaches parity with the Python API on two further fronts: corpus browse/search (`--corpus`) and an agent-run launcher (`--allow-runs`) with a per-run spend cap the browser cannot raise. Live-verified end to end over HTTP. The "many agents" half is **now reachable from the UI**: a run is one or several agents, each with its own declared corpus scope and method, sharing one graph, one lock and one budget cap; live-verified with two concurrent agents. See `HANDOFF.md` |
+| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified**. Researcher UI **built** — read-only by default, with writes, corpus and runs each opt-in behind a separate flag — `cohort/ui/api.py` (FastAPI over `graph.py`'s reader surface) + `cohort/ui/frontend/` (React/Vite), both behind the optional `ui` extra; served by `scripts/serve_ui.py` against a graph seeded from the real archive. Serves while an agent run holds the write lock, via `Graph.open_read_only()`. Renders §10's requirements (status as a visual channel, discounting edges distinct from supporting ones, contradiction as visible as agreement, provenance on click). **Accept/reject is now built** (`--allow-writes`), which retires this row's earlier claim that a writing UI would have to hold the exclusive lock "for as long as a tab is open" — that was wrong. Each write takes the lock for one request and releases it; a run holding the lock yields a 409 with a stated reason, so single-writer discipline is unchanged rather than relaxed. The UI also reaches parity with the Python API on two further fronts: corpus browse/search (`--corpus`) and an agent-run launcher (`--allow-runs`) with a per-run spend cap the browser cannot raise. Live-verified end to end over HTTP. The "many agents" half is **now reachable from the UI**: a run is one or several agents, each with its own declared corpus scope and method, sharing one graph, one lock and one budget cap; live-verified with two concurrent agents. See `HANDOFF.md` |
 | 6 | ATELIER integration: source interface becomes an adapter; cumulative-coverage policy | Not started |
 
 Design doc's own cut order still applies if time runs short: **cut stage 5
@@ -431,7 +442,7 @@ the current concrete state and next steps.
 
 Stage 1's original check — `pytest -q` green, `demo.py` printing the
 `independent_support()` flip, and a manual rebuild diff — is done and has
-stayed green through every stage since (254 tests). `demo.py` still runs with
+stayed green through every stage since (260 tests). `demo.py` still runs with
 no corpus and no API key.
 
 What the live scripts have additionally proven, each run by hand and never

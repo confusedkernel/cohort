@@ -741,6 +741,15 @@ path is proven deterministically, not live.
 
 **Update: the researcher UI (stage 5) is built and serving — read-only.**
 
+> *Historical entry, partly superseded.* This was the first stage-5 update and
+> it is the oldest one in this file. Two of its conclusions were later reversed
+> by the entries above: accept/reject **is** built (and the lock-holding
+> concern below was wrong), and the UI is no longer read-only — it also
+> browses the corpus and launches agent runs. What still holds is everything
+> about how the frontend honours DESIGN.md §10, `Graph.open_read_only()`, and
+> the `CbetaReader` collection bug. Counts and "not yet run" notes are as of
+> that day, not now.
+
 `cohort/ui/api.py` is a FastAPI JSON API over `graph.py`'s reader surface;
 `cohort/ui/frontend/` is a React + Vite app that builds into
 `cohort/ui/static/`, which the API mounts when present. Both live behind the
@@ -763,12 +772,12 @@ mutating method fail through the existing `event_log_or_raise()` guard rather
 than a parallel check that could drift from it. A test asserts the app exposes
 no non-GET routes.
 
-**Accept/reject is deliberately absent, and this is the open decision.**
-DESIGN.md §13 puts it in stage 5, but those are researcher *writes*, and a
-writing UI would hold the exclusive lock for as long as a browser tab is open
-— stopping every agent run in the meantime. That concurrency question deserves
-a decision of its own rather than being settled by whichever endpoint got
-written first.
+**Accept/reject was deliberately absent, and was the open decision.**
+DESIGN.md §13 puts it in stage 5, but those are researcher *writes*, and the
+worry at the time was that a writing UI would hold the exclusive lock for as
+long as a browser tab is open, stopping every agent run in the meantime. That
+was wrong — a write takes the lock for one request, not one session — and once
+that was seen, the endpoints were built. See the accept/reject entry above.
 
 **The frontend honours §10's requirements as requirements**, since a naive
 rendering "flattens exactly the epistemics that justify the system": node
@@ -823,9 +832,10 @@ purpose; fixed as part of this run, with a regression test in
 `tests/test_tools.py`). 139 tests pass (was 136; three new tests cover the
 `index`-backed `search()` and the `source_terms` fix).
 
-**What's still open, deliberately not decided unilaterally** (ROADMAP.md
-§14): the chronology scheme. `propose_conjecture` has also not yet been run
-against real text — only `find_attestations` has, so far.
+**What was still open as of this entry** (ROADMAP.md §14): the chronology
+scheme — which remains open, and remains the researcher's call. The same
+paragraph noted `propose_conjecture` had not yet run against real text; it has
+since, see the entry above.
 
 ## Read first
 
@@ -901,15 +911,22 @@ claims built on it would be false from the start.
 - Source interface + two readers: `LocalReader` (manifest-driven plain text,
   used by every fixture/test) and `CbetaReader` (hash-verified archive
   access, TEI header-skipping, unique-span excerpt location). `fetch()`
-  (`"entry_path::excerpt"`) always works; `search()` still raises
-  `NotImplementedError` when constructed without an `index`, but now
-  accepts an optional hand-maintained `index: dict[str, list[str]]`
-  (`entry_path -> known excerpts`) — see the update at the top of this
-  file and `cbeta_index.json` (gitignored).
+  (`"entry_path::excerpt"`) always works. `search()` is served by the
+  full-corpus FTS5 index (`scripts/build_cbeta_index.py`, `cbeta_fts.sqlite`),
+  and still accepts the older hand-maintained
+  `index: dict[str, list[str]]` (`entry_path -> known excerpts`,
+  `cbeta_index.json`, gitignored) that predates it — some live scripts still
+  pass that. Without either, it raises `NotImplementedError` rather than
+  silently returning nothing.
 - `AttestationWorker` (OpenRouter-backed, stdlib `urllib` transport, no
-  client library) with three tools (`propose_claim`, `find_attestations`,
-  `propose_conjecture`) and `run_swarm()` for real concurrent multi-agent
-  execution.
+  client library) with six registered tools — `propose_claim`,
+  `find_attestations`, `propose_conjecture`, `record_contradiction`,
+  `link_parallels`, `collate_editions` — and `run_swarm()` for real concurrent
+  multi-agent execution. `verify_exact_span` is deliberately *not* among them:
+  it is a researcher-side check, not an agent write.
+- The researcher UI (`cohort/ui/`): graph view, provenance panel, corpus
+  browse/search, accept/reject/reopen, refusal log, and a multi-agent run
+  launcher with the spend cap enforced in `cohort/agents/budget.py`.
 - Agent identity (`register_agent`, `AgentProfile`, `agent_report()` as a
   pure contribution count, deliberately not a reputation score).
 
@@ -937,7 +954,7 @@ claims built on it would be false from the start.
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q                # should be 212 passed
+.venv/bin/pytest -q                # should be 260 passed
 .venv/bin/python demo.py           # no corpus, no API key needed
 cp .env.example .env               # then fill in OPENROUTER_API_KEY / OPENROUTER_MODEL yourself —
                                     # never paste a real key into a chat session
@@ -954,31 +971,34 @@ cp .env.example .env               # then fill in OPENROUTER_API_KEY / OPENROUTE
                                                   # -> ~/cbeta_scan/{parallel_map.jsonl,unparsed.txt,summary.txt}
 .venv/bin/python scripts/run_conjecture_demo.py  # live propose_conjecture, manual only.
                                                   # Spend is capped in code: --budget (default $0.25)
+.venv/bin/python scripts/seed_demo_graph.py      # demo graph from the real archive, no API key
+.venv/bin/python scripts/serve_ui.py --db demo_graph.sqlite \
+    --corpus --allow-writes --allow-runs --max-budget 0.50   # the researcher UI; all three
+                                                  # capabilities are opt-in separately
 ```
 
 Venvs bake in absolute paths — if this repo gets moved again after being
 cloned onto the server, delete and recreate `.venv` rather than trying to
 reuse one copied from elsewhere.
 
-## Suggested next session on the server
+## Suggested next session
 
-Locating/verifying the archive, answering the markup question, building a
-minimal index, running `find_attestations` for real, and stage 4's
-`parallel_of` + cross-edition-collation extraction are all done — see the
-updates at the top of this file. What's next:
+Everything this section used to list is done: the archive is located and
+hash-verified, the markup question is answered, the full-corpus FTS index is
+built, `find_attestations` and `propose_conjecture` have both run against real
+text, stage 4's `parallel_of` and cross-edition-collation extraction work, the
+two stage-4 tools are registered as agent tools, and `record_contradiction`
+gives `contradicts` a producer. See the updates at the top of this file.
 
-1. Run `propose_conjecture` against real text for the first time — nothing
-   has exercised the falsifiability-gate dossier against genuine CBETA
-   content yet, only the fixture. This is the last stage-2/3 capability
-   never tried on the real corpus.
-2. Wire the two stage 4 tools into `AttestationWorker`'s tool list if agents
-   should be able to call them. They are deliberately *not* registered yet:
-   both write structure with real epistemic consequences, and letting a
-   model mint `parallel_of` edges is a decision worth making explicitly
-   rather than by default.
-3. Contradiction surfacing — the other half of stage 4, untouched. The
-   `contradicts` edge already exists in the vocabulary.
-4. Decide whether `cbeta_index.json` needs more entries. A full-corpus FTS
-   index remains unbuilt; four hand-picked entries have been enough so far.
-5. Do not decide the chronology scheme unilaterally — it's named as open in
-   `ROADMAP.md` for a reason; flag it, don't guess.
+What is actually left:
+
+1. **The paper.** `DESIGN.md` §15 has the claim paragraph and the venue is
+   PNC 2026, but no submission artifact exists in this repository. This is the
+   largest remaining piece of work and it is not a coding task.
+2. **The chronology scheme — do not decide it unilaterally.** It is named as
+   open in `ROADMAP.md` §14 for a reason; flag it, don't guess.
+3. `record_contradiction` has still never been called by a live model. Every
+   other registered tool has. One cheap run would close that.
+4. Deliberately deferred, not blocked, and fine to leave: ATELIER integration
+   (stage 6), reputation scoring, relevance ranking over search results, and
+   edge retraction. Each is described under "What does not exist" above.
