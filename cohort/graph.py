@@ -34,12 +34,15 @@ from .errors import (
     PassageNotLocated,
     PersistentRejection,
     RebuildMismatch,
+    ReviewerNotIndependent,
     RungSkipped,
+    SelfAttestation,
     SingleWriterViolation,
     UnattestableClaim,
     UnattestableConjecture,
 )
 from .eventlog import EventLog, read_events
+from .families import model_family
 from .migrations import SCHEMA_VERSION, MigrationError, apply_migrations
 from .schemas import (
     RESEARCHER,
@@ -349,6 +352,11 @@ class Graph:
                 "attest", authored_by,
                 RungSkipped(f"{node_id} is {node.status}, not proposed"),
                 node_id=node_id, node_type=node.type,
+            )
+        conflict = self._reviewer_conflict(node, authored_by)
+        if conflict is not None:
+            self._refuse(
+                "attest", authored_by, conflict, node_id=node_id, node_type=node.type,
             )
         if node.type == NodeType.CLAIM:
             if not self._has_qualifying_attestation(node_id):
@@ -1070,6 +1078,100 @@ class Graph:
 
     def _get_row(self, node_id: str):
         return self.conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
+
+    #: Node types where `attest` asserts something the author could be wrong
+    #: about in an interested way, so the author may not be the attester.
+    #:
+    #: Witnesses and passages are deliberately absent. Their identity is
+    #: source-derived and their attest precondition is settled by the source
+    #: rather than by judgment — a passage is attested when it is located in a
+    #: witness, which `verify_exact_span` re-checks against bytes. Requiring a
+    #: second agent to confirm a fact the corpus already decides would add a
+    #: round trip and no independence, and would break convergence: two agents
+    #: recording the same passage converge onto one node, so "the author" of a
+    #: source-derived node is not a meaningful single party.
+    #:
+    #: Queries are absent for a different reason: a query is a retrieval to
+    #: run, not an assertion, so there is nothing for a second reader to be
+    #: right or wrong about. `verify()` refuses a query as a subject for the
+    #: same reason, which means a rule here would create a rung no reviewer
+    #: could ever record having checked.
+    REVIEWABLE_TYPES = (NodeType.CLAIM, NodeType.CONJECTURE)
+
+    def attest_conflict(self, node_id: str, authored_by: str) -> str | None:
+        """Why `attest(node_id, authored_by=...)` would be refused as a
+        self-review, or None if it would not.
+
+        A public read so a caller can decline to try rather than generate a
+        predictable refusal: `find_attestations` uses it to avoid logging a
+        refusal on every single call for the claim it just authored, and the
+        UI uses it to explain why an attest button is unavailable. Asking is
+        not a substitute for the boundary check — `attest()` re-checks
+        regardless of whether anyone asked."""
+        node = self._require_node(node_id)
+        conflict = self._reviewer_conflict(node, authored_by)
+        return str(conflict) if conflict is not None else None
+
+    def _reviewer_conflict(self, node: Node, authored_by: str) -> CohortError | None:
+        """The author≠reviewer rule (compare.md §10; design doc §5 principle 3).
+
+        Returns the error to refuse with, or None to allow. Two distinct
+        failures, kept distinct because they are refused for different
+        reasons and a researcher reading the refusal log should see which:
+        the same agent checking itself, and a different agent that is not
+        actually a different reader."""
+        if authored_by == RESEARCHER or node.type not in self.REVIEWABLE_TYPES:
+            return None
+        authors = self._proposing_authors(node.id)
+        if not authors:
+            return None
+        if authored_by in authors:
+            return SelfAttestation(
+                f"{authored_by} authored {node.id} and may not attest it. "
+                "An attestation is a check that the mechanical preconditions "
+                "hold, and the author is the one party with an interest in "
+                "the answer. Let another agent on a different model family "
+                "attest it, or accept it yourself as the researcher."
+            )
+        mine = self._agent_model(authored_by)
+        if not mine:
+            return None
+        my_family = model_family(mine)
+        for author in sorted(authors):
+            theirs = self._agent_model(author)
+            if theirs and model_family(theirs) == my_family:
+                return ReviewerNotIndependent(
+                    f"{authored_by} ({mine}) and the author {author} ({theirs}) "
+                    f"share the model family {my_family!r}, so attesting "
+                    f"{node.id} would be the author confirming itself under a "
+                    "second name. Give the reviewer a model from another "
+                    "provider (OPENROUTER_MODELS lists the pool)."
+                )
+        return None
+
+    def _proposing_authors(self, node_id: str) -> set[str]:
+        """Everyone who put this node into the graph — `proposed` for an
+        agent-authored node, plus `converged` for a source-derived one, where
+        several agents may have arrived at the same id. Later actions
+        (`attested`, `accepted`) are not authorship of the assertion and are
+        excluded, or a reviewer would lock itself out of a node it had
+        already legitimately attested once."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT author FROM node_authorship WHERE node_id=? "
+            "AND action IN ('proposed', 'converged')",
+            (node_id,),
+        ).fetchall()
+        return {r["author"] for r in rows}
+
+    def _agent_model(self, agent_id: str) -> str | None:
+        """The model a registered agent declared, or None if it never
+        registered one. `authored_by` is not a foreign key into `agents` (see
+        the schema comment), so an unregistered author is ordinary, not an
+        error."""
+        row = self.conn.execute(
+            "SELECT model FROM agents WHERE id=?", (agent_id,)
+        ).fetchone()
+        return row["model"] if row is not None else None
 
     def _has_qualifying_attestation(self, node_id: str) -> bool:
         rows = self.conn.execute(

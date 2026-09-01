@@ -890,3 +890,62 @@ is exactly what `budget.py` documents. But it means the end-to-end no-guessing
 path is proven deterministically, not live.
 
 ---
+
+## The author is not the reviewer
+
+**2026-09-02.** Cloning the third sibling (`~/graph-fact-check`, previously
+private) turned compare.md §10's sharpest criticism from an attested claim into
+a verified one: both other implementations separate the checker from the
+checked, and COHORT did not. Verification was a *tool* any worker could call,
+and nothing stopped an agent attesting its own claim.
+
+**The rule, at the write boundary.** `Graph.attest()` now refuses a claim or
+conjecture whose author is the attester (`SelfAttestation`), and one whose
+author shares the attester's model family (`ReviewerNotIndependent`). The
+second catches what the roster check cannot see — agents registered by separate
+runs writing to one graph — so both exist rather than one subsuming the other,
+and they share one definition of "family" in the new `cohort/families.py`.
+
+Exemptions, each a decision rather than an oversight: the **researcher** (accept
+is already the human gate; a second human would make solo research impossible),
+**witnesses and passages** (source-derived — where a passage sits is settled by
+the corpus, and converged nodes have no single author), and **queries** (a
+retrieval to run, not an assertion, and `verify()` refuses one as a subject
+anyway, so a rule there would create a rung no reviewer could record checking).
+
+**The role.** `ReviewWorker` — the same tool loop, two tools: `review_claim`
+and `record_contradiction`. No `propose_*`, because a checker that authors
+claims accumulates work it is then barred from checking. The restriction is the
+tool list, not the prompt, so there is nothing for a model to talk itself out
+of. It was made a subclass rather than a copy: the budget accounting, refusal
+logging and the concurrency argument are role-independent and a second
+hand-maintained loop would drift.
+
+**The thing that took the most care.** A reviewer is *not* a second model whose
+agreement counts as evidence — `VerificationMethod` excludes `MODEL_ENTAILMENT`
+in as many words, and an entailment judge would have reintroduced
+consensus-seeking through the role after the vocabulary was written to keep it
+out. So `review_claim` re-fetches every cited passage and re-locates its
+excerpt, and **promotion rests on that, never on the verdict**: `sound` over a
+citation that fails to re-verify advances nothing. The reviewer's judgment is a
+veto, not a warrant — it can withhold promotion, never supply it. Its words go
+in `limitations` (what a passing check does *not* establish) while `detail`
+carries what the machine established, so a confident sentence never reads later
+as a mechanical finding.
+
+**Consequences elsewhere.** `find_attestations` no longer attests the caller's
+own claim, and asks `attest_conflict()` rather than provoking a refusal that
+was certain in advance — a predictable refusal on every call would bury the
+ones a researcher needs to read. Runs became **two-phase**: a reviewer launched
+alongside the workers would start before any claim existed, so it runs after
+them, its pending list appended at that point by `pending_review_context()`. A
+reviewer with nothing to review is skipped rather than billed for an empty
+turn, and reported as a `note`, not an `error`.
+
+**Both front ends.** `cohort run --reviewer … --reviewer-model …`; **+ Add
+reviewer** in the UI. The demo seed graph now has two agents and shows two
+refusals where it showed one — the author cannot close its own rung, and even
+the reviewer cannot, because the falsifiability gate outranks review.
+
+**33 new tests** (362 total), including the one that matters most: a reviewer
+saying `sound` about a citation that does not re-fetch does not move the claim.

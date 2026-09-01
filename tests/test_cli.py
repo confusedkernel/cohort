@@ -26,6 +26,12 @@ from cohort.schemas import (
 )
 
 AGENT = "agent:worker-1"
+#: A second agent, because an agent may not attest what it authored
+#: (`Graph._reviewer_conflict`). Unregistered on purpose in most of
+#: these fixtures: with no declared model there is no family to
+#: compare, so what is being exercised is the author-is-not-reviewer
+#: half of the rule on its own.
+REVIEWER = "agent:reviewer-1"
 
 
 @pytest.fixture
@@ -57,7 +63,7 @@ def seeded(tmp_path):
         g.add_edge(EdgeType.ATTESTS, p, claim, authored_by=AGENT)
         witnesses.append(w)
     g.add_edge(EdgeType.PARALLEL_OF, witnesses[0], witnesses[1], authored_by=AGENT)
-    g.attest(claim, authored_by=AGENT)
+    g.attest(claim, authored_by=REVIEWER)
     g.close()
     return {"db": str(db), "log": str(log), "claim": claim}
 
@@ -242,6 +248,72 @@ def test_run_builds_one_spec_per_agent_and_passes_the_budget(seeded, monkeypatch
     assert all(s.corpus_scope == "Prajñāpāramitā only" for s in seen["specs"])
     assert all(s.method_label == "phrase distribution" for s in seen["specs"])
     assert "finished" in capsys.readouterr().out
+
+
+def test_run_builds_reviewers_after_workers_with_their_own_models(seeded, monkeypatch, capsys):
+    """`--reviewer` is the terminal's half of the role. Two things have to
+    survive the wiring: the reviewer is marked as one, and it comes *after*
+    the workers in the roster, because that is the order it runs in."""
+    import cohort.ui.runs as runs_mod
+
+    seen = {}
+
+    class FakeManager:
+        def __init__(self, db, log, source, **kw):
+            pass
+
+        def start(self, specs, *, budget_usd, max_turns=None):
+            seen["specs"] = specs
+
+        def current(self):
+            return None
+
+        def history(self, limit=10):
+            return [{
+                "state": "finished", "elapsed_s": 1,
+                "spend": {"spent_usd": 0.0, "budget_usd": 0.05, "calls": 0},
+                "agents": [],
+            }]
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(runs_mod, "RunManager", FakeManager)
+    monkeypatch.setattr("cohort.cli._corpus", lambda args: object())
+
+    main([
+        "--db", seeded["db"], "run",
+        "--agent", "find attestations for 色即是空",
+        "--model", "z-ai/glm-5.3",
+        "--reviewer", "check what the worker proposed",
+        "--reviewer-model", "deepseek/deepseek-v4-flash",
+        "--budget", "0.05",
+    ])
+    capsys.readouterr()
+
+    specs = seen["specs"]
+    assert [s.role for s in specs] == ["worker", "reviewer"]
+    assert [s.model for s in specs] == ["z-ai/glm-5.3", "deepseek/deepseek-v4-flash"]
+    assert specs[1].agent_id == "agent:cli-reviewer-1"
+
+
+def test_run_refuses_a_partial_model_list(seeded, monkeypatch):
+    """Padding the rest with the default is how two agents quietly end up on
+    one family — refused here, with the count, rather than later with a
+    message about a roster the caller did not write."""
+    monkeypatch.setattr("cohort.cli._corpus", lambda args: object())
+    with pytest.raises(SystemExit, match="one model per --agent"):
+        main([
+            "--db", seeded["db"], "run",
+            "--agent", "a", "--agent", "b", "--model", "z-ai/glm-5.3",
+            "--budget", "0.05",
+        ])
+
+
+def test_run_needs_at_least_one_agent_or_reviewer(seeded, monkeypatch):
+    monkeypatch.setattr("cohort.cli._corpus", lambda args: object())
+    with pytest.raises(SystemExit, match="at least one --agent or --reviewer"):
+        main(["--db", seeded["db"], "run", "--budget", "0.05"])
 
 
 def test_run_reports_a_refused_start_rather_than_a_traceback(seeded, monkeypatch):

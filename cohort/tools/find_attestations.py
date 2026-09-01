@@ -126,22 +126,33 @@ def find_attestations(
 
     # Advance the target itself, not only the passages under it.
     #
-    # Without this the middle rung is unreachable: an agent could propose a
-    # claim, gather ten attesting passages across seven witnesses, and leave it
-    # at `proposed` forever — where the researcher cannot accept it, because no
-    # rung may be skipped. A claim no one can ever accept is a dead end, and it
-    # was reached by doing everything right.
+    # Without this the middle rung is unreachable for a target this agent did
+    # not author: an agent could gather ten attesting passages across seven
+    # witnesses and leave the claim at `proposed` forever — where the
+    # researcher cannot accept it, because no rung may be skipped. A claim no
+    # one can ever accept is a dead end, and it was reached by doing
+    # everything right.
     #
     # This is the same mechanical check `attest` already means and that this
     # tool has just performed for real: each citation was fetched and resolved.
     # The write boundary re-checks the precondition anyway and refuses if the
     # claim has nothing attesting it, so a zero-hit search advances nothing.
-    if passage_ids and graph.get_node(args.claim_or_conjecture_id).status == NodeStatus.PROPOSED:
+    #
+    # For a target this agent *did* author, the boundary refuses the attest as
+    # a self-review, and rightly — but that refusal is certain in advance, and
+    # writing it to the refusal log on every call would bury the refusals a
+    # researcher actually needs to read under a predictable one. So the
+    # conflict is asked about instead of provoked. The claim stays `proposed`
+    # until a reviewer checks it (`cohort.tools.review_claim`), which is the
+    # intended path, not a dead end.
+    target = args.claim_or_conjecture_id
+    if (
+        passage_ids
+        and graph.get_node(target).status == NodeStatus.PROPOSED
+        and graph.attest_conflict(target, authored_by) is None
+    ):
         try:
-            graph.attest(
-                args.claim_or_conjecture_id,
-                authored_by=authored_by, model_call_id=model_call_id,
-            )
+            graph.attest(target, authored_by=authored_by, model_call_id=model_call_id)
         except CohortError:
             # A conjecture with no `tests` edge is the expected case: the
             # falsifiability gate outranks attestation, and refusing here is

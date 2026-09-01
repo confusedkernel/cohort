@@ -44,7 +44,7 @@ from cohort.schemas import (
     WitnessPayload,
 )
 from cohort.sources.cbeta_reader import CbetaArchiveError, CbetaReader
-from cohort.errors import UnattestableConjecture
+from cohort.errors import SelfAttestation, UnattestableConjecture
 from cohort.tools.collate_editions import CollateEditionsInput, collate_editions
 from cohort.tools.propose_claim import ProposeClaimInput, propose_claim
 from cohort.tools.record_contradiction import (
@@ -58,6 +58,14 @@ from cohort.sources.env import CBETA_V061_SHA256  # one definition; see docs/cor
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 AGENT = "agent:worker-heart"
+#: The demo graph now has two agents, because one cannot check its own work:
+#: an agent may not attest a claim it authored, and a reviewer sharing its
+#: model family is refused too. Both are registered with declared models so
+#: the family check has something real to compare — a demo where the rule
+#: could not fire would not be showing the rule.
+REVIEWER = "agent:reviewer-heart"
+WORKER_MODEL = "z-ai/glm-5.3"
+REVIEWER_MODEL = "deepseek/deepseek-v4-flash"
 EXCERPT = "色即是空，空即是色"
 ENTRIES = [
     "Bookcase/CBETA/XML/T/T08/T08n0250_001.xml",
@@ -108,8 +116,18 @@ def main() -> None:
             id=AGENT, kind=AgentKind.WORKER,
             corpus_scope="CBETA v061, Heart Sutra translations (T250, T251, T252)",
             method_label="direct textual attestation",
+            model=WORKER_MODEL,
         ),
         authored_by=AGENT,
+    )
+    graph.register_agent(
+        AgentProfile(
+            id=REVIEWER, kind=AgentKind.REVIEWER,
+            corpus_scope="CBETA v061, Heart Sutra translations (T250, T251, T252)",
+            method_label="re-verification of cited spans",
+            model=REVIEWER_MODEL,
+        ),
+        authored_by=REVIEWER,
     )
 
     claim_id = graph.propose_claim(
@@ -155,7 +173,10 @@ def main() -> None:
         if report.linked:
             print(f"  {witness_id} parallel_of -> {', '.join(report.linked)}")
 
-    graph.attest(claim_id, authored_by=AGENT)
+    # The worker gathered the evidence; a second agent on another provider is
+    # what closes the rung. This is the author-is-not-reviewer rule, visible
+    # in the demo graph's authorship trail rather than only in the tests.
+    graph.attest(claim_id, authored_by=REVIEWER)
     graph.accept(claim_id, authored_by=RESEARCHER)
 
     # A conjecture the sources do not state outright, left unattested on
@@ -228,8 +249,15 @@ def main() -> None:
     # and shows up in the UI's "refused writes" panel — docs/design.md §15 counts
     # refusals as output, and a demo graph with none would understate what the
     # system does.
+    # Two refusals, on purpose, because they are refused for different reasons
+    # and the panel should show both: the author cannot close its own rung, and
+    # even the reviewer cannot, because the falsifiability gate outranks review.
     try:
         graph.attest(conjecture_id, authored_by=AGENT)
+    except SelfAttestation as e:
+        print(f"  refused (as designed): {type(e).__name__}")
+    try:
+        graph.attest(conjecture_id, authored_by=REVIEWER)
     except UnattestableConjecture as e:
         print(f"  refused (as designed): {type(e).__name__}")
 

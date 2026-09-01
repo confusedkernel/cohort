@@ -57,7 +57,7 @@ from ..sources.cbeta_markup import strip_markup_for_display
 from ..views import DISCOUNTING_EDGE_TYPES, node_detail_json
 from ..views import edge_json as _edge_json
 from ..views import node_json as _node_json
-from .runs import AgentSpec, RunManager, RunRejected
+from .runs import ROLE_WORKER, AgentSpec, RunManager, RunRejected
 
 FRONTEND_DIR = Path(__file__).resolve().parent / "static"
 
@@ -363,10 +363,15 @@ def create_app(
             a stated rule if the node has nothing attesting it, so this button
             cannot promote something unsupported.
 
-            It exists because a node can be left eligible but unadvanced — an
-            agent that gathers evidence and stops short strands its own claim
-            at `proposed`, where accept is correctly refused for skipping a
-            rung. Without this the researcher has no way out of that."""
+            It exists because a node can be left eligible but unadvanced, and
+            since 2026-09-02 that is the *ordinary* outcome rather than an
+            agent stopping short: no agent may attest a claim it authored, so a
+            run without a reviewer leaves its claims at `proposed`, where
+            accept is correctly refused for skipping a rung. This is the
+            researcher's way through — and the researcher is exempt from the
+            author-is-not-reviewer rule, being the accountable party (see
+            `Graph._reviewer_conflict`). The other way through is to add a
+            reviewer on another provider to the run."""
             graph = _write_graph()
             try:
                 try:
@@ -564,6 +569,7 @@ def create_app(
                     "corpus_scope": body.get("corpus_scope") or "",
                     "method_label": body.get("method_label") or "",
                     "model": body.get("model") or "",
+                    "role": body.get("role") or "",
                 }]
             if not isinstance(raw, list):
                 raise HTTPException(status_code=422, detail="`agents` must be a list")
@@ -575,6 +581,7 @@ def create_app(
                         str(a.get("corpus_scope") or ""),
                         str(a.get("method_label") or ""),
                         str(a.get("model") or ""),
+                        str(a.get("role") or ROLE_WORKER),
                     )
                     for a in raw
                 ]

@@ -193,6 +193,16 @@ TOOLS = [
 
 
 class AttestationWorker:
+    #: The three pieces that make this worker *this* role, as class attributes
+    #: so a differently-roled agent can be a subclass rather than a copy of the
+    #: tool loop. `ReviewWorker` overrides all three plus `_dispatch`; the
+    #: loop itself — budget, refusal logging, model-call accounting, the
+    #: concurrency argument in this module's docstring — is identical for
+    #: every role and must not be forked.
+    SYSTEM_PROMPT = SYSTEM_PROMPT
+    TOOLS = TOOLS
+    PROMPT_VERSION = PROMPT_VERSION
+
     def __init__(
         self,
         graph: Graph,
@@ -230,7 +240,7 @@ class AttestationWorker:
         except RuntimeError:
             return asyncio.run(self.run_async(instructions, max_turns=max_turns))
         raise RuntimeError(
-            "AttestationWorker.run() cannot be called from inside a running "
+            f"{type(self).__name__}.run() cannot be called from inside a running "
             "event loop — use run_async() directly (e.g. from run_swarm())"
         )
 
@@ -266,7 +276,7 @@ class AttestationWorker:
         ]
         full_instructions = "\n\n".join([*parts, instructions]) if parts else instructions
         messages: list[dict] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": self.SYSTEM_PROMPT},
             {"role": "user", "content": full_instructions},
         ]
         log: list[dict[str, Any]] = []
@@ -276,13 +286,13 @@ class AttestationWorker:
                 break
             started = time.monotonic()
             response = await asyncio.to_thread(
-                complete, self.model, messages, TOOLS, api_key=self.api_key,
+                complete, self.model, messages, self.TOOLS, api_key=self.api_key,
                 transport=self.transport, max_output_tokens=self.max_output_tokens,
             )
             latency_ms = int((time.monotonic() - started) * 1000)
             call_event = self.graph.log_model_call(
                 authored_by=self.authored_by, model=response.model, provider="openrouter",
-                prompt_version=PROMPT_VERSION, latency_ms=latency_ms,
+                prompt_version=self.PROMPT_VERSION, latency_ms=latency_ms,
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
                 cost_usd=response.usage.cost,

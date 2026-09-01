@@ -65,6 +65,36 @@ project's own thesis. Retraction is now built (migration 4) on the same terms as
 rejecting a node — researcher only, a reason required, persists against
 redrawing, nothing deleted.
 
+### An agent could check its own claim
+**2026-09-02.** `attest` was open to any agent, including the one that wrote
+the claim — verification was a tool, not a role. A three-way comparison against
+`epistemic-swarm` and `graph-fact-check` made this the sharpest outstanding
+criticism of the project: both siblings separate the checker from the checked,
+and refusing an overlapping roster (which we already did) is not the same
+thing, since it only constrains who is in a run, not who checks whose work.
+
+Now enforced at the write boundary: an agent may not attest a claim or
+conjecture it authored (`SelfAttestation`), nor one whose author shares its
+model family (`ReviewerNotIndependent`). `ReviewWorker` is the role the refused
+work falls to.
+
+Three choices inside it are worth recording, because each could have gone the
+other way:
+
+- **The reviewer's judgment can only subtract.** A claim advances on
+  re-fetched spans; a `sound` verdict over a citation that fails to re-verify
+  advances nothing. The alternative — a second model whose agreement counts —
+  is exactly the `MODEL_ENTAILMENT` method `VerificationMethod` refuses to
+  admit, and would have smuggled consensus-among-models back in through the
+  role instead of through the vocabulary.
+- **The researcher is exempt.** `accept` is already the human gate and the
+  researcher is the accountable party; requiring a second human would make
+  single-researcher use impossible, which is not the problem this rule
+  addresses.
+- **Witnesses and passages are exempt.** Their attest precondition is settled
+  by the source rather than by judgment, and source-derived nodes converge, so
+  "the author" is not a single party to hold at arm's length.
+
 ### Several agents on one model was not viewpoint diversity
 **2026-09-02.** The scope revision allowed more agents "conditioned on
 demonstrating declared viewpoint diversity", and the run launcher told the

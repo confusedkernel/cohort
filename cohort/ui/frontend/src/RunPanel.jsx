@@ -28,6 +28,14 @@ import { getRunConfig, getRuns, startRun, stopRun } from './api'
 
 const ACTIVE = new Set(['starting', 'running'])
 
+// A reviewer's task is nearly always the same sentence, and the list of what
+// there is to review is appended by the server after the workers finish — the
+// browser cannot know it at configuration time. So this is a real default, not
+// placeholder text the researcher has to replace.
+const REVIEWER_TASK =
+  'Review each pending claim: re-check that its cited passages say what it '
+  + 'claims they say, and give a verdict.'
+
 export default function RunPanel({ instructionSeed, onGraphChanged }) {
   const [config, setConfig] = useState(null)
   const [runs, setRuns] = useState(null)
@@ -108,6 +116,7 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
           corpus_scope: a.corpus_scope,
           method_label: a.method_label,
           model: a.model,
+          role: a.role,
         })),
       })
       settledRef.current = null
@@ -140,7 +149,9 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
         {agents.map((a, i) => (
           <div className="agent-card" key={a.key}>
             <div className="agent-head">
-              <span className="agent-n">Agent {i + 1}</span>
+              <span className="agent-n">
+                {a.role === 'reviewer' ? `Reviewer ${i + 1}` : `Agent ${i + 1}`}
+              </span>
               <input
                 className="agent-id"
                 value={a.agent_id}
@@ -194,11 +205,23 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
               </label>
             </div>
             <p className="hint small">
-              Scope and method are recorded on the agent&apos;s profile and
-              prepended to its instructions. Give two agents different ones and
-              their disagreement means something &mdash; which is only true if
-              they also read on different models, so a run whose agents share a
-              model family is refused.
+              {a.role === 'reviewer' ? (
+                <>
+                  Runs after the workers, because there is nothing to review
+                  before. It cannot propose anything, and it cannot promote a
+                  claim whose citations fail to re-fetch &mdash; its verdict
+                  can withhold attestation but never supply it. What there is
+                  to review is added to its task by the server.
+                </>
+              ) : (
+                <>
+                  Scope and method are recorded on the agent&apos;s profile and
+                  prepended to its instructions. Give two agents different ones
+                  and their disagreement means something &mdash; which is only
+                  true if they also read on different models, so a run whose
+                  agents share a model family is refused.
+                </>
+              )}
             </p>
           </div>
         ))}
@@ -211,12 +234,22 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
           >
             + Add agent
           </button>
+          <button
+            type="button" className="btn"
+            disabled={agents.length >= (config.max_agents || 1)}
+            onClick={() => setAgents([...agents, blankAgent(agents.length, 'reviewer')])}
+          >
+            + Add reviewer
+          </button>
           <span className="hint small">
             {agents.length} of {config.max_agents} · they run concurrently
             against one graph and share the budget below. They cannot see each
             other&apos;s work. Each needs its own model family: two agents on
             one model share priors, so their agreement would be one observation
-            reported twice.
+            reported twice. No agent may attest a claim it wrote, so without a
+            reviewer a run&apos;s claims stop at <em>proposed</em> &mdash;
+            waiting for a reviewer on another provider, or for you to check
+            them yourself.
             {agents.length > 1 && (config.models || []).length < agents.length && (
               <> Set <code>OPENROUTER_MODELS</code> to add more.</>
             )}
@@ -264,14 +297,15 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
   )
 }
 
-function blankAgent(i) {
+function blankAgent(i, role = 'worker') {
   return {
     key: `a${i}-${Math.random().toString(36).slice(2, 7)}`,
-    agent_id: `agent:ui-${i + 1}`,
-    instructions: '',
+    agent_id: role === 'reviewer' ? `agent:ui-reviewer-${i + 1}` : `agent:ui-${i + 1}`,
+    instructions: role === 'reviewer' ? REVIEWER_TASK : '',
     corpus_scope: '',
     method_label: '',
     model: '',
+    role,
   }
 }
 

@@ -19,7 +19,7 @@ What is true as of **2026-09-02**. For how the system got here, see
 
 ## Verified state
 
-    .venv/bin/pytest -q      # 329 passed
+    .venv/bin/pytest -q      # 362 passed
     .venv/bin/python demo.py # no corpus, no API key, no network
 
 Proven by real runs rather than by assertion — every one manual, none
@@ -71,11 +71,43 @@ than implying coverage.
   there are the same place in the text — which COHORT does not have and does
   not claim. Apparatus markup cannot supply it either: it describes variants
   within one document.
-- **A cross-model reviewer.** There is no reviewer *role*: verification is a
-  tool any worker may call, and nothing stops an agent verifying its own claim.
-  Both sibling projects separate the checker from the checked. Refusing a
-  roster that shares a model family (which we now do) is not the same thing.
-  This is the most substantive outstanding criticism — see compare.md §10.
+- **What a reviewer cannot check.** The cross-model reviewer, previously the
+  top item here, **is now built** — `ReviewWorker`, `review_claim`, and the
+  `SelfAttestation`/`ReviewerNotIndependent` rules at the write boundary (see
+  [agents.md](agents.md), [vocabulary.md](vocabulary.md)). What it does *not*
+  do is adjudicate meaning: promotion rests on re-fetched spans, and the
+  reviewer's judgment can only withhold. A claim whose citations re-verify
+  perfectly but which reads more into them than they say will pass unless the
+  reviewer objects, and its objection is recorded rather than enforced. That
+  is deliberate — `VerificationMethod` refuses `MODEL_ENTAILMENT` for the same
+  reason — but it means "attested" still means "cited and located", never
+  "true".
+- **No verification method yields `A3_INDEPENDENCE_CHECKED`.** The level
+  exists and reads "descent/parallelism between supporting witnesses was
+  examined", which is exactly what `review_claim` does — but
+  `VerificationMethod` is a closed set with no method that produces it, so the
+  review records `A2` and puts the independence finding in `detail` instead of
+  grading it. Either the level or a method for it is missing; adding a method
+  needs a recorded argument ([vocabulary.md](vocabulary.md)).
+- **Model family is a provider prefix.** The independence floor cannot catch
+  the same weights served under two provider names, and an agent that never
+  registered a model is not checked at all. Stated in `cohort/families.py`,
+  repeated here so it is not mistaken for a guarantee.
+- **Formulaic shared passages count as descent.** `independent_support()` flips
+  `independent` to `False` on *any* `descends_from`/`parallel_of` edge. A stock
+  opening or an attribution colophon shared between two witnesses is not
+  evidence that one descends from the other, so an edge drawn from one makes
+  COHORT *understate* independence, and nothing catches it. The third sibling
+  excludes boilerplate links from its collapse and reported 100 of 146
+  shared-passage links excluded on that ground — the shared text among the
+  witnesses it studied was dominated by the attribution colophon itself. Best
+  idea taken from reading that repository; see compare.md §10.
+- **No deterministic measurement layer.** Tools return spans; agents compute
+  everything themselves and can therefore miscount. Both sibling projects now
+  measure first and let models only interpret and cite the measurements —
+  `epistemic-swarm` with a census worker, the third with an evidence table whose
+  ids are the only citable objects. Arrived at independently by both, which is
+  the strongest signal in compare.md §8.
 - **Claim versioning.** A claim can be rejected and reopened but not revised
   into a new version with typed lineage, the way `epistemic-swarm` does it.
   Corrections are therefore coarse. (Edge retraction, previously listed here,

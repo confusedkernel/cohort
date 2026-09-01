@@ -14,30 +14,23 @@ one layer up between readers. A comparison of this project against
 `epistemic-swarm` (see compare.md §8) found that gap; that project refuses an
 overlapping roster at its configuration boundary, and so does this one now.
 
-**What "family" means here, and what it cannot mean.** OpenRouter ids are
-`provider/model`, so the provider prefix is used as the family: `z-ai/glm-5.3`
-and `z-ai/glm-5.3-flash` are one family, `deepseek/deepseek-v4-flash` is
-another. This is a heuristic and it is stated as one — it catches the ordinary
-case (a roster filled from one provider) and cannot catch the same weights
-served under two provider names. It is a floor on independence, not a proof of
-it, and a passing check should never be read as one.
+What "family" means, and the limits of the heuristic, are documented once in
+`cohort.families`, which this module and `Graph.attest()` share. This check
+guards the roster when a run is assembled; the write boundary guards the write
+itself, and catches the case a roster cannot see — agents registered by
+separate runs writing to one graph.
 """
 from __future__ import annotations
 
 from collections import defaultdict
 
+from ..families import model_family
+
+__all__ = ["RosterNotIndependent", "check_distinct_model_families", "model_family"]
+
 
 class RosterNotIndependent(ValueError):
     """Two or more agents in one run share a model family."""
-
-
-def model_family(model: str) -> str:
-    """The provider prefix of an OpenRouter model id, lowercased.
-
-    A bare id with no `/` is its own family: nothing else can be inferred, and
-    guessing would make the check look stronger than it is.
-    """
-    return model.split("/", 1)[0].strip().lower() if model else ""
 
 
 def check_distinct_model_families(models_by_agent: dict[str, str]) -> None:

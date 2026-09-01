@@ -314,12 +314,18 @@ class ClaimThenAttestTransport:
         return 200, json.dumps(resp).encode("utf-8")
 
 
-def test_worker_proposes_a_claim_then_attests_it_in_one_loop(graph, source):
+def test_worker_proposes_a_claim_and_cites_it_but_cannot_close_the_rung(graph, source):
     """The round trip the live conjecture run could not make: before
     propose_claim existed, a worker that wanted attestations for a
     proposition not yet in the graph had to invent a node id, and was
     refused five times over. Here it gets the id from its own previous tool
-    call and the loop closes."""
+    call and both calls succeed.
+
+    Where it now stops is the author-is-not-reviewer rule: the worker records
+    the passages and the `attests` edges — all the evidence — and leaves the
+    claim at `proposed` for someone else to check. Neither call is an error,
+    which matters: this is the designed path, not a refusal the model has to
+    work around."""
     worker = _worker(graph, source=source, transport=ClaimThenAttestTransport())
 
     log = worker.run("propose and attest a claim")
@@ -328,12 +334,9 @@ def test_worker_proposes_a_claim_then_attests_it_in_one_loop(graph, source):
     assert not any(e["is_error"] for e in log)
     claim_id = log[0]["result"]
     assert graph.get_node(claim_id).type == "claim"
-    assert graph.edges(edge_type=EdgeType.ATTESTS, dst=claim_id)
+    assert graph.edges(edge_type=EdgeType.ATTESTS, dst=claim_id), "evidence recorded"
 
-    # The loop closes completely: the worker's own two calls leave the claim
-    # attested, which is the rung the researcher needs before accepting. It
-    # used to stop at `proposed`, and nothing in the tool layer could advance it.
-    assert graph.get_node(claim_id).status == "attested"
+    assert graph.get_node(claim_id).status == "proposed"
 
 
 def test_worker_reports_an_ungrounded_claim_back_to_the_model(graph, source):

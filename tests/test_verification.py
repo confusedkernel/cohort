@@ -25,6 +25,12 @@ from cohort.schemas import (
 )
 
 AGENT = "agent:worker-1"
+#: A second agent, because an agent may not attest what it authored
+#: (`Graph._reviewer_conflict`). Unregistered on purpose in most of
+#: these fixtures: with no declared model there is no family to
+#: compare, so what is being exercised is the author-is-not-reviewer
+#: half of the rule on its own.
+REVIEWER = "agent:reviewer-1"
 
 
 def _witness(g, ref="T01n0001", *, confidence=DatingRoute.SOURCE_LABEL, authored_by=AGENT):
@@ -132,7 +138,7 @@ def test_citable_excludes_verification_nodes(graph):
     )
     graph.attest(p, authored_by=AGENT)
     graph.add_edge(EdgeType.ATTESTS, p, claim_id, authored_by=AGENT)
-    graph.attest(claim_id, authored_by=AGENT)
+    graph.attest(claim_id, authored_by=REVIEWER)
     graph.accept(claim_id, authored_by=RESEARCHER)
     graph.verify(
         claim_id, method=VerificationMethod.DATING_ROUTE_CONFIDENCE,

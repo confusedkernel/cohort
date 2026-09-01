@@ -155,8 +155,17 @@ Search returns 503 if the reader has no index, naming the reason.
 | `GET /api/run/config` | model, ceilings, whether a corpus is present |
 | `GET /api/run` | current run + history |
 | `GET /api/run/{run_id}` | one run |
-| `POST /api/run` | start; accepts a single agent or `agents: [...]` |
+| `POST /api/run` | start; accepts a single agent or `agents: [...]`, each with an optional `role` |
 | `POST /api/run/stop` | stop after the current turn |
+
+Each agent takes `role: "worker"` (the default) or `"reviewer"`. **+ Add
+reviewer** sits beside **+ Add agent** in the panel. A reviewer checks claims
+the workers proposed, cannot propose any of its own, and runs in a second phase
+after them — see [agents.md](agents.md). Its card says so, because "why can I
+not give this one a task about the corpus" is the first question it raises.
+
+A reviewer with nothing to review is skipped and reported as a `note` on its
+row, not an `error`: the run did not fail, there was simply no work.
 
 The browser proposes a budget; the server bounds it. A field that accepted any
 number and rejected it only after the button was pressed would be worse than no

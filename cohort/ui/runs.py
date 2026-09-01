@@ -67,6 +67,7 @@ from ..agents.openrouter import (
 from ..agents.swarm import run_swarm
 from ..eventlog import read_refusals
 from ..graph import Graph
+from ..agents.review_worker import ReviewWorker, pending_review_context
 from ..agents.roster import RosterNotIndependent, check_distinct_model_families
 from ..schemas import AgentKind, AgentProfile
 from ..sources.base import Source
@@ -91,6 +92,11 @@ class RunRejected(RuntimeError):
     """A run could not be started. Carries a reason meant to be shown."""
 
 
+ROLE_WORKER = "worker"
+ROLE_REVIEWER = "reviewer"
+ROLES = (ROLE_WORKER, ROLE_REVIEWER)
+
+
 class AgentSpec:
     """One agent's assignment. `corpus_scope` and `method_label` are its
     declared research commitments, not flavour text — see this module's
@@ -98,7 +104,7 @@ class AgentSpec:
 
     def __init__(self, agent_id: str, instructions: str,
                  corpus_scope: str = "", method_label: str = "",
-                 model: str = "") -> None:
+                 model: str = "", role: str = ROLE_WORKER) -> None:
         self.agent_id = agent_id.strip()
         self.instructions = instructions.strip()
         self.corpus_scope = corpus_scope.strip()
@@ -106,6 +112,16 @@ class AgentSpec:
         #: empty means "the server's configured default", filled in by
         #: `RunManager.start` so the roster check sees real ids.
         self.model = model.strip()
+        #: `worker` proposes and attests; `reviewer` checks what workers
+        #: proposed and cannot propose anything (`ReviewWorker`). The roster
+        #: check does not care which is which — a reviewer sharing a model
+        #: family with the worker it checks is refused like any other overlap,
+        #: which is the point of putting it in the same roster.
+        self.role = (role or ROLE_WORKER).strip().lower()
+
+    @property
+    def is_reviewer(self) -> bool:
+        return self.role == ROLE_REVIEWER
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -114,6 +130,7 @@ class AgentSpec:
             "corpus_scope": self.corpus_scope,
             "method_label": self.method_label,
             "model": self.model,
+            "role": self.role,
         }
 
 
@@ -129,6 +146,11 @@ class Run:
         #: *which* agent made a call rather than only that one happened
         self.per_agent: dict[str, list[dict[str, Any]]] = {s.agent_id: [] for s in specs}
         self.agent_errors: dict[str, str] = {}
+        #: why an agent did nothing, when that is not an error — currently
+        #: only a reviewer with nothing in the graph to review. Kept apart
+        #: from `agent_errors` so "there was no work" never reads as "it
+        #: broke", and so a run of one skipped reviewer still finishes.
+        self.agent_notes: dict[str, str] = {}
         self.instructions = specs[0].instructions if len(specs) == 1 else ""
         self.agent_id = specs[0].agent_id if len(specs) == 1 else f"{len(specs)} agents"
         self.budget_usd = budget_usd
@@ -161,6 +183,7 @@ class Run:
                         **spec.as_json(),
                         "tool_calls": list(self.per_agent.get(spec.agent_id, [])),
                         "error": self.agent_errors.get(spec.agent_id),
+                        "note": self.agent_notes.get(spec.agent_id),
                     }
                     for spec in self.specs
                 ],
@@ -287,6 +310,11 @@ class RunManager:
                 raise RunRejected("every agent needs an id")
             if not spec.instructions:
                 raise RunRejected(f"{spec.agent_id} has no task: an agent needs one")
+            if spec.role not in ROLES:
+                raise RunRejected(
+                    f"{spec.agent_id} has role {spec.role!r}; expected one of "
+                    f"{', '.join(ROLES)}."
+                )
         ids = [a.agent_id for a in agents]
         if len(set(ids)) != len(ids):
             raise RunRejected(
@@ -370,32 +398,71 @@ class RunManager:
 
             transport = self._transport_factory(run.budget_usd, on_call)
 
-            assignments = []
-            for spec in run.specs:
+            def build(spec) -> tuple:
                 profile = graph.agent_profile(spec.agent_id)
                 if profile is None:
                     profile = AgentProfile(
-                        id=spec.agent_id, kind=AgentKind.WORKER,
+                        id=spec.agent_id,
+                        kind=AgentKind.REVIEWER if spec.is_reviewer else AgentKind.WORKER,
                         corpus_scope=spec.corpus_scope or "not declared for this run",
                         method_label=spec.method_label or "not declared for this run",
                         model=spec.model,
                     )
                     graph.register_agent(profile, authored_by=spec.agent_id)
-                worker = AttestationWorker(
+                cls = ReviewWorker if spec.is_reviewer else AttestationWorker
+                return cls(
                     graph, source=self.source, authored_by=spec.agent_id,
                     profile=profile, transport=transport, model=spec.model,
-                )
-                assignments.append((worker, spec.instructions))
+                ), spec.instructions
+
+            workers = [s for s in run.specs if not s.is_reviewer]
+            reviewers = [s for s in run.specs if s.is_reviewer]
 
             with run._lock:
                 run.state = "running"
 
-            results = self._run_turns(run, assignments)
+            # Two phases, not one gather. A reviewer launched alongside the
+            # workers would start before any claim existed and have nothing to
+            # review — the ordering is not an optimisation, it is what makes
+            # the role possible at all. Both phases share the one graph, the
+            # one writer lock and the one budget, so a reviewer's calls are
+            # capped by the same number the researcher typed.
+            results: dict[str, Any] = {}
+            if workers:
+                for spec, result in zip(
+                    workers, self._run_turns(run, [build(s) for s in workers])
+                ):
+                    results[spec.agent_id] = result
+
+            for spec in reviewers:
+                if run._cancel.is_set():
+                    break
+                # What to review is only knowable now, so it is appended to the
+                # reviewer's own instructions rather than asked for up front.
+                # `attest_conflict` does the filtering: a claim this reviewer
+                # could not promote anyway is not offered to it, so it never
+                # spends a fetch discovering the rule.
+                pending = pending_review_context(graph, spec.agent_id)
+                if pending is None:
+                    with run._lock:
+                        run.agent_notes[spec.agent_id] = (
+                            "nothing to review: no proposed claim or conjecture in the "
+                            "graph was authored by anyone else. Skipped rather than "
+                            "billed for a turn with no work in it."
+                        )
+                    continue
+                reviewed = self._run_turns(
+                    run, [(build(spec)[0], f"{pending}\n\n{spec.instructions}")]
+                )
+                results[spec.agent_id] = reviewed[0]
 
             # `run_swarm` returns exceptions in place, so a transport failure in
             # one agent is reported against that agent instead of failing the run
             with run._lock:
-                for spec, result in zip(run.specs, results):
+                for spec in run.specs:
+                    if spec.agent_id not in results:
+                        continue
+                    result = results[spec.agent_id]
                     if isinstance(result, BaseException):
                         run.agent_errors[spec.agent_id] = f"{type(result).__name__}: {result}"
                     else:

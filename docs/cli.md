@@ -17,7 +17,7 @@ functions, so a rule refuses identically whichever way you reach it.
     cohort integrity                          # re-hash payloads against their hashes
     cohort rebuild                            # replay the log, diff this projection
 
-    cohort attest claim:abc123                # the mechanical check
+    cohort attest claim:abc123                # the mechanical check (as the researcher)
     cohort accept claim:abc123
     cohort reject claim:abc123 --reason "conflates two recensions"
     cohort reopen claim:abc123 --reason "the objection was mine, not the text's"
@@ -30,6 +30,10 @@ functions, so a rule refuses identically whichever way you reach it.
     # several agents need one model each — they may not share a family:
     cohort run --agent "…" --model z-ai/glm-5.3-flash \
                --agent "…" --model deepseek/deepseek-v4-flash --budget 0.05
+    # a reviewer checks what the workers proposed and cannot propose anything:
+    cohort run --agent "…"    --model z-ai/glm-5.3-flash \
+               --reviewer "…" --reviewer-model deepseek/deepseek-v4-flash \
+               --budget 0.05
 
 Global options: `--db` (default `demo_graph.sqlite`), `--log` (default: `--db`
 with `.jsonl`), and `--json`.
@@ -44,6 +48,12 @@ recorded to the event log, not a failure to run.
 
 `cohort run` blocks and Ctrl-C stops it after the current turn. The web
 launcher is asynchronous only because a browser cannot block.
+
+Reviewers run in a **second phase**, after the workers, because there is
+nothing to review before ([agents.md](agents.md)). A run of workers alone
+leaves its claims at `proposed` — no agent may attest what it authored — so
+either add a `--reviewer` on another provider, or check them yourself with
+`cohort node` and `cohort accept`.
 
 ## Scripts
 

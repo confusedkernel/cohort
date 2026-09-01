@@ -31,6 +31,55 @@ meaningful rather than cosmetic.
 rejected. It is **deliberately not a reputation score**; see
 [design.md](design.md) §9.
 
+## The reviewer
+
+`ReviewWorker` is the same tool loop with a different role: it checks claims
+other agents wrote, and cannot write one itself. It exists because
+`Graph.attest()` refuses a self-attestation
+([vocabulary.md](vocabulary.md)) — the refused work has to fall to somebody.
+
+    from cohort.agents.review_worker import ReviewWorker
+    reviewer = ReviewWorker(graph, source, authored_by="agent:reviewer",
+                            model="deepseek/deepseek-v4-flash")
+
+**A reviewer is not a second model whose agreement counts as evidence.**
+`VerificationMethod` excludes `MODEL_ENTAILMENT` deliberately — "a second
+model's opinion is still another agent's opinion" — and an entailment judge
+would reintroduce exactly the consensus-seeking the design argues against. So
+the reviewer's evidence is mechanical: `review_claim` re-fetches every cited
+passage and re-locates its excerpt against the freshly fetched source.
+
+**Its judgment can only subtract.** Promotion needs the spans to re-verify
+*and* the reviewer not to object. An objection withholds attestation; no
+amount of model agreement supplies one.
+
+| reviewer says | spans re-verify | result |
+|---|---|---|
+| sound | yes | attested |
+| sound | **no** | **not attested** — a verdict cannot outvote the bytes |
+| unsound / indeterminate | yes | not attested; the objection recorded in `limitations` |
+| anything | no citations | nothing to re-check, nothing advanced |
+
+Two tools only — `review_claim` and `record_contradiction`. No `propose_*`: a
+checker that authors claims accumulates work it is then barred from checking,
+and on a small roster "everyone reviews everyone" is peer review in name only.
+The restriction is the tool list, not the prompt, so there is no instruction
+for a model to talk itself out of.
+
+**Reviewers run after the workers**, in a second phase — a reviewer launched
+alongside them would start before any claim existed. What there is to review is
+appended to its instructions at that point by `pending_review_context()`, since
+the browser and the CLI cannot know it when the run is configured. A reviewer
+with nothing to review is **skipped, not billed**, and reported as a note
+rather than an error.
+
+    cohort run --agent "find attestations for 色即是空" --model z-ai/glm-5.3 \
+               --reviewer "check what the worker proposed" \
+                 --reviewer-model deepseek/deepseek-v4-flash \
+               --budget 0.05
+
+In the UI: **+ Add reviewer** beside **+ Add agent**.
+
 ## Swarms
 
     from cohort.agents.swarm import run_swarm

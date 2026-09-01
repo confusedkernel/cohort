@@ -75,6 +75,40 @@ class PersistentRejection(CohortError):
     """A rejected node cannot be re-proposed; only the researcher may reopen it."""
 
 
+class SelfAttestation(CohortError):
+    """An agent tried to attest a claim or conjecture it authored.
+
+    `attest` means "the mechanical preconditions hold", and the party with an
+    interest in that answer is the worst party to give it. Both sibling
+    projects separate the checker from the checked; this is that separation,
+    enforced at the write boundary rather than asked for in a prompt.
+
+    The researcher is exempt, deliberately. `accept` is already the human
+    gate, the researcher is the accountable party, and requiring a second
+    human would make single-researcher use impossible — which is not the
+    problem this rule exists to solve.
+    """
+
+
+class ReviewerNotIndependent(CohortError):
+    """The attesting agent shares a model family with an author of the node.
+
+    A different agent id on the same model is not a different reader: it
+    shares training priors and failure modes, so its confirmation is the
+    author's own confirmation reported twice. That is the error
+    `independent_support()` catches between witnesses, committed one layer up
+    between readers — see `cohort.agents.roster`, which refuses the same
+    overlap when a roster is assembled. This catches it at the write itself,
+    where a roster check cannot reach: agents registered by separate runs
+    still write to one graph.
+
+    The family test is the same provider-prefix heuristic `roster` uses and
+    inherits its limits. An agent whose model was never registered cannot be
+    tested at all, and is allowed through: an unknown model is unknown, and
+    refusing on it would state more than is known.
+    """
+
+
 # --- lookup --------------------------------------------------------------------
 
 class EdgeNotFound(CohortError):

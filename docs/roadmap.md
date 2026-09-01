@@ -216,7 +216,7 @@ cohort/                          # repo root
 │   ├── agents/                  # openrouter.py, attestation_worker.py,
 │   │                            #   swarm.py, budget.py, roster.py
 │   └── ui/                      # api.py, runs.py, frontend/ (React+Vite), static/
-└── tests/                       # 22 modules, 329 tests
+└── tests/                       # 23 modules, 362 tests
 ```
 
 Built fresh, so the layout ATELIER already uses (package dir + sibling
@@ -445,7 +445,7 @@ the current concrete state and next steps.
 
 Stage 1's original check — `pytest -q` green, `demo.py` printing the
 `independent_support()` flip, and a manual rebuild diff — is done and has
-stayed green through every stage since (329 tests). `demo.py` still runs with
+stayed green through every stage since (362 tests). `demo.py` still runs with
 no corpus and no API key.
 
 What the live scripts have additionally proven, each run by hand and never

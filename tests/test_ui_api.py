@@ -28,6 +28,12 @@ from cohort.schemas import (  # noqa: E402
 from cohort.ui.api import create_app  # noqa: E402
 
 AGENT = "agent:worker-1"
+#: A second agent, because an agent may not attest what it authored
+#: (`Graph._reviewer_conflict`). Unregistered on purpose in most of
+#: these fixtures: with no declared model there is no family to
+#: compare, so what is being exercised is the author-is-not-reviewer
+#: half of the rule on its own.
+REVIEWER = "agent:reviewer-1"
 
 
 @pytest.fixture
@@ -59,7 +65,7 @@ def populated(tmp_path):
         g.add_edge(EdgeType.ATTESTS, p, claim_id, authored_by=AGENT)
         passages.append((w, p))
     g.add_edge(EdgeType.PARALLEL_OF, passages[0][0], passages[1][0], authored_by=AGENT)
-    g.attest(claim_id, authored_by=AGENT)
+    g.attest(claim_id, authored_by=REVIEWER)
     g.accept(claim_id, authored_by=RESEARCHER)
     g.close()
     return db_path, claim_id
@@ -181,7 +187,7 @@ def with_refusals(tmp_path):
     g = Graph.open(db_path, tmp_path / "events.jsonl")
     claim_id = g.propose_claim(ClaimPayload(text="unsupported"), authored_by=AGENT)
     with pytest.raises(CohortError):
-        g.attest(claim_id, authored_by=AGENT)  # nothing attests it -> refused
+        g.attest(claim_id, authored_by=REVIEWER)  # nothing attests it -> refused
     with pytest.raises(CohortError):
         g.accept(claim_id, authored_by=AGENT)  # not the researcher -> refused
     g.close()

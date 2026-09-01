@@ -98,3 +98,7 @@ habit that matters most: **a document about this system should report
 arithmetic, not assertion** — count the outputs rather than claiming things
 about them. If a rule in [docs/design.md](docs/design.md) cannot be honoured,
 say so and stop rather than quietly working around it.
+
+## Comparisons
+
+For comparisons with other implementations of this system by labmates, see [compare.md](compare.md).

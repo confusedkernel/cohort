@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from cohort.errors import NodeNotFound, UnattestableClaim, UnattestableConjecture
+from cohort.eventlog import read_events
 from cohort.schemas import (
     RESEARCHER,
     ClaimPayload,
@@ -30,6 +31,12 @@ from cohort.tools.record_contradiction import (
 from cohort.tools.propose_conjecture import ProposeConjectureInput, propose_conjecture
 
 AGENT = "agent:worker-1"
+#: A second agent, because an agent may not attest what it authored
+#: (`Graph._reviewer_conflict`). Unregistered on purpose in most of
+#: these fixtures: with no declared model there is no family to
+#: compare, so what is being exercised is the author-is-not-reviewer
+#: half of the rule on its own.
+REVIEWER = "agent:reviewer-1"
 FIXTURE = Path(__file__).parent.parent / "examples" / "local_corpus"
 
 
@@ -59,10 +66,11 @@ def test_find_attestations_locates_and_attests_a_matching_passage(graph, source)
     assert passage.status == NodeStatus.ATTESTED  # mechanically attested by the tool
     assert graph.edges(edge_type=EdgeType.ATTESTS, src=passages[0], dst=claim_id)
 
-    # and the claim itself is advanced, because it now has an attested-passage
-    # backer. The tool used to stop short here, stranding the claim at
-    # `proposed` where the researcher could never accept it.
-    assert graph.get_node(claim_id).status == NodeStatus.ATTESTED
+    # The passage advances but the claim does not, because AGENT wrote the
+    # claim: an agent may not attest what it authored. The passage is exempt
+    # on purpose — where it sits is settled by the source, not by its
+    # finder's judgement (`Graph.REVIEWABLE_TYPES`).
+    assert graph.get_node(claim_id).status == NodeStatus.PROPOSED
 
 
 def test_find_attestations_converges_witnesses_across_two_calls(graph, source):
@@ -172,7 +180,7 @@ def test_conjecture_without_the_tool_stays_unattestable(graph):
         authored_by=AGENT,
     )
     with pytest.raises(UnattestableConjecture):
-        graph.attest(conjecture_id, authored_by=AGENT)
+        graph.attest(conjecture_id, authored_by=REVIEWER)
 
 
 def test_propose_conjecture_result_is_attestable(graph, source):
@@ -180,7 +188,7 @@ def test_propose_conjecture_result_is_attestable(graph, source):
         graph, source, _conjecture_input(text="claim", tests_query_text="a testing query"),
         authored_by=AGENT,
     )
-    graph.attest(conjecture_id, authored_by=AGENT)
+    graph.attest(conjecture_id, authored_by=REVIEWER)
     assert graph.get_node(conjecture_id).status == NodeStatus.ATTESTED
 
 
@@ -243,15 +251,16 @@ def test_propose_claim_result_is_not_attestable_until_it_cites_something(graph, 
         authored_by=AGENT,
     )
     with pytest.raises(UnattestableClaim):
-        graph.attest(claim_id, authored_by=AGENT)
+        graph.attest(claim_id, authored_by=REVIEWER)
     assert graph.get_node(claim_id).status == NodeStatus.PROPOSED
 
     # Real attests edges are what advance it, and the tool that writes them is
-    # what performs the mechanical check.
+    # what performs the mechanical check — run by a second agent, since the
+    # author of a claim may not be the one who attests it.
     find_attestations(
         graph, source,
         FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
-        authored_by=AGENT,
+        authored_by=REVIEWER,
     )
     assert graph.get_node(claim_id).status == NodeStatus.ATTESTED
 
@@ -335,7 +344,7 @@ def test_record_contradiction_refuses_audit_nodes(graph, source):
     find_attestations(
         graph, source,
         FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
-        authored_by=AGENT,
+        authored_by=REVIEWER,
     )
     decision_id = graph.accept(claim_id, authored_by=RESEARCHER)
 
@@ -379,22 +388,49 @@ def test_edge_reason_survives_a_rebuild(graph, source):
 
 # --- find_attestations advances the node it just evidenced ------------------
 
-def test_find_attestations_attests_the_claim_it_backs(graph, source):
+def test_find_attestations_attests_a_claim_it_did_not_author(graph, source):
     """The bug this guards: `find_attestations` used to attest each passage but
     never the target, so an agent could gather ten passages across seven
     witnesses and leave the claim at `proposed` — where accept is correctly
     refused for skipping a rung, and no tool could advance it. A claim nobody
-    can ever accept, reached by doing everything right."""
+    can ever accept, reached by doing everything right.
+
+    The fix survives the author-is-not-reviewer rule, but only for someone
+    else's claim: a second agent citing AGENT's claim still closes the rung."""
     claim_id = graph.propose_claim(ClaimPayload(text="the phrase recurs"), authored_by=AGENT)
     assert graph.get_node(claim_id).status == NodeStatus.PROPOSED
 
     report = find_attestations(
         graph, source,
         FindAttestationsInput(claim_or_conjecture_id=claim_id, query="空"),
-        authored_by=AGENT,
+        authored_by=REVIEWER,
     )
     assert report.passages, "fixture must yield hits for this test to mean anything"
     assert graph.get_node(claim_id).status == NodeStatus.ATTESTED
+
+
+def test_finding_attestations_for_your_own_claim_does_not_advance_it(graph, source):
+    """The author gathering its own evidence is ordinary and allowed — the
+    passages and the `attests` edges are all written. What it cannot do is
+    close the rung on itself.
+
+    And it must not fill the refusal log doing so. A refusal here is certain
+    in advance, so the tool asks `attest_conflict` rather than provoking one;
+    a predictable refusal on every call would bury the refusals a researcher
+    actually needs to read."""
+    claim_id = graph.propose_claim(ClaimPayload(text="the phrase recurs"), authored_by=AGENT)
+    report = find_attestations(
+        graph, source,
+        FindAttestationsInput(claim_or_conjecture_id=claim_id, query="空"),
+        authored_by=AGENT,
+    )
+
+    assert report.passages, "fixture must yield hits for this test to mean anything"
+    assert graph.edges(edge_type=EdgeType.ATTESTS, dst=claim_id), "evidence still recorded"
+    assert graph.get_node(claim_id).status == NodeStatus.PROPOSED
+
+    refusals = [e for e in read_events(graph.event_log.path) if e.event == "refused"]
+    assert refusals == [], "a certain refusal should be avoided, not logged"
 
 
 def test_an_attested_claim_can_then_be_accepted(graph, source):
@@ -403,7 +439,7 @@ def test_an_attested_claim_can_then_be_accepted(graph, source):
     find_attestations(
         graph, source,
         FindAttestationsInput(claim_or_conjecture_id=claim_id, query="空"),
-        authored_by=AGENT,
+        authored_by=REVIEWER,
     )
     graph.accept(claim_id, authored_by=RESEARCHER)
     assert graph.get_node(claim_id).status == NodeStatus.ACCEPTED

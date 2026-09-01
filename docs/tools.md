@@ -23,7 +23,7 @@ The most important refusal is an invented node id. Agents guess ids — a live
 run produced five such guesses — and every one is refused rather than minting a
 node, because edges never create their endpoints.
 
-## The six registered agent tools
+## The six tools a worker may call
 
 ### `propose_claim`
 Creates a `claim`: an assertion the sources state.
@@ -60,6 +60,14 @@ resolves" is exactly the mechanical check an agent may perform.
 
 Witnesses are proposed with `DatingRoute.UNKNOWN` and a stated basis, not left
 undated.
+
+**Whether the target itself advances depends on who called.** For a claim the
+caller did *not* author, the tool closes the rung: the citations were fetched
+and resolved, which is what `attest` means. For the caller's own claim it does
+not, and does not try — an agent may not attest what it authored
+([vocabulary.md](vocabulary.md)), so the tool asks `attest_conflict()` rather
+than writing a refusal that was certain in advance. The evidence is still
+recorded; the claim waits at `proposed` for a reviewer or for the researcher.
 
 > `witnesses` is returned because the stage-4 tools take a *witness* id. Before
 > that, an agent that had just called this tool had no way to obtain one — so it
@@ -128,6 +136,40 @@ edition families its TEI `<app>` apparatus cites.
 confirmations is precisely the error this system exists to prevent, so it is
 reported as one shared-descent family. The verification always carries
 `limitations` stating what collation did not establish.
+
+## The reviewer's tool
+
+### `review_claim`
+Not on a worker's list. `ReviewWorker` has this and `record_contradiction` and
+nothing else — see [agents.md](agents.md).
+
+    claim_id: str
+    verdict: "sound" | "unsound" | "indeterminate"
+    detail: str    what you checked, recorded verbatim
+
+Re-fetches every passage citing the claim and re-locates its excerpt
+(`verify_exact_span` per passage), then records **one** verification node
+against the claim and advances it to `attested` only if every span re-verified
+*and* the verdict is `sound`.
+
+The asymmetry is the whole design: **a verdict can withhold promotion, never
+supply it.** `sound` over a citation that fails to re-fetch does not advance the
+claim, because promotion rests on the mechanical check and not on what a model
+said. This is what keeps a reviewer from being the `MODEL_ENTAILMENT` method
+that `VerificationMethod` deliberately refuses to admit.
+
+Where the words go matters too. `detail` carries what the machine established;
+the reviewer's own reading goes in `limitations`, the field for what a passing
+check does *not* establish. Separate fields are what stop a confident sentence
+from reading later as a mechanical finding.
+
+It refuses a claim the caller may not attest *before* re-fetching anything —
+`attest()` would refuse at the end anyway, but a reviewer that has already
+spent the fetches has learnt the rule too late to act on it.
+
+The report also carries `distinct_witnesses` and `independent`, because an
+author has no incentive to look and a researcher reading the verification
+should not have to ask separately.
 
 ## Not an agent tool
 

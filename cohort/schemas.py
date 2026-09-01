@@ -130,6 +130,14 @@ AuthorshipAction = Literal[
 
 class AgentKind(StrEnum):
     WORKER = "worker"
+    #: An agent that checks other agents' claims and never authors one. Not a
+    #: second opinion: a reviewer re-runs the *mechanical* checks a claim
+    #: rests on against freshly-fetched source, and may withhold promotion but
+    #: never supply it on its own say-so (`cohort.tools.review_claim`). The
+    #: write boundary enforces the separation independently of this label —
+    #: `Graph.attest()` refuses a self-attestation whatever kind the author
+    #: declared.
+    REVIEWER = "reviewer"
     RESEARCHER = "researcher"
 
 

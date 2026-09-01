@@ -38,6 +38,12 @@ from cohort.schemas import (
 )
 
 AGENT = "agent:worker-1"
+#: A second agent, because an agent may not attest what it authored
+#: (`Graph._reviewer_conflict`). Unregistered on purpose in most of
+#: these fixtures: with no declared model there is no family to
+#: compare, so what is being exercised is the author-is-not-reviewer
+#: half of the rule on its own.
+REVIEWER = "agent:reviewer-1"
 AGENT_2 = "agent:worker-2"
 
 
@@ -189,7 +195,7 @@ def test_propose_passage_creates_part_of_edge_and_is_attestable(graph):
 def test_claim_unattestable_without_attests_edge(graph):
     c = _claim(graph)
     with pytest.raises(UnattestableClaim):
-        graph.attest(c, authored_by=AGENT)
+        graph.attest(c, authored_by=REVIEWER)
 
 
 def test_claim_attestable_once_an_attested_passage_backs_it(graph):
@@ -198,7 +204,7 @@ def test_claim_attestable_once_an_attested_passage_backs_it(graph):
     graph.attest(p, authored_by=AGENT)
     c = _claim(graph)
     graph.add_edge(EdgeType.ATTESTS, p, c, authored_by=AGENT)
-    graph.attest(c, authored_by=AGENT)
+    graph.attest(c, authored_by=REVIEWER)
     assert graph.get_node(c).status == NodeStatus.ATTESTED
 
 
@@ -208,13 +214,13 @@ def test_claim_not_attestable_from_a_merely_proposed_passage(graph):
     c = _claim(graph)
     graph.add_edge(EdgeType.ATTESTS, p, c, authored_by=AGENT)
     with pytest.raises(UnattestableClaim):
-        graph.attest(c, authored_by=AGENT)
+        graph.attest(c, authored_by=REVIEWER)
 
 
 def test_conjecture_unattestable_without_tests_edge(graph):
     conj = _conjecture(graph)
     with pytest.raises(UnattestableConjecture):
-        graph.attest(conj, authored_by=AGENT)
+        graph.attest(conj, authored_by=REVIEWER)
 
 
 def test_conjecture_attests_edges_never_satisfy_the_gate(graph):
@@ -227,11 +233,11 @@ def test_conjecture_attests_edges_never_satisfy_the_gate(graph):
     conj = _conjecture(graph)
     graph.add_edge(EdgeType.ATTESTS, p, conj, authored_by=AGENT)  # legal domain, wrong gate
     with pytest.raises(UnattestableConjecture):
-        graph.attest(conj, authored_by=AGENT)
+        graph.attest(conj, authored_by=REVIEWER)
 
     q = _query(graph)
     graph.add_edge(EdgeType.TESTS, q, conj, authored_by=AGENT)
-    graph.attest(conj, authored_by=AGENT)
+    graph.attest(conj, authored_by=REVIEWER)
     assert graph.get_node(conj).status == NodeStatus.ATTESTED
 
 
@@ -239,7 +245,7 @@ def test_conjecture_attests_edges_never_satisfy_the_gate(graph):
 
 def test_full_ladder_proposed_attested_accepted(graph):
     c, _, _ = _attested_claim_with_two_witness_backed_passages(graph)
-    graph.attest(c, authored_by=AGENT)
+    graph.attest(c, authored_by=REVIEWER)
     assert graph.get_node(c).status == NodeStatus.ATTESTED
     decision_id = graph.accept(c, authored_by=RESEARCHER)
     assert graph.get_node(c).status == NodeStatus.ACCEPTED
@@ -257,7 +263,7 @@ def test_accept_skipping_attested_raises(graph):
 
 def test_accept_by_non_researcher_raises(graph):
     c, _, _ = _attested_claim_with_two_witness_backed_passages(graph)
-    graph.attest(c, authored_by=AGENT)
+    graph.attest(c, authored_by=REVIEWER)
     with pytest.raises(NotResearcher):
         graph.accept(c, authored_by=AGENT)
 
@@ -275,7 +281,7 @@ def test_reject_from_proposed_and_from_attested(graph):
     assert graph.get_node(c1).rejected_reason == "text is unintelligible"
 
     c2, _, _ = _attested_claim_with_two_witness_backed_passages(graph)
-    graph.attest(c2, authored_by=AGENT)
+    graph.attest(c2, authored_by=REVIEWER)
     graph.reject(c2, authored_by=RESEARCHER, reason="cited passage does not actually say this")
     assert graph.get_node(c2).status == NodeStatus.REJECTED
 
@@ -298,7 +304,7 @@ def test_reopen_by_researcher_allows_progress_again(graph):
 
 def test_citable_returns_only_accepted_nodes_and_excludes_decisions(graph):
     c, w1, _ = _attested_claim_with_two_witness_backed_passages(graph)
-    graph.attest(c, authored_by=AGENT)
+    graph.attest(c, authored_by=REVIEWER)
     graph.accept(c, authored_by=RESEARCHER)  # also creates a decision node
     ids = {n.id for n in graph.citable()}
     assert c in ids
@@ -361,7 +367,7 @@ def test_rebuild_matches_live_after_a_full_workflow(tmp_path):
     log = EventLog(tmp_path / "events.jsonl")
     g = Graph(tmp_path / "graph.sqlite", event_log=log)
     c, w1, w2 = _attested_claim_with_two_witness_backed_passages(g)
-    g.attest(c, authored_by=AGENT)
+    g.attest(c, authored_by=REVIEWER)
     g.accept(c, authored_by=RESEARCHER)
     g.add_edge(EdgeType.PARALLEL_OF, w1, w2, authored_by=AGENT)
     report = g.rebuild()
@@ -409,7 +415,7 @@ def test_graph_open_recovers_from_log_when_db_is_missing(tmp_path):
 def test_refused_write_is_logged_and_state_unchanged(graph):
     c = _claim(graph)
     with pytest.raises(UnattestableClaim):
-        graph.attest(c, authored_by=AGENT)
+        graph.attest(c, authored_by=REVIEWER)
     assert graph.get_node(c).status == NodeStatus.PROPOSED  # unchanged
 
     refused = [e for e in read_events(graph.event_log.path) if e.event == "refused"]

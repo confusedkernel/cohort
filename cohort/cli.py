@@ -440,20 +440,45 @@ def cmd_run(args) -> None:
     Ctrl-C is the stop button."""
     from .ui.runs import AgentSpec, RunManager, RunRejected
 
+    from .ui.runs import ROLE_REVIEWER
+
     source = _corpus(args)
-    models = args.model or []
-    if models and len(models) != len(args.agent):
-        raise SystemExit(
-            f"{len(args.agent)} --agent but {len(models)} --model: give one model "
-            "per agent, or none and they all use the configured default "
-            "(which a multi-agent run will then refuse, since agents in one run "
-            "may not share a model family)."
-        )
+    workers = args.agent or []
+    reviewers = args.reviewer or []
+    if not workers and not reviewers:
+        raise SystemExit("give at least one --agent or --reviewer.")
+
+    def paired(instructions: list[str], models: list[str], flag: str) -> list[str]:
+        """One model per instruction, or none at all. A partial list is
+        refused rather than padded: silently defaulting the rest is how two
+        agents end up on one family, which the run would then refuse anyway
+        with a message about a roster the caller did not write."""
+        if models and len(models) != len(instructions):
+            raise SystemExit(
+                f"{len(instructions)} {flag} but {len(models)} {flag}-model: give "
+                f"one model per {flag}, or none and they all use the configured "
+                "default (which a run of more than one agent will then refuse, "
+                "since no two agents in a run may share a model family)."
+            )
+        return models or [""] * len(instructions)
+
+    worker_models = paired(workers, args.model or [], "--agent")
+    reviewer_models = paired(reviewers, args.reviewer_model or [], "--reviewer")
+
     specs = [
         AgentSpec(agent_id=f"agent:cli-{i + 1}", instructions=text,
                   corpus_scope=args.scope or "", method_label=args.method or "",
-                  model=models[i] if models else "")
-        for i, text in enumerate(args.agent)
+                  model=worker_models[i])
+        for i, text in enumerate(workers)
+    ]
+    # Reviewers come after the workers in the roster because that is the order
+    # they run in: a reviewer starting alongside the workers would have nothing
+    # proposed yet to review (see `RunManager._execute`).
+    specs += [
+        AgentSpec(agent_id=f"agent:cli-reviewer-{i + 1}", instructions=text,
+                  corpus_scope=args.scope or "", method_label=args.method or "",
+                  model=reviewer_models[i], role=ROLE_REVIEWER)
+        for i, text in enumerate(reviewers)
     ]
     manager = RunManager(
         Path(args.db), _log_path(args), source,
@@ -545,7 +570,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("rebuild", cmd_rebuild, "replay the log and diff it against this projection")
 
-    p = add("attest", cmd_attest, "run the mechanical check: do this node's citations resolve?")
+    p = add("attest", cmd_attest,
+            "run the mechanical check: do this node's citations resolve? "
+            "As the researcher, who is exempt from the rule that an agent may "
+            "not attest what it authored — so this is the way through when a "
+            "run left its claims at proposed with no reviewer")
     p.add_argument("id")
 
     p = add("accept", cmd_accept, "promote a node to accepted (as the researcher)")
@@ -580,10 +609,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="display only — this breaks offsets, so never store the result")
 
     p = add("run", cmd_run, "run one or more agents against the graph (spends money)")
-    p.add_argument("--agent", action="append", required=True, metavar="INSTRUCTIONS",
+    p.add_argument("--agent", action="append", metavar="INSTRUCTIONS",
                    help="repeat for several agents")
     p.add_argument("--model", action="append", metavar="MODEL",
                    help="one per --agent; agents in a run may not share a model family")
+    p.add_argument("--reviewer", action="append", metavar="INSTRUCTIONS",
+                   help="a reviewer: checks claims the workers proposed and cannot "
+                        "propose any of its own. Runs after them, since there is "
+                        "nothing to review before. An agent may not attest a claim "
+                        "it authored, so a run of workers alone leaves its claims "
+                        "at proposed for a reviewer or for you to accept")
+    p.add_argument("--reviewer-model", action="append", metavar="MODEL",
+                   help="one per --reviewer; must be a different provider from the "
+                        "workers it reviews, or the write is refused")
     p.add_argument("--scope", default=None, help="declared corpus scope")
     p.add_argument("--method", default=None, help="declared method")
     p.add_argument("--budget", type=float, default=0.25, help="hard USD cap for the run")

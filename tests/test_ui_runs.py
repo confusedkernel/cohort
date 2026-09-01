@@ -13,6 +13,7 @@ No network: every run here goes through a fake transport, the same seam
 from __future__ import annotations
 
 import json
+import re
 import time
 
 import itertools
@@ -27,7 +28,13 @@ from cohort.graph import Graph  # noqa: E402
 from cohort.schemas import ClaimPayload  # noqa: E402
 from cohort.sources.local_reader import LocalReader  # noqa: E402
 from cohort.ui.api import create_app  # noqa: E402
-from cohort.ui.runs import AgentSpec, RunManager, RunRejected  # noqa: E402
+from cohort.ui.runs import (  # noqa: E402
+    ROLE_REVIEWER,
+    ROLE_WORKER,
+    AgentSpec,
+    RunManager,
+    RunRejected,
+)
 
 from pathlib import Path  # noqa: E402
 
@@ -44,10 +51,11 @@ FIXTURE = Path(__file__).parent.parent / "examples" / "local_corpus"
 _MODEL_SEQ = itertools.count()
 
 
-def spec(agent_id="agent:ui-worker", instructions="go", scope="", method="", model=None):
+def spec(agent_id="agent:ui-worker", instructions="go", scope="", method="", model=None,
+         role=ROLE_WORKER):
     if model is None:
         model = f"vendor{next(_MODEL_SEQ)}/fake-model"
-    return AgentSpec(agent_id, instructions, scope, method, model)
+    return AgentSpec(agent_id, instructions, scope, method, model, role)
 
 
 @pytest.fixture
@@ -508,3 +516,210 @@ def test_the_api_accepts_both_the_single_and_swarm_shapes(graph_files, source, m
     assert swarm.status_code == 200, swarm.text
     assert len(swarm.json()["agents"]) == 2
     _await_finish(m, timeout=20.0)
+
+
+# --- the reviewer role -------------------------------------------------------
+#
+# The criticism these answer (compare.md §10): verification was a tool any
+# worker could call, and nothing stopped an agent attesting its own claim.
+
+class ReviewingTransport:
+    """Emits `review_claim` against whatever id the reviewer's instructions
+    name, and nothing on a second turn.
+
+    It reads the claim id out of the prompt rather than being handed one,
+    which makes this a real check that `pending_review_context` reaches the
+    model — if the run layer stopped appending the pending list, this fake
+    would have nothing to call and the test would fail rather than pass on a
+    hardcoded id."""
+
+    def __init__(self, verdict="sound"):
+        self.verdict = verdict
+        self.seen_tools: list[list[str]] = []
+
+    def __call__(self, url, headers, body, timeout):
+        payload = json.loads(body)
+        self.seen_tools.append([t["function"]["name"] for t in payload["tools"]])
+        made_a_call = any(m["role"] == "tool" for m in payload["messages"])
+        prompt = " ".join(m.get("content") or "" for m in payload["messages"])
+        ids = re.findall(r"claim:[0-9a-f]+", prompt)
+        message = {"role": "assistant", "content": None if not made_a_call else "done"}
+        if not made_a_call and ids:
+            # One call per pending id, because a real graph has more than one
+            # claim waiting and a fake that reviewed only the first would pass
+            # or fail on listing order rather than on behaviour.
+            message["tool_calls"] = [
+                {
+                    "id": f"r{i}", "type": "function",
+                    "function": {
+                        "name": "review_claim",
+                        "arguments": json.dumps({
+                            "claim_id": claim_id, "verdict": self.verdict,
+                            "detail": "re-fetched the citations",
+                        }),
+                    },
+                }
+                for i, claim_id in enumerate(dict.fromkeys(ids))
+            ]
+        return 200, json.dumps({
+            "id": "gen", "model": "fake-model",
+            "choices": [{
+                "message": message,
+                "finish_reason": "tool_calls" if message.get("tool_calls") else "stop",
+            }],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 5, "cost": 0.001},
+        }).encode()
+
+
+def _claim_awaiting_review(db_path, log_path, source, author="agent:someone-else") -> str:
+    """A claim with real citations, stuck at `proposed` because its author may
+    not close its own rung — the state a reviewer exists to resolve."""
+    from cohort.tools.find_attestations import FindAttestationsInput, find_attestations
+
+    g = Graph.open(db_path, log_path)
+    try:
+        claim_id = g.propose_claim(ClaimPayload(text="the moon recurs"), authored_by=author)
+        find_attestations(
+            g, source,
+            FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
+            authored_by=author,
+        )
+        assert g.get_node(claim_id).status == "proposed"
+    finally:
+        g.close()
+    return claim_id
+
+
+def test_a_reviewer_attests_a_claim_its_author_could_not(graph_files, source, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
+    db_path, log_path = graph_files
+    claim_id = _claim_awaiting_review(db_path, log_path, source)
+
+    transport = ReviewingTransport()
+    m = RunManager(
+        db_path, log_path, source, max_budget_usd=0.50,
+        transport_factory=lambda budget, on_call: transport,
+    )
+    m.start([spec(agent_id="agent:reviewer", role=ROLE_REVIEWER,
+                  instructions="review what is pending")], budget_usd=0.10)
+    run = _await_finish(m)
+
+    assert run["state"] == "finished", run
+    assert {c["tool"] for c in run["tool_calls"]} == {"review_claim"}
+    assert not any(c["is_error"] for c in run["tool_calls"])
+
+    g = Graph.open_read_only(db_path)
+    try:
+        assert g.get_node(claim_id).status == "attested"
+    finally:
+        g.close()
+
+
+def test_a_reviewer_is_given_only_the_reviewers_tools(graph_files, source, monkeypatch):
+    """The restriction is the tool list, not the prompt: there is no
+    `propose_claim` for a model to be talked into calling."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
+    db_path, log_path = graph_files
+    _claim_awaiting_review(db_path, log_path, source)
+
+    transport = ReviewingTransport()
+    m = RunManager(
+        db_path, log_path, source, max_budget_usd=0.50,
+        transport_factory=lambda budget, on_call: transport,
+    )
+    m.start([spec(agent_id="agent:reviewer", role=ROLE_REVIEWER, instructions="review")],
+            budget_usd=0.10)
+    _await_finish(m)
+
+    assert transport.seen_tools, "the reviewer never ran"
+    for tools in transport.seen_tools:
+        assert "review_claim" in tools
+        assert "propose_claim" not in tools
+        assert "propose_conjecture" not in tools
+
+
+def test_a_reviewer_is_registered_as_a_reviewer(graph_files, source, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
+    db_path, log_path = graph_files
+    _claim_awaiting_review(db_path, log_path, source)
+
+    m = RunManager(
+        db_path, log_path, source, max_budget_usd=0.50,
+        transport_factory=lambda budget, on_call: ReviewingTransport(),
+    )
+    m.start([spec(agent_id="agent:reviewer", role=ROLE_REVIEWER, instructions="review")],
+            budget_usd=0.10)
+    _await_finish(m)
+
+    g = Graph.open_read_only(db_path)
+    try:
+        assert g.agent_profile("agent:reviewer").kind == "reviewer"
+    finally:
+        g.close()
+
+
+def test_a_reviewer_with_nothing_to_review_is_skipped_not_billed(graph_files, source, monkeypatch):
+    """An empty turn still costs a model call. Nothing to review is a reason to
+    skip the agent, and it is reported as a note rather than an error — the run
+    did not fail, there was simply no work."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_MODEL", "fake-model")
+    db_path, log_path = graph_files
+    # "Nothing to review" means nothing *this reviewer may promote*, so the
+    # reviewer has to be the author of everything pending — including the claim
+    # `graph_files` seeds under AGENT.
+    claim_id = _claim_awaiting_review(db_path, log_path, source, author=AGENT)
+
+    transport = ReviewingTransport()
+    m = RunManager(
+        db_path, log_path, source, max_budget_usd=0.50,
+        transport_factory=lambda budget, on_call: transport,
+    )
+    m.start([spec(agent_id=AGENT, role=ROLE_REVIEWER, instructions="review")],
+            budget_usd=0.10)
+    run = _await_finish(m)
+
+    assert run["state"] == "finished", run
+    assert transport.seen_tools == [], "a skipped reviewer must not cost a model call"
+    note = run["agents"][0]["note"]
+    assert note and "nothing to review" in note
+    assert run["agents"][0]["error"] is None
+
+    g = Graph.open_read_only(db_path)
+    try:
+        assert g.get_node(claim_id).status == "proposed"
+    finally:
+        g.close()
+
+
+def test_a_reviewer_sharing_a_model_family_with_a_worker_is_refused(manager):
+    """The roster check does not care about roles — a reviewer on the author's
+    model is the overlap the rule exists to catch, in its sharpest form."""
+    with pytest.raises(RunRejected, match="model family"):
+        manager.start(
+            [
+                spec(agent_id="agent:w", model="z-ai/glm-5.3"),
+                spec(agent_id="agent:r", model="z-ai/glm-5.3-flash", role=ROLE_REVIEWER),
+            ],
+            budget_usd=0.10,
+        )
+
+
+def test_an_unknown_role_is_refused_with_the_options(manager):
+    with pytest.raises(RunRejected, match="expected one of"):
+        manager.start([spec(role="auditor")], budget_usd=0.10)
+
+
+def test_the_role_travels_in_the_run_snapshot(manager):
+    """A researcher reading a finished run has to be able to tell which agent
+    was checking which — the roles are the run's whole shape."""
+    manager.start(
+        [spec(agent_id="agent:w"), spec(agent_id="agent:r", role=ROLE_REVIEWER)],
+        budget_usd=0.10,
+    )
+    run = _await_finish(manager)
+    roles = {a["agent_id"]: a["role"] for a in run["agents"]}
+    assert roles == {"agent:w": ROLE_WORKER, "agent:r": ROLE_REVIEWER}

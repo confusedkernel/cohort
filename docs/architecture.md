@@ -94,6 +94,11 @@ What is enforced, not merely documented:
   [design.md](design.md) §7 — this is the contribution.
 - **The ladder.** No rung may be skipped; only `RESEARCHER` may accept or
   reject; rejection needs a stated reason and persists.
+- **The author is not the reviewer.** An agent may not attest a claim or
+  conjecture it authored, nor one whose author shares its model family. The
+  roster check guards who is *in* a run; this guards the write itself, and
+  catches what a roster cannot see — agents registered by separate runs
+  writing to one graph. See [vocabulary.md](vocabulary.md).
 - **Identity from the source.** A passage is named by its canonical reference,
   so two agents finding the same passage converge on one node carrying two
   authorship records. Payload hashing is for integrity checking, never for

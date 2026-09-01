@@ -108,7 +108,7 @@ query.
 | Status | Who may set it |
 |---|---|
 | `proposed` | an agent wrote it |
-| `attested` | a mechanical check passed — the passage exists, the citation resolves, the reference is well formed. **Agents may do this.** |
+| `attested` | a mechanical check passed — the passage exists, the citation resolves, the reference is well formed. **Agents may do this, but never to their own claim.** |
 | `accepted` | **only the researcher** |
 | `rejected` | **only the researcher**, and only with a stated reason |
 
@@ -117,6 +117,32 @@ accept/reject (`NotResearcher`); rejection requires a reason
 (`MissingRejectionReason`) and **persists** (`PersistentRejection`) so the next
 worker along cannot re-propose what was already refused. Reopening is a
 researcher action.
+
+### The author is not the reviewer
+
+An agent may not attest a **claim** or **conjecture** it authored
+(`SelfAttestation`), and may not attest one whose author shares its model
+family (`ReviewerNotIndependent`). `attest` means "the mechanical
+preconditions hold", and the party with an interest in that answer is the
+worst party to give it.
+
+    graph.attest(claim_id, authored_by=author)    # SelfAttestation
+    graph.attest_conflict(claim_id, author)       # the reason, without writing
+
+| Case | Refused? | Why |
+|---|---|---|
+| the author attests its own claim | yes | the interested party checking itself |
+| a second agent, same provider prefix | yes | a different id on one model is not a different reader |
+| a second agent, another provider | no | the intended path — see [agents.md](agents.md) |
+| a second agent with no model declared | no | nothing to compare; the author rule still holds |
+| the **researcher** attests their own proposal | no | `accept` is already the human gate, and requiring a second human would make solo research impossible |
+| the author attests its own **witness** or **passage** | no | source-derived: where a passage sits is settled by the corpus, not by judgment |
+| a **query** | not reviewable | a retrieval to run, not an assertion — nothing for a second reader to be right about |
+
+`attest_conflict()` is the public read that lets a caller decline rather than
+provoke a certain refusal — `find_attestations` uses it so an author gathering
+its own evidence doesn't write a predictable refusal on every call and bury the
+ones worth reading.
 
 Only `accepted` nodes are citable by output or usable as premises by other
 agents. An agent cannot build on a finding the researcher has not signed.
