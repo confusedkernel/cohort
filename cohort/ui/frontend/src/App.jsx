@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { getGraph, getHealth, getRefusals } from './api'
 import DetailPanel from './DetailPanel'
 import GraphView from './GraphView'
+import CorpusPanel from './CorpusPanel'
 import RefusalsPanel from './RefusalsPanel'
+import RunPanel from './RunPanel'
 import { EDGE_STYLE } from './graph-model'
 
 export default function App() {
@@ -13,6 +15,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null)
   const [showAudit, setShowAudit] = useState(false)
   const [showRefusals, setShowRefusals] = useState(false)
+  const [tab, setTab] = useState('graph')
+  const [agentSeed, setAgentSeed] = useState(null)
 
   const reload = useCallback(() => {
     Promise.all([getGraph(), getHealth()])
@@ -54,6 +58,20 @@ export default function App() {
           ))}
           <span className="count"><strong>{health?.edges}</strong> edges</span>
         </div>
+        <nav className="tabs">
+          {[
+            ['graph', 'Graph'],
+            health?.corpus_enabled && ['corpus', 'Corpus'],
+            health?.runs_enabled && ['run', 'Agent run'],
+          ].filter(Boolean).map(([key, label]) => (
+            <button
+              key={key}
+              className={`tab ${tab === key ? 'on' : ''}`}
+              onClick={() => setTab(key)}
+            >{label}</button>
+          ))}
+        </nav>
+
         <div className="topbar-controls">
           <label className="toggle">
             <input
@@ -93,13 +111,25 @@ export default function App() {
 
       <div className="body">
         <main>
-          <Legend />
-          <GraphView
-            data={data}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            showAudit={showAudit}
-          />
+          {tab === 'graph' && (
+            <>
+              <Legend />
+              <GraphView
+                data={data}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                showAudit={showAudit}
+              />
+            </>
+          )}
+          {tab === 'corpus' && (
+            <CorpusPanel
+              onCite={(phrase) => { setAgentSeed(phrase); setTab('run') }}
+            />
+          )}
+          {tab === 'run' && (
+            <RunPanel instructionSeed={agentSeed} onGraphChanged={reload} />
+          )}
           {showRefusals && <RefusalsPanel refusals={refusals} />}
         </main>
         <DetailPanel

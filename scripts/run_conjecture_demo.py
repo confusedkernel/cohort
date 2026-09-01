@@ -4,12 +4,9 @@ the last stage-2/3 capability never exercised on real text (HANDOFF.md).
 Never imported by pytest, never run automatically, same discipline as the
 other live scripts.
 
-**Spend is capped in code, not estimated.** OpenRouter reports the cost of
-each response directly, so the transport below accumulates it and refuses the
-next request once the cap is reached. That is a hard stop before a call is
-made, not a warning after the fact — a budget that is only checked afterwards
-is not a budget. `AttestationWorker` already accepts a `transport`, so no core
-code changes to get this.
+**Spend is capped in code, not estimated** — see `cohort/agents/budget.py`,
+which this script originally contained and now shares with the UI's run
+launcher, so there is one cap implementation rather than two.
 
 What makes the run worth doing now rather than earlier: `propose_conjecture`
 must run a prior-art search *before* proposing, and that search now reaches
@@ -24,13 +21,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
 
 from cohort.agents.attestation_worker import AttestationWorker
-from cohort.agents.openrouter import OpenRouterError, _load_dotenv, default_transport
+from cohort.agents.budget import BudgetedTransport, BudgetExceeded
+from cohort.agents.openrouter import OpenRouterError, _load_dotenv
 from cohort.eventlog import summarize_model_calls
 from cohort.graph import Graph
 from cohort.schemas import AgentKind, AgentProfile, NodeType
@@ -40,45 +37,6 @@ from cohort.sources.cbeta_reader import CbetaArchiveError, CbetaReader
 CBETA_V061_SHA256 = "90a663f212bc854e6a758ed06c74776cef5cbf8e7040d0192ff3301e6f7158f2"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AGENT = "agent:worker-conjecture"
-
-
-class BudgetExceeded(RuntimeError):
-    """Raised in place of making a request that would exceed the cap."""
-
-
-class BudgetedTransport:
-    """Wraps the real transport, totals OpenRouter's reported cost, and stops
-    before the request that would cross the cap.
-
-    A response whose `usage.cost` is missing is charged at `unknown_call_cost`
-    rather than zero: treating an unpriced call as free is how a budget quietly
-    stops being one."""
-
-    def __init__(self, budget_usd: float, unknown_call_cost: float = 0.01) -> None:
-        self.budget_usd = budget_usd
-        self.unknown_call_cost = unknown_call_cost
-        self.spent = 0.0
-        self.calls = 0
-
-    def __call__(self, url, headers, body, timeout):
-        if self.spent >= self.budget_usd:
-            raise BudgetExceeded(
-                f"stopping before request {self.calls + 1}: ${self.spent:.4f} of "
-                f"${self.budget_usd:.2f} budget already spent"
-            )
-        status, raw = default_transport(url, headers, body, timeout)
-        self.calls += 1
-        try:
-            usage = json.loads(raw).get("usage") or {}
-            cost = usage.get("cost")
-        except (ValueError, AttributeError):
-            cost = None
-        charged = float(cost) if cost is not None else self.unknown_call_cost
-        self.spent += charged
-        marker = "" if cost is not None else "  (cost not reported; charged as estimate)"
-        print(f"    call {self.calls}: ${charged:.5f}  running total ${self.spent:.5f}{marker}",
-              flush=True)
-        return status, raw
 
 
 def main() -> None:
@@ -118,7 +76,15 @@ def main() -> None:
         authored_by=AGENT,
     )
 
-    transport = BudgetedTransport(args.budget)
+    def report(call: dict) -> None:
+        marker = "" if call["cost_reported"] else "  (cost not reported; charged as estimate)"
+        print(
+            f'    call {call["call"]}: ${call["charged"]:.5f}  '
+            f'running total ${call["spent"]:.5f}{marker}',
+            flush=True,
+        )
+
+    transport = BudgetedTransport(args.budget, on_call=report)
     try:
         worker = AttestationWorker(
             graph, source=source, authored_by=AGENT,

@@ -129,6 +129,24 @@ def _strip_tags(raw: str) -> str:
     return " ".join(_TAG_RE.sub("", raw).split())
 
 
+def strip_markup_for_display(raw: str) -> str:
+    """TEI tags removed and whitespace collapsed, for *reading only*.
+
+    Public counterpart to `_strip_tags`, named for what callers must know
+    about it: the result no longer aligns with the offsets `fetch()` returns,
+    so it must never be used for locating or verifying a span. Every
+    `EXACT_SPAN` verification hashes the text it was given and records the
+    offset it found — feeding it a stripped copy would produce offsets that
+    point nowhere in the real witness.
+
+    It exists because a reader browsing the corpus in a UI should not have to
+    read `<cb:mulu type="其他" level="1">` to see the text, and because doing
+    the stripping in the frontend would put a second, drifting copy of this
+    logic in JavaScript.
+    """
+    return _strip_tags(raw)
+
+
 def _refs_from_segment(segment: str) -> tuple[list[ParallelRef], bool]:
     """Extract Taisho references from one bracket segment.
 

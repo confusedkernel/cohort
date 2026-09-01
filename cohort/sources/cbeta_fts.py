@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 import zipfile
 from pathlib import Path
 from typing import Callable, Iterator
@@ -222,8 +223,19 @@ class CbetaFtsIndex:
         self.db_path = Path(db_path)
         if not self.db_path.is_file():
             raise CbetaArchiveError(f"no CBETA search index at {self.db_path}")
-        self.conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+        #: `check_same_thread=False` plus `_lock`, not carelessness: the web
+        #: API serves sync endpoints from a threadpool and runs agents on a
+        #: worker thread, so one long-lived index handle is legitimately used
+        #: from several threads. The connection is `mode=ro`, so there are no
+        #: writes to serialise — the lock exists because a sqlite3 connection
+        #: multiplexes one cursor-bearing protocol, and two concurrent
+        #: `execute`/`fetchall` pairs on the same connection can interleave
+        #: and return each other's rows.
+        self.conn = sqlite3.connect(
+            f"file:{self.db_path}?mode=ro", uri=True, check_same_thread=False
+        )
         self.conn.row_factory = sqlite3.Row
+        self._lock = threading.Lock()
         self.meta = {
             r["key"]: r["value"] for r in self.conn.execute("SELECT key, value FROM meta")
         }
@@ -281,12 +293,13 @@ class CbetaFtsIndex:
         state that the sample was arbitrary."""
         if not query.strip():
             return []
-        rows = self.conn.execute(
-            "SELECT e.entry_path, e.runs FROM entries_fts f "
-            "JOIN entries e ON e.id = f.rowid "
-            "WHERE entries_fts MATCH ? ORDER BY e.id LIMIT ?",
-            (_phrase(query), max(int(max_results) * 8, 64)),
-        ).fetchall()
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT e.entry_path, e.runs FROM entries_fts f "
+                "JOIN entries e ON e.id = f.rowid "
+                "WHERE entries_fts MATCH ? ORDER BY e.id LIMIT ?",
+                (_phrase(query), max(int(max_results) * 8, 64)),
+            ).fetchall()
 
         hits: list[tuple[str, str]] = []
         for row in rows:

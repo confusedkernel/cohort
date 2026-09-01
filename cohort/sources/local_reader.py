@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import csv
 import sqlite3
+import threading
 import tempfile
 from pathlib import Path
 
@@ -50,7 +51,14 @@ class LocalReader(Source):
         self._meta: dict[str, dict] = {}
         self._tempdir_obj = tempfile.TemporaryDirectory(prefix="cohort_local_reader_")
         self.tempdir = Path(self._tempdir_obj.name)
-        self.conn: sqlite3.Connection | None = sqlite3.connect(self.tempdir / "corpus.sqlite")
+        #: `check_same_thread=False` plus `_lock` for the same reason as
+        #: `CbetaFtsIndex`: the web API serves from a threadpool and runs
+        #: agents on a worker thread, so one reader is legitimately shared
+        #: across threads. Every query below holds the lock.
+        self.conn: sqlite3.Connection | None = sqlite3.connect(
+            self.tempdir / "corpus.sqlite", check_same_thread=False
+        )
+        self._lock = threading.Lock()
         self.stats: dict = {}
         self._load()
 
@@ -154,7 +162,8 @@ class LocalReader(Source):
             "JOIN corpus_meta m USING (ref) WHERE corpus_fts MATCH ? "
             "ORDER BY m.ref LIMIT ?"
         )
-        rows = self.conn.execute(sql, (_phrase(query), int(max_results))).fetchall()
+        with self._lock:
+            rows = self.conn.execute(sql, (_phrase(query), int(max_results))).fetchall()
         hits = []
         for ref, label, path, text in rows:
             idx = text.find(query)

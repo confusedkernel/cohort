@@ -46,6 +46,9 @@ from ..errors import CohortError, NodeNotFound, SingleWriterViolation
 from ..eventlog import read_refusals
 from ..graph import Graph
 from ..schemas import RESEARCHER, EdgeType, NodeType
+from ..sources.base import Source
+from ..sources.cbeta_markup import strip_markup_for_display
+from .runs import RunManager, RunRejected
 
 #: edge types that *discount* support rather than add it (DESIGN.md §4): two
 #: witnesses linked by either are evidence of shared descent, not independent
@@ -87,6 +90,8 @@ def create_app(
     log_path: str | Path | None = None,
     *,
     allow_writes: bool = False,
+    source: Source | None = None,
+    run_manager: RunManager | None = None,
 ) -> FastAPI:
     """Build the app around one projection path.
 
@@ -102,7 +107,15 @@ def create_app(
     is nothing in the SQLite projection to read it from.
 
     `allow_writes` mounts the researcher's accept/reject endpoints. Off by
-    default — see this module's docstring."""
+    default — see this module's docstring.
+
+    `source` mounts the corpus browse/search endpoints. It is a *reader*, so
+    these are ordinary read endpoints and take no lock. They exist because the
+    Python API can search the corpus and the web UI could not, and the point
+    of this layer is parity.
+
+    `run_manager` mounts the agent-run endpoints — the one part of the API that
+    can spend money. Off unless passed; see `cohort/ui/runs.py`."""
     db_path = Path(db_path)
     log_path = Path(log_path) if log_path is not None else db_path.with_suffix(".jsonl")
     app = FastAPI(
@@ -128,6 +141,8 @@ def create_app(
             return {
                 "ok": True, "db_path": str(db_path), "nodes": counts, "edges": edges,
                 "writes_enabled": allow_writes,
+                "corpus_enabled": source is not None,
+                "runs_enabled": run_manager is not None,
             }
         finally:
             graph.close()
@@ -339,6 +354,144 @@ def create_app(
             §8 says rejection persists and "reopening is a researcher
             action"."""
             return _verdict(id, "reopen", (body or {}).get("reason"))
+
+    # --- corpus (read-only; parity with CbetaReader in Python) ---------------
+
+    if source is not None:
+
+        @app.get("/api/corpus/search")
+        def corpus_search(
+            q: str = Query(..., min_length=1),
+            limit: int = Query(default=20, ge=1, le=100),
+        ) -> dict[str, Any]:
+            """Search the corpus. Exactly `source.search()`, which is what a
+            script calls, so a query typed here and a query typed in Python
+            return the same hits in the same order.
+
+            No relevance ranking, deliberately (see HANDOFF.md): results come
+            back in corpus order, and saying so matters more than hiding it —
+            a list that looks ranked but is not would misrepresent which
+            witnesses are most relevant."""
+            try:
+                hits = source.search(q, max_results=limit)
+            except NotImplementedError as e:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"this corpus reader has no search index: {e}",
+                ) from e
+            return {
+                "query": q,
+                "count": len(hits),
+                "ordering": "corpus order; no relevance ranking",
+                "truncated": len(hits) >= limit,
+                "hits": [h.model_dump(mode="json") for h in hits],
+            }
+
+        @app.get("/api/corpus/fetch")
+        def corpus_fetch(
+            ref: str = Query(..., min_length=1),
+            # No meaningful floor: real records can be shorter than any
+            # threshold worth naming (a four-line Tang poem is 26 characters),
+            # and the caller controls the window it wants.
+            max_chars: int = Query(default=8000, ge=1, le=200_000),
+            strip_markup: bool = Query(default=False),
+        ) -> dict[str, Any]:
+            """Fetch one record. `ref` is a query parameter for the same
+            reason node ids are: a CBETA ref is `entry_path::excerpt` and the
+            excerpt is corpus text, which can contain anything.
+
+            Truncated by default and **said so explicitly** in the response: a
+            silently cut text would let a reader believe they had seen a whole
+            witness. `source_terms` travels with every record, because the
+            corpus is licensed (CC BY-NC-SA-equivalent) and its terms must
+            survive into every derived artifact — including a JSON response.
+
+            `strip_markup` removes TEI tags for readability and is **display
+            only**, which the response states rather than leaving to be
+            noticed: the stripped text no longer shares offsets with the
+            witness, so an `EXACT_SPAN` verification built against it would
+            record positions pointing nowhere. Raw is the default for exactly
+            that reason."""
+            try:
+                record = source.fetch(ref)
+            except Exception as e:  # noqa: BLE001 — reader errors are the client's answer
+                raise HTTPException(status_code=404, detail=f"{type(e).__name__}: {e}") from e
+            raw = record.text
+            text = strip_markup_for_display(raw) if strip_markup else raw
+            truncated = len(text) > max_chars
+            return {
+                "ref": record.ref,
+                "witness_ref": record.witness_ref,
+                "title": record.title,
+                "locator": record.locator,
+                "source_terms": record.note,
+                "total_chars": len(text),
+                "raw_total_chars": len(raw),
+                "truncated": truncated,
+                "markup_stripped": strip_markup,
+                "offsets_align_with_witness": not strip_markup,
+                "text": text[:max_chars],
+            }
+
+    # --- agent runs (the only endpoints that can spend money) ---------------
+
+    if run_manager is not None:
+
+        @app.get("/api/run/config")
+        def run_config() -> dict[str, Any]:
+            """What a run may cost and whether the server can start one at
+            all. The browser needs this to render honest limits rather than
+            letting someone type a budget the server will reject."""
+            return run_manager.config()
+
+        @app.get("/api/run")
+        def run_status() -> dict[str, Any]:
+            return {
+                "current": run_manager.current(),
+                "history": run_manager.history(),
+            }
+
+        @app.get("/api/run/{run_id}")
+        def run_detail(run_id: str) -> dict[str, Any]:
+            run = run_manager.get(run_id)
+            if run is None:
+                raise HTTPException(status_code=404, detail=f"no run {run_id}")
+            return run
+
+        @app.post("/api/run")
+        def run_start(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+            """Start one agent run.
+
+            Every refusal here is a 409 with a reason meant to be read, not a
+            400: "a run is already in progress", "that budget exceeds the
+            server's ceiling", "no corpus is configured" are all states the
+            researcher can act on, and flattening them to a validation error
+            would throw away the only useful part."""
+            try:
+                return run_manager.start(
+                    str(body.get("instructions") or ""),
+                    agent_id=str(body.get("agent_id") or "agent:ui-worker"),
+                    budget_usd=float(body.get("budget_usd") or 0.0),
+                    max_turns=int(body["max_turns"]) if body.get("max_turns") else None,
+                    corpus_scope=str(body.get("corpus_scope") or ""),
+                    method_label=str(body.get("method_label") or ""),
+                )
+            except RunRejected as e:
+                raise HTTPException(status_code=409, detail=str(e)) from e
+            except (TypeError, ValueError) as e:
+                raise HTTPException(status_code=422, detail=str(e)) from e
+
+        @app.post("/api/run/stop")
+        def run_stop() -> dict[str, Any]:
+            """Ask the current run to stop after the turn in progress.
+
+            Cooperative, not a kill: the in-flight model call is already paid
+            for, and killing a thread mid-write could leave the projection and
+            the log disagreeing — the one invariant the whole system rests on."""
+            try:
+                return run_manager.stop()
+            except RunRejected as e:
+                raise HTTPException(status_code=409, detail=str(e)) from e
 
     if FRONTEND_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")

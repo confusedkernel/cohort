@@ -194,7 +194,10 @@ class AttestationWorker:
             "event loop — use run_async() directly (e.g. from run_swarm())"
         )
 
-    async def run_async(self, instructions: str, *, max_turns: int = 6) -> list[dict[str, Any]]:
+    async def run_async(
+        self, instructions: str, *, max_turns: int = 6,
+        on_tool_call=None, should_stop=None,
+    ) -> list[dict[str, Any]]:
         """Runs a tool-use loop against `instructions`. Returns the list of
         tool calls made (name, args, and either the result or the refusal),
         in order — this is the worker's own audit trail of its turn.
@@ -207,7 +210,17 @@ class AttestationWorker:
         mechanically.
 
         Safe to await concurrently alongside other workers against the same
-        `Graph` — see this module's docstring for why."""
+        `Graph` — see this module's docstring for why.
+
+        `on_tool_call(entry)` fires after each tool call with that call's log
+        entry, and `should_stop()` is consulted between turns; both default to
+        absent, so a script's behaviour is unchanged. They exist because a
+        caller watching a run in progress (the web UI) needs partial results
+        *and* a way out, and the alternative — calling this repeatedly with
+        `max_turns=1` — would silently restart the conversation each time,
+        throwing away every prior tool result and paying the model to
+        rediscover it. Progress reporting must not change what the agent
+        knows."""
         parts = [
             p for p in (_profile_context(self.profile), _rejected_context(self.graph)) if p
         ]
@@ -219,6 +232,8 @@ class AttestationWorker:
         log: list[dict[str, Any]] = []
 
         for _ in range(max_turns):
+            if should_stop is not None and should_stop():
+                break
             started = time.monotonic()
             response = await asyncio.to_thread(
                 complete, self.model, messages, TOOLS, api_key=self.api_key, transport=self.transport,
@@ -244,7 +259,13 @@ class AttestationWorker:
             for tc in choice.message.tool_calls or []:
                 args = json.loads(tc.function.arguments)
                 is_error, result = self._dispatch(tc.function.name, args, call_event.seq)
-                log.append({"tool": tc.function.name, "args": args, "result": result, "is_error": is_error})
+                entry = {
+                    "tool": tc.function.name, "args": args,
+                    "result": result, "is_error": is_error,
+                }
+                log.append(entry)
+                if on_tool_call is not None:
+                    on_tool_call(entry)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,

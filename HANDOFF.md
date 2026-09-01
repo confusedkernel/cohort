@@ -7,7 +7,7 @@ multi-agent textual research (`DESIGN.md` for the design, `ROADMAP.md` for
 architecture/tech-stack/build-order — read both before changing anything).
 It is not a prototype of an idea; it runs, live, against a real model.
 
-**What's actually been proven, not just written**: 235 tests pass
+**What's actually been proven, not just written**: 249 tests pass
 (`pytest -q`); `demo.py` runs end-to-end with no corpus or API key needed;
 `scripts/smoke_openrouter.py` has completed a real OpenRouter call;
 `scripts/run_swarm_demo.py` has completed two *concurrent* real agents
@@ -410,6 +410,97 @@ Files: `cohort/tools/record_contradiction.py` (new),
 
 **Not yet run against a live model**: `record_contradiction` has never been
 called by a real model, same status `propose_claim` is in.
+
+
+**Update: the web UI now reaches parity with the Python API.** Corpus
+browse/search and an agent-run launcher are built, so what you can do in a
+script you can do in a browser. Three opt-in flags, separate because they carry
+different consequences — reading the corpus is free, accepting a finding is a
+scholarly act, starting a run spends money:
+
+```
+scripts/serve_ui.py --db demo_graph.sqlite --corpus --allow-writes --allow-runs --max-budget 0.50
+```
+
+**Verified with a real live run started over HTTP**, not only with fakes:
+$0.00236, 4 model calls, 129s, `propose_claim` → `find_attestations` → a claim
+with 10 attesting passages across 7 witnesses. Rebuild-from-log still matches
+(81 events, 37 nodes, 43 edges) and integrity is clean afterwards.
+
+**That run had zero invented-node-id refusals.** The earlier conjecture run had
+five, because an agent had no way to create a claim. This is direct evidence
+that `propose_claim` fixed the underlying gap rather than just papering over it.
+
+**Corpus endpoints** (`/api/corpus/search`, `/api/corpus/fetch`) call
+`source.search()`/`fetch()` — a test asserts the endpoint returns exactly what
+Python returns, so parity is checked rather than asserted. Search over the full
+20,190-entry index answers in ~65ms. Three things travel with every response
+because omitting them would misrepresent the corpus: the ordering is labelled
+`"corpus order; no relevance ranking"` (a list that looks ranked but is not
+would misstate which witnesses matter), truncation is flagged with the real
+length alongside it, and `source_terms` carries the CC BY-NC-SA-equivalent
+license into every response.
+
+`?strip_markup=true` gives a readable view (114,461 raw chars → 32,339
+readable), because a researcher should not have to read
+`<cb:mulu type="其他" level="1">` to see the text. It is **display only** and
+the response says so in two fields (`markup_stripped`,
+`offsets_align_with_witness`): stripped text no longer shares offsets with the
+witness, so an `EXACT_SPAN` verification built against it would record
+positions pointing nowhere. Raw stays the default for that reason.
+
+**The run launcher** (`cohort/ui/runs.py`) keeps the scripts' guarantees rather
+than inventing web-only ones:
+
+- **One run at a time**, enforced by the existing `flock`. A run holds the
+  writer lock for its whole duration, so accept/reject answers 409 while one is
+  going — that is DESIGN.md §5 principle 7 behaving normally, and the UI's job
+  is to say so, not to work around it. Tested.
+- **Spend capped in code, with a ceiling the browser cannot raise.** The
+  client proposes a budget; `max_budget_usd` bounds it. A client-supplied
+  number nothing checks is a suggestion, not a cap. Tested with `budget_usd:
+  999`.
+- **Background thread, polled status.** A model loop takes minutes; the request
+  returns a run id immediately.
+- **The API key never reaches the browser.**
+- **No queue and no retry**, deliberately: a queue would let spend accumulate
+  unseen, and a retry would make single-writer discipline feel like flakiness.
+
+`BudgetedTransport` moved out of `scripts/run_conjecture_demo.py` into
+`cohort/agents/budget.py`, so the script and the UI share one cap
+implementation instead of two. It is now thread-safe (the UI reads spend from a
+request thread while a worker thread accumulates it).
+
+**Two real bugs found and fixed while building this:**
+
+1. **My own first design was wrong.** `RunManager` initially called
+   `worker.run_async(max_turns=1)` in a loop to get per-turn progress. That
+   silently restarts the conversation on every call, discarding all prior tool
+   results and paying the model to rediscover them. Fixed properly by adding
+   optional `on_tool_call` / `should_stop` callbacks to `run_async`, so the
+   worker keeps one continuous loop and reports outward. Progress reporting
+   must not change what the agent knows.
+
+2. **The corpus readers were not thread-safe, which would have broken the
+   corpus endpoints in production.** `CbetaFtsIndex` and `LocalReader` hold a
+   sqlite connection bound to its creating thread, and FastAPI serves sync
+   endpoints from a threadpool. Both now use `check_same_thread=False` plus a
+   lock around every query. The connections are `mode=ro`, so the lock is not
+   about write safety — it is because one sqlite3 connection multiplexes a
+   single cursor-bearing protocol and two concurrent `execute`/`fetchall`
+   pairs can return each other's rows.
+
+Files: `cohort/agents/budget.py`, `cohort/ui/runs.py`,
+`cohort/ui/frontend/src/CorpusPanel.jsx`, `RunPanel.jsx` (all new);
+`cohort/agents/attestation_worker.py`, `cohort/ui/api.py`,
+`cohort/sources/cbeta_fts.py`, `cohort/sources/local_reader.py`,
+`cohort/sources/cbeta_markup.py`, `scripts/serve_ui.py`,
+`scripts/run_conjecture_demo.py`, and the frontend's `api.js` / `App.jsx` /
+`styles.css`. New tests in `tests/test_ui_runs.py`.
+
+**Still Python-only, deliberately**: building the FTS index, and
+`.env`/API-key management. Both are one-time setup, and a web form is the wrong
+place for a credential.
 
 
 **Update: the researcher UI (stage 5) is built and serving — read-only.**

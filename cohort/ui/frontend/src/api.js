@@ -37,3 +37,26 @@ const post = (path, id, body) =>
 export const acceptNode = (id) => post('/api/accept', id)
 export const rejectNode = (id, reason) => post('/api/reject', id, { reason })
 export const reopenNode = (id, reason) => post('/api/reopen', id, { reason })
+
+// --- corpus (read-only; the same source.search()/fetch() Python calls) ------
+export const searchCorpus = (q, limit = 20) =>
+  json(`/api/corpus/search?q=${encodeURIComponent(q)}&limit=${limit}`)
+// `strip_markup` is display-only and the response says so; the panel makes it
+// a visible toggle rather than a silent default, because stripped text no
+// longer shares offsets with the witness.
+export const fetchCorpus = (ref, { maxChars = 4000, stripMarkup = true } = {}) =>
+  json(
+    `/api/corpus/fetch?ref=${encodeURIComponent(ref)}` +
+    `&max_chars=${maxChars}&strip_markup=${stripMarkup}`,
+  )
+
+// --- agent runs (the only calls that spend money) ---------------------------
+export const getRunConfig = () => json('/api/run/config')
+export const getRuns = () => json('/api/run')
+export const startRun = (body) =>
+  json('/api/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+export const stopRun = () => json('/api/run/stop', { method: 'POST' })
