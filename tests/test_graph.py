@@ -3,6 +3,8 @@ promotion ladder, rebuild, and the single-writer lock (design doc §5-8, §11).
 """
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from cohort.errors import (
@@ -10,6 +12,7 @@ from cohort.errors import (
     EdgeEndpointMissing,
     EdgeSelfLoop,
     MissingRejectionReason,
+    NoEventLog,
     NotResearcher,
     PersistentRejection,
     RebuildMismatch,
@@ -20,6 +23,7 @@ from cohort.errors import (
 )
 from cohort.eventlog import EventLog, read_events
 from cohort.graph import Graph
+from cohort.migrations import MigrationError
 from cohort.schemas import (
     RESEARCHER,
     ClaimPayload,
@@ -421,6 +425,60 @@ def test_second_open_on_the_same_db_raises(tmp_path):
     with pytest.raises(SingleWriterViolation):
         Graph.open(db_path, log_path)
     g1.close()
+
+
+def test_read_only_open_succeeds_while_a_writer_holds_the_lock(tmp_path):
+    """A reader must not need the writer lock: WAL already makes concurrent
+    reads safe, so a UI or report can attach during an agent run."""
+    db_path, log_path = tmp_path / "graph.sqlite", tmp_path / "events.jsonl"
+    writer = Graph.open(db_path, log_path)
+    claim_id = writer.propose_claim(ClaimPayload(text="a claim to read"), authored_by=AGENT)
+
+    reader = Graph.open_read_only(db_path)
+    assert reader.get_node(claim_id).payload["text"] == "a claim to read"
+    reader.close()
+    writer.close()
+
+
+def test_read_only_graph_refuses_writes_through_the_existing_guard(tmp_path):
+    db_path, log_path = tmp_path / "graph.sqlite", tmp_path / "events.jsonl"
+    writer = Graph.open(db_path, log_path)
+    writer.close()
+
+    reader = Graph.open_read_only(db_path)
+    with pytest.raises(NoEventLog):
+        reader.propose_claim(ClaimPayload(text="nope"), authored_by=AGENT)
+    reader.close()
+
+
+def test_read_only_graph_is_read_only_to_sqlite_itself(tmp_path):
+    """Not merely read-only by convention: the connection is opened mode=ro,
+    so a write refused by the kernel, not only by COHORT's own guard."""
+    db_path, log_path = tmp_path / "graph.sqlite", tmp_path / "events.jsonl"
+    Graph.open(db_path, log_path).close()
+
+    reader = Graph.open_read_only(db_path)
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        reader.conn.execute("INSERT INTO nodes (id, type, status) VALUES ('x','claim','proposed')")
+    reader.close()
+
+
+def test_read_only_refuses_a_projection_it_cannot_migrate(tmp_path):
+    """Migrations are writes, so a reader skips them — which means an older
+    projection must be refused rather than read with the wrong columns."""
+    db_path = tmp_path / "stale.sqlite"
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(MigrationError, match="schema version"):
+        Graph.open_read_only(db_path)
+
+
+def test_read_only_refuses_a_missing_projection(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        Graph.open_read_only(tmp_path / "absent.sqlite")
 
 
 def test_lock_is_released_on_close(tmp_path):

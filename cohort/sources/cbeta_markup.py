@@ -137,6 +137,16 @@ def _refs_from_segment(segment: str) -> tuple[list[ParallelRef], bool]:
     discard `refs` and report the segment unparsed — a half-read reference
     list is exactly the kind of confident wrongness that would mint a false
     `parallel_of`."""
+    # A `;`-delimited chunk carrying no digit at all is an annotation, not a
+    # reference list — the corpus appends a Chinese title this way
+    # (`Nos. 450, 451; 灌頂經卷第十二`). Dropping such a chunk can only remove
+    # prose, never add a number, so it cannot manufacture a reference; without
+    # it the stray CJK would fail the residue check and discard the perfectly
+    # good numbers beside it.
+    segment = "; ".join(
+        chunk for chunk in segment.split(";") if any(c.isdigit() for c in chunk)
+    )
+
     # (start_offset, refs) so the result follows the order the corpus wrote
     # them in, rather than ranges-then-singles by scan order.
     grouped: list[tuple[int, list[ParallelRef]]] = []

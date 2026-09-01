@@ -68,9 +68,16 @@ Decisions already made:
   installed or running — same "optional" pattern already established by
   the `agents` extra in `pyproject.toml`. Deliberately kept minimal: no
   Postgres, no queue — FastAPI reads the same single SQLite file
-  `graph.py` already owns, through the one process that holds the write
-  lock. Not started; stage 5 remains lowest-priority per the design doc's
-  own cut order ("cut stage 5 before stage 3").
+  `graph.py` already owns. **Built (read-only), once stage 3 and stage 4's
+  main halves were done** — the design doc's cut order ("cut stage 5 before
+  stage 3") governs what to drop under time pressure, not what may be built
+  next, and the condition it protects was satisfied. The concurrency detail
+  above resolved differently than this paragraph first assumed: the UI does
+  *not* run inside the process holding the write lock. It opens its own
+  read-only connection via `Graph.open_read_only()`, which takes no lock at
+  all, because WAL already makes concurrent readers safe and a reader has no
+  business asking for a writer's lock. Accept/reject, being writes, are not
+  built — see `HANDOFF.md`.
 
 ---
 
@@ -390,7 +397,7 @@ sent instructions.
 | 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done, live-verified, now corpus-wide** — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`. The CBETA archive is obtained and hash-verified, and `cohort/sources/cbeta_fts.py` indexes all 20,190 entries (15.28M citable spans, ~1.1 GB, built by `scripts/build_cbeta_index.py`), so `CbetaReader.search()` covers the real corpus rather than a hand-listed fixture. Searchable spans are exactly the citable ones, so every hit is fetchable by construction. Results are corpus-ordered, deliberately unranked — see `HANDOFF.md` |
 | 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done, live-verified.** `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) |
 | 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | **Unblocked; `parallel_of` and collation halves done, live-verified.** `cohort/sources/cbeta_markup.py` parses `<cb:docNumber>` cross-references and `<app>` apparatus; `cohort/tools/link_parallels.py` writes `parallel_of` edges (asserted references only, and only to witnesses already in the graph); `cohort/tools/collate_editions.py` records `CROSS_EDITION_COLLATION` verifications. `scripts/run_stage4_demo.py` shows `independent_support` flipping on three real Heart Sutra translations, derived from the corpus rather than hand-added. Still open: `descends_from` extraction (the markup asserts parallelism, not descent) and contradiction surfacing — see `HANDOFF.md` |
-| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified** — `cohort/agents/swarm.py::run_swarm()`, two real concurrent agents proven against OpenRouter. Researcher UI not started; tech stack decided — FastAPI JSON API + separate JS/React frontend, optional, no Postgres/queue (see "Decisions already made") |
+| 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Fan-out **done, live-verified**. Researcher UI **built, read-only** — `cohort/ui/api.py` (FastAPI over `graph.py`'s reader surface) + `cohort/ui/frontend/` (React/Vite), both behind the optional `ui` extra; served by `scripts/serve_ui.py` against a graph seeded from the real archive. Serves while an agent run holds the write lock, via the new `Graph.open_read_only()`. Renders §10's requirements (status as a visual channel, discounting edges distinct from supporting ones, contradiction as visible as agreement, provenance on click). **Accept/reject deliberately not built**: those are writes, and a writing UI would hold the exclusive lock for as long as a tab is open — an open decision, see `HANDOFF.md` |
 | 6 | ATELIER integration: source interface becomes an adapter; cumulative-coverage policy | Not started |
 
 Design doc's own cut order still applies if time runs short: **cut stage 5

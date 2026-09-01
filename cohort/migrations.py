@@ -110,6 +110,12 @@ MIGRATIONS: list[Migration] = [
     ),
 ]
 
+#: The `user_version` a fully-migrated projection carries. Derived from
+#: `MIGRATIONS` rather than written out, so it cannot drift from the list it
+#: describes. A reader that cannot migrate (`Graph.open_read_only`) compares
+#: against this before trusting the columns it is about to select.
+SCHEMA_VERSION = max(m.version for m in MIGRATIONS)
+
 
 def apply_migrations(conn: sqlite3.Connection, migrations: list[Migration] = MIGRATIONS) -> None:
     """Apply every migration newer than the database's current

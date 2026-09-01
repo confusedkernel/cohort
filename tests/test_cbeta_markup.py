@@ -74,6 +74,24 @@ def test_embedded_tags_inside_a_bracket_are_stripped():
     assert _numbers(r.asserted) == ["99", "124"]
 
 
+def test_trailing_chinese_title_does_not_discard_good_numbers():
+    """The corpus annotates some lists with a Chinese title after a
+    semicolon. That prose must not poison the references beside it."""
+    r = parse_parallel_refs(_doc("No. 449 [Nos. 450, 451; 灌頂經卷第十二]"))
+    assert _numbers(r.asserted) == ["450", "451"]
+    assert r.unparsed == []
+
+
+def test_digit_bearing_segment_after_a_semicolon_must_still_parse():
+    """Only digit-free annotations are droppable. A segment carrying digits
+    is a reference list and has to parse cleanly or the bracket is refused."""
+    r = parse_parallel_refs(
+        _doc("No. 293 [Fasc. 1-39 = Nos. 278(34), 279 (39); Fasc. 40 = Nos. 296, 297]")
+    )
+    assert r.asserted == []
+    assert len(r.unparsed) == 1
+
+
 def test_non_taisho_bracket_is_reported_unparsed_not_half_read():
     """A Pali/Sanskrit cross-reference is not a Taisho list. Reading the
     stray digits out of it would mint false parallels."""

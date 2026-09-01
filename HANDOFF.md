@@ -7,7 +7,7 @@ multi-agent textual research (`DESIGN.md` for the design, `ROADMAP.md` for
 architecture/tech-stack/build-order — read both before changing anything).
 It is not a prototype of an idea; it runs, live, against a real model.
 
-**What's actually been proven, not just written**: 192 tests pass
+**What's actually been proven, not just written**: 212 tests pass
 (`pytest -q`); `demo.py` runs end-to-end with no corpus or API key needed;
 `scripts/smoke_openrouter.py` has completed a real OpenRouter call;
 `scripts/run_swarm_demo.py` has completed two *concurrent* real agents
@@ -59,7 +59,8 @@ are frequently *joint* — `【宋】【元】【明】【宮】` appears as a s
 value 2155 times — which is exactly the shared-descent-vs-independent
 -confirmation distinction `CROSS_EDITION_COLLATION` and
 `independent_support()` exist to model. `<note type="cf1|cf2|cf3|cf.">`
-(436 occurrences) is a further cross-reference channel worth a look.
+(436 occurrences in that 300-file sample; ~31,800 corpus-wide, measured
+later) is a further cross-reference channel worth a look.
 
 The closed vocabulary already covers all of this: `parallel_of`,
 `descends_from`, and `CROSS_EDITION_COLLATION` exist, and
@@ -99,6 +100,43 @@ needed no new types — only extraction.
   stays 3 while `independent` flips to False across all 3 pairs — agreement
   between parallel translations is shared descent. `demo.py` could only ever
   show this with a hand-added edge; this derives it from the corpus.
+
+**The parser is now validated corpus-wide.** `scripts/scan_parallels.py`
+(read-only, no API, ~8s for all 20,190 entries) runs `parse_parallel_refs()`
+over the whole archive and writes three artifacts to `~/cbeta_scan/`:
+`parallel_map.jsonl` (every entry's cross-references, with asserted numbers
+resolved to witness refs), `unparsed.txt` (**every bracket the parser
+declined, deduped, with an example entry** — the file actually worth reading),
+and `summary.txt`.
+
+Results: 935 entries carry cross-references; **1,240 asserted references, of
+which 1,203 resolve 1:1**; 607 `cf.`; 6 `Part of`; 37 declined as ambiguous
+(`220` alone accounts for 20, since it legitimately spans three volumes); 0
+unknown; and **13 distinct brackets declined**, every one inspected and
+legitimately hard:
+
+- CBETA/Taisho apparatus inline in the docNumber (`Nos. 633, 634【CB】，1【大】41`)
+  — half-reading these yields mashed-together numbers like `279229`, so
+  refusing is the only safe behaviour;
+- Pali references (`~M. 118【CB】，5【大】85, Ānāpānasati sutta.`), not Taisho;
+- one genuine typo in the corpus: `cf. N0. 1524` (a zero, not "No.");
+- a fascicle-structured list (`Fasc. 1-39 = Nos. ...; Fasc. 40 = ...`) and
+  lettered range endpoints (`1060-1062A`), all `cf.` or structurally complex.
+
+The scan also drove one parser refinement: a `;`-delimited chunk with no
+digits is an annotation, not a reference list (the corpus appends a Chinese
+title this way, `Nos. 450, 451; 灌頂經卷第十二`), so it is dropped rather than
+allowed to fail the residue check and discard the good numbers next to it.
+Dropping a digit-free chunk cannot introduce a number, so it cannot
+manufacture a reference — and a chunk that *does* carry digits must still
+parse cleanly, which is why the `Fasc.` case above is still refused. That
+recovered 6 real parallels and took declined brackets from 16 to 13.
+
+Finally, the scan sized the `<note type="cf*">` channel HANDOFF flagged as
+unexplored: **~31,800 occurrences** (cf1 23,838; cf2 6,061; cf. 1,243; cf3
+608; cf4 28; cf5 8; cf6 4). Nothing reads it yet, and it is much larger than
+the `<cb:docNumber>` channel — worth a look before assuming the parallel data
+is exhausted.
 
 **A pre-existing bug fixed on the way.** `_T_NUMBER_RE` was `T\d+n\d+`, which
 drops the letter suffix that distinguishes lettered siblings — so
@@ -175,6 +213,67 @@ scriptures they quote, encoding a scholarly judgement about which witnesses
 matter into infrastructure, which §5 principle 2 refuses. When a conjecture
 rests on a truncated result set, that belongs in
 `ConjecturePayload.selection_risks`.
+
+**Update: the researcher UI (stage 5) is built and serving — read-only.**
+
+`cohort/ui/api.py` is a FastAPI JSON API over `graph.py`'s reader surface;
+`cohort/ui/frontend/` is a React + Vite app that builds into
+`cohort/ui/static/`, which the API mounts when present. Both live behind the
+optional `ui` extra, so the core library and CLI never require them
+(`pip install -e '.[ui]'`).
+
+```bash
+.venv/bin/python scripts/seed_demo_graph.py --force   # real CBETA data, no API key
+cd cohort/ui/frontend && npm install && npm run build
+.venv/bin/python scripts/serve_ui.py --db demo_graph.sqlite   # http://127.0.0.1:8000
+```
+
+**Read-only is a position, not a phase.** Every request opens the projection
+through the new `Graph.open_read_only()`, which takes no writer lock, so the
+UI serves *while an agent run is writing* — there is a test asserting exactly
+that. It also cannot write: SQLite is opened `mode=ro`, migrations are skipped
+(applying one is itself a write, so an out-of-date projection is refused
+rather than misread), and no `EventLog` is attached, which makes every
+mutating method fail through the existing `event_log_or_raise()` guard rather
+than a parallel check that could drift from it. A test asserts the app exposes
+no non-GET routes.
+
+**Accept/reject is deliberately absent, and this is the open decision.**
+DESIGN.md §13 puts it in stage 5, but those are researcher *writes*, and a
+writing UI would hold the exclusive lock for as long as a browser tab is open
+— stopping every agent run in the meantime. That concurrency question deserves
+a decision of its own rather than being settled by whichever endpoint got
+written first.
+
+**The frontend honours §10's requirements as requirements**, since a naive
+rendering "flattens exactly the epistemics that justify the system": node
+status is a coloured bar on every node rather than a tooltip; `parallel_of`
+and `descends_from` are drawn thicker and dashed in a distinct colour, labelled
+"**discounts** support" in the legend, and flagged `discounts: true` by the
+API so the frontend cannot omit the distinction by accident; `contradicts` is
+as heavy as `attests`; every node opens a provenance panel with authorship,
+verifications (including their `limitations` text), edges both ways, and the
+`independent_support` block. Layout is a deterministic evidence chain
+(witness → passage → claim) rather than a force simulation, which would place
+the same graph differently on every load — a poor property for something meant
+to be read and cited. Audit nodes (`verification`, `decision`) are hidden by
+default as bookkeeping rather than evidence, behind a toggle.
+
+`scripts/seed_demo_graph.py` builds the demo graph from the **real archive**,
+not a fixture: three Heart Sutra translations, hash-verified, with
+`parallel_of` edges read out of CBETA's own cross-references, giving
+`attesting_count = 3, independent = False`. Its one hand-authored node is a
+conjecture left at `proposed` with no `tests` edge — the falsifiability gate
+would refuse to attest it, which is precisely the state worth being able to
+see. It is hand-authored because `propose_conjecture`'s live path against real
+text still has not been run, and staging a fake model run would misrepresent
+what has been verified.
+
+Two things found while building it: `Graph` had **no public way to list
+nodes** (only the opinionated `citable()`/`rejected()`), now `Graph.nodes()`;
+and node ids routinely contain `#` (a passage ref is `{witness}#{excerpt}`),
+which in a URL path silently truncates at the fragment — so `/api/node` and
+`/api/agent` take the id as a query parameter, with a regression test.
 
 **A second pre-existing bug fixed here.** `CbetaReader` assumed Taisho
 throughout: `_t_number_from_entry_path` matched only `T…` refs, so `search()`
@@ -300,8 +399,8 @@ claims built on it would be false from the start.
   cross-edition-collation halves are built and live-verified (see above).
 - Any use of the `<note type="cf1|cf2|cf3">` cross-reference channel (436
   occurrences in the 300-file sample) — only `<cb:docNumber>` is read so far.
-- The researcher UI (stage 5's other half) — tech stack decided (FastAPI +
-  separate JS/React frontend, see `ROADMAP.md`), nothing built.
+- Accept/reject **from** the UI (stage 5's remaining half) — see the UI
+  section above for why it is a decision rather than an omission.
 - Reputation scoring (agent-society step 5) — deliberately deferred, not
   blocked on anything.
 - ATELIER integration (stage 6) — not started, not needed yet.
@@ -310,7 +409,7 @@ claims built on it would be false from the start.
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q                # should be 192 passed
+.venv/bin/pytest -q                # should be 212 passed
 .venv/bin/python demo.py           # no corpus, no API key needed
 cp .env.example .env               # then fill in OPENROUTER_API_KEY / OPENROUTER_MODEL yourself —
                                     # never paste a real key into a chat session
@@ -323,6 +422,8 @@ cp .env.example .env               # then fill in OPENROUTER_API_KEY / OPENROUTE
                                                   # CBETA_ARCHIVE_PATH and cbeta_index.json
 .venv/bin/python scripts/build_cbeta_index.py    # full-corpus FTS index: ~7 min, ~1.1 GB, one-off
 .venv/bin/python scripts/search_cbeta.py 色即是空  # search the whole corpus (needs that index)
+.venv/bin/python scripts/scan_parallels.py       # corpus-wide parser validation, ~8s, read-only
+                                                  # -> ~/cbeta_scan/{parallel_map.jsonl,unparsed.txt,summary.txt}
 ```
 
 Venvs bake in absolute paths — if this repo gets moved again after being

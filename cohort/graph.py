@@ -37,7 +37,7 @@ from .errors import (
     UnattestableConjecture,
 )
 from .eventlog import EventLog, read_events
-from .migrations import apply_migrations
+from .migrations import SCHEMA_VERSION, MigrationError, apply_migrations
 from .schemas import (
     RESEARCHER,
     AgentProfile,
@@ -105,17 +105,58 @@ SYMMETRIC_EDGE_TYPES = {EdgeType.CONTRADICTS, EdgeType.PARALLEL_OF}
 _ASSURANCE_RANK = {level: i for i, level in enumerate(AssuranceLevel)}
 
 class Graph:
-    def __init__(self, db_path: str | Path, event_log: EventLog | None = None) -> None:
+    def __init__(
+        self, db_path: str | Path, event_log: EventLog | None = None, *,
+        read_only: bool = False,
+    ) -> None:
         self.db_path = db_path
-        self.event_log = event_log
+        self.event_log = None if read_only else event_log
+        self.read_only = read_only
         self._lock_file = None
         self._in_memory = str(db_path) == ":memory:"
+        if read_only:
+            self._open_read_only(Path(db_path))
+            return
         if not self._in_memory:
             self._acquire_lock(Path(db_path))
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         apply_migrations(self.conn)
+
+    def _open_read_only(self, db_path: Path) -> None:
+        """Attach to an existing projection without taking the writer lock.
+
+        Single-writer discipline is enforced by an exclusive `flock` in
+        `_acquire_lock`, so a second process — a UI, a report, an inspector —
+        cannot open the graph at all while an agent run holds it. That is
+        correct for writers and useless for readers, and the answer is not to
+        relax the lock: WAL already lets any number of readers run
+        concurrently with the one writer, safely, so a reader simply should
+        not be asking for the lock in the first place.
+
+        Three things make this genuinely read-only rather than nominally so:
+        SQLite is opened `mode=ro`, so the kernel refuses a write; migrations
+        are skipped, since applying one would itself be a write; and
+        `event_log` is forced to None, which makes every mutating method fail
+        through the existing `event_log_or_raise()` guard rather than through
+        a new parallel check that could drift from it.
+
+        Because migrations are skipped, a projection older than this code is
+        refused outright — reading it would silently misinterpret columns a
+        migration was supposed to add."""
+        if self._in_memory:
+            raise ValueError("an in-memory Graph cannot be opened read-only: it has no file to read")
+        if not db_path.is_file():
+            raise FileNotFoundError(f"no graph projection at {db_path}")
+        self.conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        self.conn.row_factory = sqlite3.Row
+        actual = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        if actual != SCHEMA_VERSION:
+            raise MigrationError(
+                f"projection at {db_path} is at schema version {actual}, but this "
+                f"code expects {SCHEMA_VERSION}; open it for writing once to migrate"
+            )
 
     @classmethod
     def open(cls, db_path: str | Path, log_path: str | Path) -> "Graph":
@@ -128,6 +169,13 @@ class Graph:
             for ev in read_events(log_path):
                 graph._apply(ev)
         return graph
+
+    @classmethod
+    def open_read_only(cls, db_path: str | Path) -> "Graph":
+        """A reader's handle on an existing projection: no writer lock, no
+        event log, no migrations. Safe to open while an agent run holds the
+        write lock — see `_open_read_only`."""
+        return cls(db_path, read_only=True)
 
     # --- lifecycle -------------------------------------------------------
 
@@ -510,6 +558,29 @@ class Graph:
             (NodeStatus.ACCEPTED, NodeType.DECISION, NodeType.VERIFICATION),
         ).fetchall()
         return [self._row_to_node(r) for r in rows]
+
+    def nodes(
+        self, *, node_type: NodeType | None = None, limit: int | None = None,
+        offset: int = 0,
+    ) -> list[Node]:
+        """Nodes in creation order, optionally of one type.
+
+        The general listing `citable()`/`rejected()` are the opinionated views
+        of: those answer "what may be cited" and "what was refused", while
+        this answers "what is in the graph", which a viewer needs and neither
+        of those provides. Ordering is `created_seq` rather than insertion
+        order in the table, so a paged read is stable against the projection
+        being rewritten by a rebuild."""
+        sql = "SELECT * FROM nodes"
+        params: list = []
+        if node_type is not None:
+            sql += " WHERE type = ?"
+            params.append(node_type)
+        sql += " ORDER BY created_seq"
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([int(limit), int(offset)])
+        return [self._row_to_node(r) for r in self.conn.execute(sql, params).fetchall()]
 
     def verifications(self, node_id: str) -> list[Node]:
         """Every verification attempt recorded against a node, oldest first."""
