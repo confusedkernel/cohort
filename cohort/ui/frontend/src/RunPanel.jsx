@@ -107,6 +107,7 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
           instructions: a.instructions,
           corpus_scope: a.corpus_scope,
           method_label: a.method_label,
+          model: a.model,
         })),
       })
       settledRef.current = null
@@ -164,6 +165,18 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
             </label>
             <div className="field-row">
               <label className="field">
+                <span>Model</span>
+                <select
+                  value={a.model}
+                  onChange={(e) => update(i, { model: e.target.value })}
+                >
+                  <option value="">{config.model || 'server default'}</option>
+                  {(config.models || [])
+                    .filter((m) => m !== config.model)
+                    .map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </label>
+              <label className="field">
                 <span>Corpus scope</span>
                 <input
                   placeholder="e.g. Prajñāpāramitā translations only"
@@ -183,7 +196,9 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
             <p className="hint small">
               Scope and method are recorded on the agent&apos;s profile and
               prepended to its instructions. Give two agents different ones and
-              their disagreement means something.
+              their disagreement means something &mdash; which is only true if
+              they also read on different models, so a run whose agents share a
+              model family is refused.
             </p>
           </div>
         ))}
@@ -199,7 +214,12 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
           <span className="hint small">
             {agents.length} of {config.max_agents} · they run concurrently
             against one graph and share the budget below. They cannot see each
-            other&apos;s work.
+            other&apos;s work. Each needs its own model family: two agents on
+            one model share priors, so their agreement would be one observation
+            reported twice.
+            {agents.length > 1 && (config.models || []).length < agents.length && (
+              <> Set <code>OPENROUTER_MODELS</code> to add more.</>
+            )}
           </span>
         </div>
 
@@ -251,6 +271,7 @@ function blankAgent(i) {
     instructions: '',
     corpus_scope: '',
     method_label: '',
+    model: '',
   }
 }
 
@@ -290,6 +311,7 @@ function RunReport({ run, active }) {
         <div className="agent-report" key={a.agent_id}>
           <h3>
             {a.agent_id}
+            {a.model && <code className="agent-model">{a.model}</code>}
             {a.corpus_scope && <em> · {a.corpus_scope}</em>}
           </h3>
           {a.error && <p className="error">{a.error}</p>}

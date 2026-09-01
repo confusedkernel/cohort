@@ -42,6 +42,8 @@ export const attestNode = (id) => post('/api/attest', id)
 export const acceptNode = (id) => post('/api/accept', id)
 export const rejectNode = (id, reason) => post('/api/reject', id, { reason })
 export const reopenNode = (id, reason) => post('/api/reopen', id, { reason })
+export const retractEdge = (id, reason) => post('/api/edge/retract', id, { reason })
+export const restoreEdge = (id, reason) => post('/api/edge/restore', id, { reason })
 
 // --- corpus (read-only; the same source.search()/fetch() Python calls) ------
 export const searchCorpus = (q, limit = 20) =>

@@ -77,6 +77,26 @@ class PersistentRejection(CohortError):
 
 # --- lookup --------------------------------------------------------------------
 
+class EdgeNotFound(CohortError):
+    """No such edge id. Same discipline as `NodeNotFound`: an id that does not
+    resolve is refused rather than silently ignored."""
+
+
+class PersistentRetraction(CohortError):
+    """A retracted edge may not be redrawn by the next worker along.
+
+    The mirror of `PersistentRejection` for edges, and for the same reason
+    (design doc §8): without it, retracting a wrong `parallel_of` would last
+    only until the next `link_parallels` run put it back, and the researcher's
+    judgement would be quietly overwritten by a tool. Restoring one is a
+    researcher action.
+    """
+
+
+class EdgeAlreadyRetracted(CohortError):
+    """Retracting a retracted edge, or restoring one that is not retracted."""
+
+
 class NodeNotFound(CohortError):
     """No node with this id exists."""
 

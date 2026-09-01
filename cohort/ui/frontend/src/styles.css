@@ -297,7 +297,15 @@ code { font-family: var(--mono); font-size: .9em; }
 }
 
 /* Segmented control, the way macOS renders a small tab bar: one recessed
-   track with the active segment raised out of it. */
+   track with the active segment raised out of it.
+
+   The outer ring is `--line` at 1px, the same outline every other control in
+   the top bar carries as a border — the gear, the stats disclosure, the
+   refusals pill. It was `--fill-2` (half that weight) and, sitting in a
+   recessed `--track` well beside three bordered controls, the track's edge
+   read as unfinished rather than quiet. Drawn as an inset shadow rather than
+   a border so the 2px inner gutter stays 2px and the segments keep the full
+   `--control-h`; visually it is the same 1px line at the same radius. */
 .tabs {
   display: flex; gap: 2px; flex: none;
   align-items: stretch;
@@ -305,7 +313,7 @@ code { font-family: var(--mono); font-size: .9em; }
   padding: 2px;
   background: var(--track);
   border-radius: var(--radius-control);
-  box-shadow: inset 0 0 0 1px var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 .tab {
   appearance: none;
@@ -1123,7 +1131,7 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   height: var(--control-h);
   background: var(--track);
   border-radius: var(--radius-control);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 .seg-item {
   flex: 1;
@@ -1361,3 +1369,42 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   border-color: var(--line);
 }
 .btn.attest:hover:not(:disabled) { background: var(--fill-4); }
+
+/* A withdrawn edge stays visible, struck through — the record of a judgement,
+   not an absence. It must not read as heavily as a relation that still holds. */
+.edge-row.retracted .edge-type,
+.edge-row.retracted .edge-line > button:first-of-type { text-decoration: line-through; }
+.edge-row.retracted { opacity: 0.62; }
+.chip.withdrawn {
+  color: var(--rejected);
+  background: color-mix(in srgb, var(--rejected) 14%, transparent);
+}
+.edge-reason.withdrawn {
+  color: var(--rejected);
+  border-left-color: color-mix(in srgb, var(--rejected) 45%, transparent);
+}
+.edge-act {
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 11px; color: var(--text-dim);
+  background: var(--fill-2);
+  border: 1px solid var(--line); border-radius: var(--radius-control-inner);
+  cursor: pointer;
+}
+.edge-act:hover:not(:disabled) { color: var(--text); background: var(--fill-4); }
+.edge-verdict { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Which model an agent read on, in its report. Recorded because declared
+   viewpoint diversity is only real if the readers actually differ. */
+.agent-model {
+  margin-left: 8px; padding: 1px 6px;
+  font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+  background: var(--fill-2); border-radius: 5px;
+}
+.field select {
+  height: var(--field-h);
+  padding: 0 9px;
+  font: inherit; font-size: 13px; color: var(--text);
+  background: var(--fill-1);
+  border: 1px solid var(--line); border-radius: var(--radius-control);
+}

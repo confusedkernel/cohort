@@ -446,3 +446,91 @@ def test_attest_is_not_mounted_without_allow_writes(populated):
     assert TestClient(create_app(db_path)).post(
         "/api/attest", params={"id": claim_id}
     ).status_code == 404
+
+
+# --- edge retraction over HTTP ---------------------------------------------
+
+def test_retracting_a_parallel_edge_restores_independence_over_http(populated):
+    """The fixture's claim is supported by two witnesses the corpus calls
+    parallel, so `independent` is False. Withdrawing that edge must give the
+    support back — through the API, not only in Python."""
+    db_path, claim_id = populated
+    log_path = db_path.parent / "events.jsonl"
+    client = TestClient(create_app(db_path, log_path, allow_writes=True))
+
+    before = client.get("/api/node", params={"id": claim_id}).json()
+    assert before["independent_support"]["independent"] is False
+    edge = next(
+        e for e in client.get("/api/graph").json()["edges"] if e["type"] == "parallel_of"
+    )
+
+    res = client.post(
+        "/api/edge/retract", params={"id": edge["id"]},
+        json={"reason": "the docNumber bracket was a cf. reference"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["edge"]["retracted"] is True
+
+    after = client.get("/api/node", params={"id": claim_id}).json()
+    assert after["independent_support"]["independent"] is True
+    assert (
+        after["independent_support"]["attesting_count"]
+        == before["independent_support"]["attesting_count"]
+    ), "retracting a discounting edge must not change how much evidence there is"
+
+
+def test_a_retracted_edge_is_still_reported_on_the_node(populated):
+    """Withdrawn, not erased — the inspector is where the record is read."""
+    db_path, claim_id = populated
+    log_path = db_path.parent / "events.jsonl"
+    client = TestClient(create_app(db_path, log_path, allow_writes=True))
+    edge = next(
+        e for e in client.get("/api/graph").json()["edges"] if e["type"] == "parallel_of"
+    )
+    client.post("/api/edge/retract", params={"id": edge["id"]},
+                json={"reason": "withdrawn after re-reading the bracket"})
+
+    witness = client.get("/api/node", params={"id": edge["src"]}).json()
+    shown = [e for e in witness["edges_out"] + witness["edges_in"] if e["retracted"]]
+    assert shown, "a withdrawn edge must still appear in provenance"
+    assert "re-reading" in shown[0]["retracted_reason"]
+
+    # ...but the graph view shows what currently holds
+    assert not any(
+        e["type"] == "parallel_of" for e in client.get("/api/graph").json()["edges"]
+    )
+
+
+def test_retract_without_a_reason_is_422_with_a_rule(populated):
+    db_path, _ = populated
+    log_path = db_path.parent / "events.jsonl"
+    client = TestClient(create_app(db_path, log_path, allow_writes=True))
+    edge = next(
+        e for e in client.get("/api/graph").json()["edges"] if e["type"] == "parallel_of"
+    )
+    res = client.post("/api/edge/retract", params={"id": edge["id"]}, json={})
+    assert res.status_code == 422
+    assert res.json()["detail"]["rule"] == "MissingRejectionReason"
+
+
+def test_retract_is_not_mounted_without_allow_writes(populated):
+    db_path, _ = populated
+    assert TestClient(create_app(db_path)).post(
+        "/api/edge/retract", params={"id": "edge:whatever"}, json={"reason": "x"}
+    ).status_code == 404
+
+
+def test_restore_over_http_puts_the_discount_back(populated):
+    db_path, claim_id = populated
+    log_path = db_path.parent / "events.jsonl"
+    client = TestClient(create_app(db_path, log_path, allow_writes=True))
+    edge = next(
+        e for e in client.get("/api/graph").json()["edges"] if e["type"] == "parallel_of"
+    )
+    client.post("/api/edge/retract", params={"id": edge["id"]},
+                json={"reason": "withdrawn pending a check"})
+    res = client.post("/api/edge/restore", params={"id": edge["id"]},
+                      json={"reason": "the check confirmed the parallel"})
+    assert res.status_code == 200, res.text
+    node = client.get("/api/node", params={"id": claim_id}).json()
+    assert node["independent_support"]["independent"] is False

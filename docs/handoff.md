@@ -19,7 +19,7 @@ What is true as of **2026-09-02**. For how the system got here, see
 
 ## Verified state
 
-    .venv/bin/pytest -q      # 288 passed
+    .venv/bin/pytest -q      # 326 passed
     .venv/bin/python demo.py # no corpus, no API key, no network
 
 Proven by real runs rather than by assertion — every one manual, none
@@ -71,9 +71,10 @@ than implying coverage.
   there are the same place in the text — which COHORT does not have and does
   not claim. Apparatus markup cannot supply it either: it describes variants
   within one document.
-- **Edge retraction.** Nodes have a ladder and can be rejected; edges have
-  neither, so a wrong edge is permanent. This is why the tools that write
-  argument-carrying edges refuse ambiguous input rather than guessing.
+- **Claim versioning.** A claim can be rejected and reopened but not revised
+  into a new version with typed lineage, the way `epistemic-swarm` does it.
+  Corrections are therefore coarse. (Edge retraction, previously listed here,
+  **is now built** — see [vocabulary.md](vocabulary.md).)
 - **The `<note type="cf1|cf2|cf3">` channel** — 436 occurrences in the
   300-file sample, ~31,800 corpus-wide. Only `<cb:docNumber>` is read so far.
 - **Reputation scoring** (agent-society step 5) — deferred deliberately.
@@ -113,5 +114,9 @@ rather than reusing a copy from elsewhere.
    guess.
 3. **`record_contradiction` has never been called by a live model.** Every
    other registered tool has. One cheap run would close that gap.
-4. **Deferred and fine to leave**: ATELIER integration, reputation scoring,
-   relevance ranking, edge retraction. Each is described above.
+4. **A measured scaling study.** Scaling still rests on one two-agent run;
+   `epistemic-swarm` publishes a four-point table. Needs live API calls.
+5. **A self-hosting position.** OpenRouter is still the only model path — see
+   compare.md §8.
+6. **Deferred and fine to leave**: ATELIER integration, reputation scoring,
+   relevance ranking. Each is described above.

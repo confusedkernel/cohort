@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { acceptNode, attestNode, getAgent, getNode, rejectNode, reopenNode } from './api'
+import {
+  acceptNode, attestNode, getAgent, getNode, rejectNode, reopenNode,
+  restoreEdge, retractEdge,
+} from './api'
 import { EDGE_STYLE, nodeTitle } from './graph-model'
 
 export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onChanged }) {
@@ -134,8 +137,10 @@ export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onCha
         </Section>
       )}
 
-      <EdgeList title="Outgoing" edges={node.edges_out} field="dst" onSelect={onSelect} />
-      <EdgeList title="Incoming" edges={node.edges_in} field="src" onSelect={onSelect} />
+      <EdgeList title="Outgoing" edges={node.edges_out} field="dst" onSelect={onSelect}
+                canWrite={canWrite} onChanged={load} />
+      <EdgeList title="Incoming" edges={node.edges_in} field="src" onSelect={onSelect}
+                canWrite={canWrite} onChanged={load} />
 
       <Section title="Authorship">
         <ul className="authorship">
@@ -203,24 +208,100 @@ function CloseButton({ onClose }) {
   )
 }
 
-function EdgeList({ title, edges, field, onSelect }) {
+function EdgeList({ title, edges, field, onSelect, canWrite, onChanged }) {
   if (!edges?.length) return null
+  const live = edges.filter((e) => !e.retracted).length
   return (
-    <Section title={`${title} (${edges.length})`}>
+    <Section title={`${title} (${live})`}>
       {edges.map((e) => (
-        <div className={`edge-row ${e.discounts ? 'discount' : ''}`} key={e.id}>
-          <div className="edge-line">
-            <span className="edge-type">{EDGE_STYLE[e.type]?.label || e.type}</span>
-            {e.discounts && <span className="chip">discounts</span>}
-            <button onClick={() => onSelect(e[field])}>{short(e[field])}</button>
-          </div>
-          {/* A contradicts edge is drawn as heavily as evidence, so the grounds
-              for it belong next to it — an unexplained disagreement asserted
-              this prominently is worse than none. */}
-          {e.reason && <p className="edge-reason">{e.reason}</p>}
-        </div>
+        <EdgeRow
+          key={e.id} edge={e} field={field} onSelect={onSelect}
+          canWrite={canWrite} onChanged={onChanged}
+        />
       ))}
     </Section>
+  )
+}
+
+// One edge, and the researcher's ability to withdraw it.
+//
+// Edges have no promotion ladder, so until retraction existed a wrong one was
+// permanent — and the edges drawn most prominently here (`parallel_of`,
+// `descends_from`, `contradicts`) are exactly the ones that change conclusions.
+// A mistaken `parallel_of` does not add noise; it *suppresses* independent
+// support that genuinely exists, in the direction of this system's own thesis.
+//
+// A retracted edge is shown struck through with its reason rather than removed:
+// "the researcher withdrew this" and "this was never asserted" are different
+// facts about the record, and only one of them is worth reading.
+function EdgeRow({ edge: e, field, onSelect, canWrite, onChanged }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [refusal, setRefusal] = useState(null)
+
+  const act = async () => {
+    if (!reason.trim()) {
+      setRefusal({ rule: 'MissingRejectionReason', message: 'a reason is required' })
+      return
+    }
+    setBusy(true)
+    setRefusal(null)
+    try {
+      await (e.retracted ? restoreEdge : retractEdge)(e.id, reason)
+      setOpen(false)
+      setReason('')
+      onChanged?.()
+    } catch (err) {
+      setRefusal({ rule: err.rule, message: err.message, status: err.status })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={`edge-row ${e.discounts ? 'discount' : ''} ${e.retracted ? 'retracted' : ''}`}>
+      <div className="edge-line">
+        <span className="edge-type">{EDGE_STYLE[e.type]?.label || e.type}</span>
+        {e.discounts && !e.retracted && <span className="chip">discounts</span>}
+        {e.retracted && <span className="chip withdrawn">withdrawn</span>}
+        <button onClick={() => onSelect(e[field])}>{short(e[field])}</button>
+        {canWrite && (
+          <button className="edge-act" onClick={() => setOpen((v) => !v)} disabled={busy}>
+            {e.retracted ? 'restore' : 'retract'}
+          </button>
+        )}
+      </div>
+      {/* A contradicts edge is drawn as heavily as evidence, so the grounds
+          for it belong next to it — an unexplained disagreement asserted
+          this prominently is worse than none. */}
+      {e.reason && <p className="edge-reason">{e.reason}</p>}
+      {e.retracted && e.retracted_reason && (
+        <p className="edge-reason withdrawn">withdrawn: {e.retracted_reason}</p>
+      )}
+      {open && (
+        <div className="edge-verdict">
+          <textarea
+            rows={2} className="reason-input"
+            placeholder={e.retracted ? 'Why restore it?' : 'Why withdraw it?'}
+            value={reason} onChange={(ev) => setReason(ev.target.value)}
+          />
+          <button className={`btn ${e.retracted ? 'accept' : 'reject'}`} disabled={busy} onClick={act}>
+            {e.retracted ? 'Restore edge' : 'Retract edge'}
+          </button>
+          <p className="hint small">
+            Nothing is deleted. The edge stays in the log and in the graph,
+            marked withdrawn, and stops counting toward independence.
+          </p>
+          {refusal && (
+            <div className="refusal">
+              {refusal.rule && <strong>{refusal.rule}</strong>}
+              <p>{refusal.message}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

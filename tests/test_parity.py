@@ -35,6 +35,8 @@ ROUTE_TO_COMMAND = {
     ("GET", "/api/integrity"): "integrity",
     ("GET", "/api/rebuild"): "rebuild",
     ("POST", "/api/attest"): "attest",
+    ("POST", "/api/edge/retract"): "retract-edge",
+    ("POST", "/api/edge/restore"): "restore-edge",
     ("POST", "/api/accept"): "accept",
     ("POST", "/api/reject"): "reject",
     ("POST", "/api/reopen"): "reopen",

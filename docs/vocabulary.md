@@ -59,6 +59,39 @@ when drawing, or these edges would carry double their true visual weight.
 `descends_from`. This is the whole thesis in the vocabulary — see
 `independent_support()` below.
 
+## Edge retraction
+
+Edges have no promotion ladder — but since 2026-09-02 the researcher can
+**withdraw** one, with a stated reason:
+
+    cohort retract-edge edge:abc --reason "the docNumber bracket was a cf."
+    cohort restore-edge edge:abc --reason "checked again; it is a bare list"
+
+This matters more than it sounds. A mistaken `parallel_of` does not add noise —
+it **suppresses independent support that genuinely exists**, silently, in the
+direction of this system's own thesis. That was previously permanent.
+
+Retraction is the edge-equivalent of rejecting a node, so it follows §8's rules:
+
+- **only the researcher** may do it, and a **reason is required**;
+- **it persists** — `add_edge` refuses to redraw a retracted edge
+  (`PersistentRetraction`), so the next `link_parallels` run cannot quietly
+  overwrite the judgement. Restoring is a researcher action;
+- **nothing is deleted.** The row and the log both keep it. `edges()` hides it
+  by default (it asserts nothing now), `edges(include_retracted=True)` returns
+  it, and the UI shows it struck through with its reason — because "the
+  researcher withdrew this" and "this was never asserted" are different facts;
+- **both directions move together** for symmetric edges, and each row records
+  who withdrew it.
+
+`independent_support()` ignores retracted edges, which is the whole point:
+withdrawing a wrong `parallel_of` gives the support back **without changing the
+count**, since the evidence never went anywhere — only the claim about its
+independence.
+
+Nodes still have no versioning, and claims cannot be corrected in place. That
+remains an open gap (compare.md §4.2).
+
 `part_of` was added deliberately in stage 2. Passage-to-witness had been a
 payload field, which meant `independent_support()` read JSON out of a payload to
 answer the system's central question. `searched_for` was widened in stage 3 to

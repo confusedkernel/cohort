@@ -41,13 +41,15 @@ diagnostics — see below.
 Tables: `nodes`, `edges`, `agents`, plus schema bookkeeping.
 
 Migrations are numbered and forward-only (`cohort/migrations.py`), currently at
-`SCHEMA_VERSION = 3`:
+`SCHEMA_VERSION = 5`:
 
 | # | Name | What it does |
 |---|---|---|
 | 1 | `baseline` | the initial schema |
 | 2 | `node_payload_hash` | adds the integrity hash, with a backfill |
 | 3 | `edge_reason` | adds `edges.reason`, no backfill — older edges have none |
+| 4 | `edge_retraction` | adds `edges.retracted_at` / `retracted_reason` |
+| 5 | `agent_model` | adds `agents.model`, so a run's readers are on the record |
 
 A read-only projection is opened with `Graph.open_read_only()`: SQLite `mode=ro`,
 **no** writer lock, no `EventLog` attached, and migrations skipped rather than

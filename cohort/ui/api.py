@@ -42,7 +42,13 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..errors import CohortError, NodeNotFound, RebuildMismatch, SingleWriterViolation
+from ..errors import (
+    CohortError,
+    EdgeNotFound,
+    NodeNotFound,
+    RebuildMismatch,
+    SingleWriterViolation,
+)
 from ..eventlog import read_refusals
 from ..graph import Graph
 from ..schemas import RESEARCHER, EdgeType, NodeType
@@ -321,6 +327,29 @@ def create_app(
             finally:
                 graph.close()
 
+        @app.post("/api/edge/retract")
+        def retract_edge(
+            id: str = Query(..., min_length=1),
+            body: dict[str, Any] = Body(default={}),
+        ) -> dict[str, Any]:
+            """Withdraw an edge, with a reason. A researcher action.
+
+            The edge that most needs this is `parallel_of`: a wrong one does
+            not add noise, it *suppresses* independent support that really
+            exists — silently, and in the direction of this system's own
+            thesis. Nothing is deleted; the edge stays in the log and in the
+            graph, marked withdrawn, and stops counting."""
+            return _edge_verdict(id, "retract", (body or {}).get("reason"))
+
+        @app.post("/api/edge/restore")
+        def restore_edge(
+            id: str = Query(..., min_length=1),
+            body: dict[str, Any] = Body(default={}),
+        ) -> dict[str, Any]:
+            """Undo a retraction, with a reason. Without it, retraction would
+            replace one irreversible mistake with another."""
+            return _edge_verdict(id, "restore", (body or {}).get("reason"))
+
         @app.post("/api/attest")
         def attest(
             id: str = Query(..., min_length=1),
@@ -350,6 +379,26 @@ def create_app(
                         detail={"rule": type(e).__name__, "message": str(e)},
                     ) from e
                 return {"node": _node_json(graph, graph.get_node(id)), "decision_node_id": None}
+            finally:
+                graph.close()
+
+        def _edge_verdict(edge_id: str, action: str, reason: str | None) -> dict[str, Any]:
+            graph = _write_graph()
+            try:
+                method = graph.retract_edge if action == "retract" else graph.restore_edge
+                try:
+                    method(edge_id, authored_by=RESEARCHER, reason=reason or "")
+                except EdgeNotFound as e:
+                    raise HTTPException(status_code=404, detail=str(e)) from e
+                except CohortError as e:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"rule": type(e).__name__, "message": str(e)},
+                    ) from e
+                edge = next(
+                    e for e in graph.edges(include_retracted=True) if e.id == edge_id
+                )
+                return {"edge": _edge_json(edge)}
             finally:
                 graph.close()
 
@@ -514,6 +563,7 @@ def create_app(
                     "instructions": body.get("instructions") or "",
                     "corpus_scope": body.get("corpus_scope") or "",
                     "method_label": body.get("method_label") or "",
+                    "model": body.get("model") or "",
                 }]
             if not isinstance(raw, list):
                 raise HTTPException(status_code=422, detail="`agents` must be a list")
@@ -524,6 +574,7 @@ def create_app(
                         str(a.get("instructions") or ""),
                         str(a.get("corpus_scope") or ""),
                         str(a.get("method_label") or ""),
+                        str(a.get("model") or ""),
                     )
                     for a in raw
                 ]

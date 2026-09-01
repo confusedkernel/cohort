@@ -55,6 +55,26 @@ nothing; a witness may be undated. Both still owe a stated reason.
 
 ## Reversals
 
+### Edges can be withdrawn after all
+**2026-09-02.** "Edges have no ladder and no retraction, so a wrong edge is
+permanent" was recorded here as a deliberate deferral, mitigated by tools
+refusing ambiguous input. Comparing against `epistemic-swarm` made the deferral
+untenable: a mistaken `parallel_of` does not add noise, it *suppresses*
+independent support that genuinely exists, silently and in the direction of this
+project's own thesis. Retraction is now built (migration 4) on the same terms as
+rejecting a node — researcher only, a reason required, persists against
+redrawing, nothing deleted.
+
+### Several agents on one model was not viewpoint diversity
+**2026-09-02.** The scope revision allowed more agents "conditioned on
+demonstrating declared viewpoint diversity", and the run launcher told the
+researcher that two agents' disagreement "means something". That was false while
+both ran the same model: shared training priors make their agreement one
+observation reported twice — the error `independent_support()` exists to catch
+between witnesses, committed one layer up between readers. A run whose agents
+share a model family is now refused at the boundary. Credit where due: this is
+`epistemic-swarm`'s rule, found by comparing against it.
+
 ### Agent count may grow — conditionally
 [design.md](design.md) §4 and §9 called fan-out a non-headline and agent count an
 anti-goal. **Superseded** after comparing against a parallel project: more
@@ -122,7 +142,7 @@ one. Do not backronym it.
 |---|---|
 | Reputation scoring | The objection is to what a score would reward, not to when agents run. Concurrency didn't change it. |
 | Relevance ranking | Corpus order is stated honestly; a list that looked ranked but wasn't would misrepresent which witnesses matter. |
-| Edge retraction | Real gap. Mitigated by tools refusing ambiguous input rather than guessing. |
+| Claim versioning | Real gap. A claim can be rejected and reopened, but not revised into a new version with typed lineage — `epistemic-swarm` does this and we don't (compare.md §4.2). |
 | `descends_from` extraction | **Blocked, not deferred**: no corpus channel asserts descent. |
 | Automatic cross-witness contradiction | **Blocked**: needs locus alignment COHORT doesn't have and doesn't claim. |
 | `<note type="cf*">` channel | ~31,800 occurrences, unread. Noted rather than quietly omitted. |

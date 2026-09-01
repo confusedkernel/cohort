@@ -115,6 +115,15 @@ MIGRATIONS: list[Migration] = [
     #: too, not just the line. No backfill: edges written before this
     #: carried no reason, and inventing one would be fabrication.
     Migration(3, "edge_reason", "ALTER TABLE edges ADD COLUMN reason TEXT;"),
+    Migration(
+        4, "edge_retraction",
+        "ALTER TABLE edges ADD COLUMN retracted_at TEXT;"
+        "ALTER TABLE edges ADD COLUMN retracted_reason TEXT;",
+    ),
+    Migration(
+        5, "agent_model",
+        "ALTER TABLE agents ADD COLUMN model TEXT;",
+    ),
 ]
 
 #: The `user_version` a fully-migrated projection carries. Derived from

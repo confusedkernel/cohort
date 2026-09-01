@@ -20,6 +20,9 @@ from pathlib import Path
 from typing import NoReturn
 
 from .errors import (
+    EdgeAlreadyRetracted,
+    EdgeNotFound,
+    PersistentRetraction,
     EdgeDomainViolation,
     EdgeEndpointMissing,
     EdgeSelfLoop,
@@ -470,8 +473,22 @@ class Graph:
                     edge_type=edge_type,
                 )
         existing = self.conn.execute(
-            "SELECT id FROM edges WHERE type=? AND src=? AND dst=?", (edge_type, src, dst)
+            "SELECT id, retracted_at FROM edges WHERE type=? AND src=? AND dst=?",
+            (edge_type, src, dst),
         ).fetchone()
+        if existing is not None and existing["retracted_at"] is not None:
+            # The mirror of PersistentRejection. Without this, retracting a
+            # wrong `parallel_of` would last only until the next link_parallels
+            # run redrew it, and a researcher judgement would be quietly
+            # overwritten by a tool.
+            self._refuse(
+                "add_edge", authored_by,
+                PersistentRetraction(
+                    f"{edge_type} {src} -> {dst} was retracted by the researcher and "
+                    f"may not be redrawn; restoring it is a researcher action"
+                ),
+                edge_id=existing["id"], edge_type=edge_type,
+            )
         edge_id = existing["id"] if existing else f"edge:{uuid.uuid4().hex}"
         ev = self.event_log_or_raise().append(
             "add_edge", authored_by=authored_by, edge_id=edge_id, edge_type=edge_type,
@@ -483,6 +500,67 @@ class Graph:
         )
         self._apply(ev)
         return edge_id
+
+    def retract_edge(self, edge_id: str, *, authored_by: str, reason: str) -> None:
+        """Withdraw an edge, with a stated reason. A researcher action.
+
+        Edges have no promotion ladder, which used to mean a wrong one was
+        permanent — and the edges that carry an argument (`parallel_of`,
+        `descends_from`, `contradicts`) are exactly the ones that change
+        conclusions. A mistaken `parallel_of` between two witnesses does not
+        merely add noise: it *suppresses* independent support that genuinely
+        exists, silently, in the direction of the system's own thesis.
+
+        Retraction is the edge-equivalent of rejecting a node, so it follows
+        the same rules (design doc §8): only the researcher may do it, a reason
+        is required, and it persists — `add_edge` refuses to redraw a retracted
+        edge. Nothing is deleted; the row and the log both keep it, and
+        `edges(include_retracted=True)` still returns it.
+        """
+        self._require_researcher(authored_by, action="retract_edge", edge_id=edge_id)
+        if not reason or not reason.strip():
+            self._refuse(
+                "retract_edge", authored_by,
+                MissingRejectionReason(f"retracting {edge_id} requires a stated reason"),
+                edge_id=edge_id,
+            )
+        edge = self._require_edge(edge_id)
+        if edge["retracted_at"] is not None:
+            self._refuse(
+                "retract_edge", authored_by,
+                EdgeAlreadyRetracted(f"{edge_id} is already retracted"),
+                edge_id=edge_id, edge_type=edge["type"],
+            )
+        ev = self.event_log_or_raise().append(
+            "retract_edge", authored_by=authored_by, edge_id=edge_id,
+            edge_type=edge["type"], detail={"reason": reason},
+        )
+        self._apply(ev)
+
+    def restore_edge(self, edge_id: str, *, authored_by: str, reason: str) -> None:
+        """Undo a retraction. A researcher action, like `reopen` for nodes.
+
+        Without this, retraction would create a second permanent state and
+        replace one irreversible mistake with another."""
+        self._require_researcher(authored_by, action="restore_edge", edge_id=edge_id)
+        if not reason or not reason.strip():
+            self._refuse(
+                "restore_edge", authored_by,
+                MissingRejectionReason(f"restoring {edge_id} requires a stated reason"),
+                edge_id=edge_id,
+            )
+        edge = self._require_edge(edge_id)
+        if edge["retracted_at"] is None:
+            self._refuse(
+                "restore_edge", authored_by,
+                EdgeAlreadyRetracted(f"{edge_id} is not retracted"),
+                edge_id=edge_id, edge_type=edge["type"],
+            )
+        ev = self.event_log_or_raise().append(
+            "restore_edge", authored_by=authored_by, edge_id=edge_id,
+            edge_type=edge["type"], detail={"reason": reason},
+        )
+        self._apply(ev)
 
     def verify(
         self, subject_node_id: str, *, method: VerificationMethod, result: VerificationResult,
@@ -540,10 +618,20 @@ class Graph:
         return profile.id
 
     def edges(
-        self, *, edge_type: EdgeType | None = None, src: str | None = None, dst: str | None = None
+        self, *, edge_type: EdgeType | None = None, src: str | None = None,
+        dst: str | None = None, include_retracted: bool = False,
     ) -> list[Edge]:
+        """Relations that currently hold.
+
+        Retracted edges are excluded by default because most callers are asking
+        what the graph asserts, and a withdrawn relation asserts nothing. Pass
+        `include_retracted=True` to see the record instead of the state — the
+        UI does, so a retraction is visible as a withdrawal rather than as an
+        absence."""
         query = "SELECT * FROM edges WHERE 1=1"
         params: list = []
+        if not include_retracted:
+            query += " AND retracted_at IS NULL"
         if edge_type is not None:
             query += " AND type=?"
             params.append(edge_type)
@@ -627,6 +715,7 @@ class Graph:
         return AgentProfile(
             id=row["id"], kind=row["kind"],
             corpus_scope=row["corpus_scope"], method_label=row["method_label"],
+            model=row["model"],
         )
 
     def agent_report(self, agent_id: str) -> AgentReport:
@@ -682,13 +771,15 @@ class Graph:
         instant a descent/parallel relation links two supporting witnesses."""
         self._require_node(node_id)
         attesting = self.conn.execute(
-            "SELECT src FROM edges WHERE type=? AND dst=?", (EdgeType.ATTESTS, node_id)
+            "SELECT src FROM edges WHERE type=? AND dst=? AND retracted_at IS NULL",
+            (EdgeType.ATTESTS, node_id),
         ).fetchall()
         passages = [r["src"] for r in attesting]
         witnesses: dict[str, str | None] = {}
         for p in passages:
             row = self.conn.execute(
-                "SELECT dst FROM edges WHERE type=? AND src=?", (EdgeType.PART_OF, p)
+                "SELECT dst FROM edges WHERE type=? AND src=? AND retracted_at IS NULL",
+                (EdgeType.PART_OF, p),
             ).fetchone()
             witnesses[p] = row["dst"] if row else None
         distinct_witnesses = {w for w in witnesses.values() if w is not None}
@@ -774,6 +865,10 @@ class Graph:
             self._apply_verdict(ev, NodeStatus.PROPOSED, "reopened")
         elif ev.event == "add_edge":
             self._apply_add_edge(ev)
+        elif ev.event == "retract_edge":
+            self._apply_edge_retraction(ev, retracted=True)
+        elif ev.event == "restore_edge":
+            self._apply_edge_retraction(ev, retracted=False)
         elif ev.event == "verify":
             self._apply_verify(ev)
         elif ev.event == "register_agent":
@@ -845,6 +940,40 @@ class Graph:
             self._add_authorship("edge", rev_id, ev.authored_by, "proposed", ev.at, ev.seq)
         self.conn.commit()
 
+    def _apply_edge_retraction(self, ev: Event, *, retracted: bool) -> None:
+        """Both directions of a symmetric edge move together. `parallel_of` and
+        `contradicts` are stored as two rows; retracting one and leaving its
+        twin would make the relation hold in one direction only, which is not a
+        state this vocabulary has."""
+        at = ev.at if retracted else None
+        reason = ev.detail.get("reason") if retracted else None
+        action = "retracted" if retracted else "restored"
+        for row_id in self._edge_row_ids(ev.edge_id):
+            self.conn.execute(
+                "UPDATE edges SET retracted_at=?, retracted_reason=? WHERE id=?",
+                (at, reason, row_id),
+            )
+            # Authorship goes on both rows, the way `_apply_add_edge` writes it
+            # on both: a twin that is retracted but does not say who retracted
+            # it would be a row whose state no author owns.
+            self._add_authorship("edge", row_id, ev.authored_by, action, ev.at, ev.seq)
+        self.conn.commit()
+
+    def _edge_row_ids(self, edge_id: str) -> list[str]:
+        """An edge id and its reverse twin, if one exists."""
+        base = edge_id[: -len(":rev")] if edge_id.endswith(":rev") else edge_id
+        return [
+            r["id"] for r in self.conn.execute(
+                "SELECT id FROM edges WHERE id=? OR id=?", (base, f"{base}:rev")
+            ).fetchall()
+        ]
+
+    def _require_edge(self, edge_id: str):
+        row = self.conn.execute("SELECT * FROM edges WHERE id=?", (edge_id,)).fetchone()
+        if row is None:
+            raise EdgeNotFound(edge_id)
+        return row
+
     def _apply_verify(self, ev: Event) -> None:
         detail = ev.detail
         self._insert_node_row(
@@ -859,12 +988,13 @@ class Graph:
     def _apply_register_agent(self, ev: Event) -> None:
         payload = ev.detail["payload"]
         self.conn.execute(
-            "INSERT INTO agents (id, kind, corpus_scope, method_label, created_seq) "
-            "VALUES (?, ?, ?, ?, ?) "
+            "INSERT INTO agents (id, kind, corpus_scope, method_label, model, created_seq) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, "
-            "corpus_scope=excluded.corpus_scope, method_label=excluded.method_label",
+            "corpus_scope=excluded.corpus_scope, method_label=excluded.method_label, "
+            "model=excluded.model",
             (payload["id"], payload["kind"], payload.get("corpus_scope"),
-             payload.get("method_label"), ev.seq),
+             payload.get("method_label"), payload.get("model"), ev.seq),
         )
         self.conn.commit()
 
@@ -921,12 +1051,15 @@ class Graph:
         )
         error.logged_to_event_log = True
 
-    def _require_researcher(self, authored_by: str, *, action: str, node_id: str | None = None) -> None:
+    def _require_researcher(
+        self, authored_by: str, *, action: str,
+        node_id: str | None = None, edge_id: str | None = None,
+    ) -> None:
         if authored_by != RESEARCHER:
             self._refuse(
                 action, authored_by,
                 NotResearcher(f"{action} requires authored_by='researcher', got {authored_by!r}"),
-                node_id=node_id,
+                node_id=node_id, edge_id=edge_id,
             )
 
     def _require_node(self, node_id: str) -> Node:
@@ -963,6 +1096,7 @@ class Graph:
         placeholders = ",".join("?" for _ in types)
         row = self.conn.execute(
             f"SELECT 1 FROM edges WHERE type IN ({placeholders}) AND "
+            f"retracted_at IS NULL AND "
             f"((src=? AND dst=?) OR (src=? AND dst=?)) LIMIT 1",
             (*types, a, b, b, a),
         ).fetchone()
@@ -1029,6 +1163,8 @@ class Graph:
             id=row["id"], type=row["type"], src=row["src"], dst=row["dst"],
             authorship=authorship, created_seq=row["created_seq"],
             reason=row["reason"],
+            retracted_at=row["retracted_at"],
+            retracted_reason=row["retracted_reason"],
         )
 
     def _count(self, table: str) -> int:
@@ -1044,7 +1180,7 @@ class Graph:
             for r in self.conn.execute("SELECT * FROM nodes").fetchall()
         }
         edges = {
-            r["id"]: (r["type"], r["src"], r["dst"])
+            r["id"]: (r["type"], r["src"], r["dst"], r["retracted_at"], r["retracted_reason"])
             for r in self.conn.execute("SELECT * FROM edges").fetchall()
         }
         node_auth = sorted(

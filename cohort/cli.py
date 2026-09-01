@@ -33,7 +33,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .errors import CohortError, NodeNotFound, RebuildMismatch, SingleWriterViolation
+from .errors import (
+    CohortError,
+    EdgeNotFound,
+    NodeNotFound,
+    RebuildMismatch,
+    SingleWriterViolation,
+)
 from .eventlog import EventLog, read_refusals
 from .graph import Graph
 from .schemas import RESEARCHER, NodeType
@@ -111,7 +117,10 @@ def cmd_graph(args) -> None:
         truncated = len(nodes) > args.limit
         nodes = nodes[: args.limit]
         ids = {n.id for n in nodes}
-        edges = [e for e in graph.edges() if e.src in ids and e.dst in ids]
+        edges = [
+            e for e in graph.edges(include_retracted=args.include_retracted)
+            if e.src in ids and e.dst in ids
+        ]
         payload = {
             "nodes": [node_json(graph, n) for n in nodes],
             "edges": [edge_json(e) for e in edges],
@@ -328,6 +337,41 @@ def _verdict(args, action: str) -> None:
     _emit(args, payload, lambda p: print(f"{p['node']['id']} -> {p['node']['status']}"))
 
 
+def _edge_verdict(args, action: str) -> None:
+    try:
+        graph = _write(args)
+    except SingleWriterViolation as e:
+        raise SystemExit(f"the graph is locked by another writer (an agent run?): {e}")
+    try:
+        method = graph.retract_edge if action == "retract" else graph.restore_edge
+        method(args.id, authored_by=RESEARCHER, reason=args.reason)
+        edge = next(e for e in graph.edges(include_retracted=True) if e.id == args.id)
+        payload = {"edge": edge_json(edge)}
+    except EdgeNotFound as e:
+        raise SystemExit(str(e))
+    except CohortError as e:
+        print(f"refused ({type(e).__name__}): {e}", file=sys.stderr)
+        raise SystemExit(2)
+    finally:
+        graph.close()
+
+    def render(p):
+        e = p["edge"]
+        state = "retracted" if e["retracted"] else "in force"
+        print(f"{e['type']} {e['src']} -> {e['dst']}  ->  {state}")
+        if e["retracted_reason"]:
+            print(f"  {e['retracted_reason']}")
+    _emit(args, payload, render)
+
+
+def cmd_retract_edge(args) -> None:
+    _edge_verdict(args, "retract")
+
+
+def cmd_restore_edge(args) -> None:
+    _edge_verdict(args, "restore")
+
+
 def cmd_attest(args) -> None:
     _verdict(args, "attest")
 
@@ -397,9 +441,18 @@ def cmd_run(args) -> None:
     from .ui.runs import AgentSpec, RunManager, RunRejected
 
     source = _corpus(args)
+    models = args.model or []
+    if models and len(models) != len(args.agent):
+        raise SystemExit(
+            f"{len(args.agent)} --agent but {len(models)} --model: give one model "
+            "per agent, or none and they all use the configured default "
+            "(which a multi-agent run will then refuse, since agents in one run "
+            "may not share a model family)."
+        )
     specs = [
         AgentSpec(agent_id=f"agent:cli-{i + 1}", instructions=text,
-                  corpus_scope=args.scope or "", method_label=args.method or "")
+                  corpus_scope=args.scope or "", method_label=args.method or "",
+                  model=models[i] if models else "")
         for i, text in enumerate(args.agent)
     ]
     manager = RunManager(
@@ -470,6 +523,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("graph", cmd_graph, "list nodes and the edges between them")
     p.add_argument("--type", choices=[t.value for t in NodeType])
     p.add_argument("--limit", type=int, default=500)
+    p.add_argument("--include-retracted", action="store_true",
+                   help="also show edges the researcher has withdrawn")
 
     p = add("node", cmd_node, "one node with its full provenance")
     p.add_argument("id")
@@ -504,6 +559,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id")
     p.add_argument("--reason", required=True)
 
+    p = add("retract-edge", cmd_retract_edge,
+            "withdraw an edge, with a reason (as the researcher)")
+    p.add_argument("id")
+    p.add_argument("--reason", required=True)
+
+    p = add("restore-edge", cmd_restore_edge,
+            "undo a retraction, with a reason (as the researcher)")
+    p.add_argument("id")
+    p.add_argument("--reason", required=True)
+
     p = add("search", cmd_search, "search the corpus")
     p.add_argument("query")
     p.add_argument("--limit", type=int, default=20)
@@ -517,6 +582,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("run", cmd_run, "run one or more agents against the graph (spends money)")
     p.add_argument("--agent", action="append", required=True, metavar="INSTRUCTIONS",
                    help="repeat for several agents")
+    p.add_argument("--model", action="append", metavar="MODEL",
+                   help="one per --agent; agents in a run may not share a model family")
     p.add_argument("--scope", default=None, help="declared corpus scope")
     p.add_argument("--method", default=None, help="declared method")
     p.add_argument("--budget", type=float, default=0.25, help="hard USD cap for the run")

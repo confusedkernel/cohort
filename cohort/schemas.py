@@ -120,7 +120,11 @@ class VerificationResult(StrEnum):
 
 
 AuthorshipAction = Literal[
-    "proposed", "attested", "accepted", "rejected", "reopened", "converged"
+    "proposed", "attested", "accepted", "rejected", "reopened", "converged",
+    # edges have no ladder, but they can be withdrawn and restored by the
+    # researcher — recorded here so an edge carries who withdrew it, not
+    # only that it is withdrawn.
+    "retracted", "restored",
 ]
 
 
@@ -168,6 +172,11 @@ class AgentProfile(_Model):
     kind: AgentKind
     corpus_scope: str | None = None
     method_label: str | None = None
+    #: the model this agent ran on. Recorded because declared viewpoint
+    #: diversity is only real if the readers differ: two agents on one model
+    #: share priors, so their agreement is one observation reported twice.
+    #: `cohort.agents.roster` refuses a run whose agents share a model family.
+    model: str | None = None
 
 
 class AgentReport(_Model):
@@ -299,6 +308,14 @@ class Edge(_Model):
     #: `contradicts`, which `record_contradiction` will not write without one
     #: (see that tool for the argument).
     reason: str | None = None
+    #: when the researcher withdrew this edge, and why. A retracted edge is
+    #: never deleted — the log keeps it and so does this row, because a
+    #: withdrawn relation and a relation that was never drawn are different
+    #: facts about the record. It simply stops counting: `independent_support`
+    #: ignores it, so retracting a wrong `parallel_of` restores the support it
+    #: was suppressing.
+    retracted_at: str | None = None
+    retracted_reason: str | None = None
 
 
 class IndependentSupport(_Model):
@@ -341,6 +358,8 @@ class IntegrityReport(_Model):
 # back at the model_call event's own seq.
 
 EVENT_TYPES = {
+    "retract_edge",
+    "restore_edge",
     "propose", "attest", "accept", "reject", "reopen", "add_edge", "refused",
     "model_call", "verify", "register_agent",
 }

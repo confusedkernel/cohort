@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import time
 
+import itertools
+
 import pytest
 
 fastapi = pytest.importorskip("fastapi", reason="the `ui` extra is not installed")
@@ -35,8 +37,17 @@ AGENT = "agent:worker-1"
 FIXTURE = Path(__file__).parent.parent / "examples" / "local_corpus"
 
 
-def spec(agent_id="agent:ui-worker", instructions="go", scope="", method=""):
-    return AgentSpec(agent_id, instructions, scope, method)
+#: Distinct provider prefixes, because agents in one run may not share a model
+#: family. The counter makes each `spec()` call independent by default, so a
+#: test about attribution or budgets does not have to think about rosters — but
+#: a test that *wants* a shared family passes `model=` explicitly.
+_MODEL_SEQ = itertools.count()
+
+
+def spec(agent_id="agent:ui-worker", instructions="go", scope="", method="", model=None):
+    if model is None:
+        model = f"vendor{next(_MODEL_SEQ)}/fake-model"
+    return AgentSpec(agent_id, instructions, scope, method, model)
 
 
 @pytest.fixture
@@ -488,8 +499,10 @@ def test_the_api_accepts_both_the_single_and_swarm_shapes(graph_files, source, m
     swarm = client.post("/api/run", json={
         "budget_usd": 0.1,
         "agents": [
-            {"agent_id": "agent:x", "instructions": "attest 明月", "corpus_scope": "a"},
-            {"agent_id": "agent:y", "instructions": "attest 空山", "corpus_scope": "b"},
+            {"agent_id": "agent:x", "instructions": "attest 明月", "corpus_scope": "a",
+             "model": "vendor-a/fake-model"},
+            {"agent_id": "agent:y", "instructions": "attest 空山", "corpus_scope": "b",
+             "model": "vendor-b/fake-model"},
         ],
     })
     assert swarm.status_code == 200, swarm.text

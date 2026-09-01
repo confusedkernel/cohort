@@ -44,6 +44,12 @@ def edge_json(edge) -> dict[str, Any]:
         "dst": edge.dst,
         "discounts": edge.type in DISCOUNTING_EDGE_TYPES,
         "reason": edge.reason,
+        # A retracted edge is reported, not omitted: "the researcher withdrew
+        # this" and "this was never asserted" are different facts, and only one
+        # of them is worth showing.
+        "retracted": edge.retracted_at is not None,
+        "retracted_at": edge.retracted_at,
+        "retracted_reason": edge.retracted_reason,
         "authorship": [a.model_dump(mode="json") for a in edge.authorship],
         "created_seq": edge.created_seq,
     }
@@ -61,8 +67,10 @@ def node_detail_json(graph: Graph, node_id: str) -> dict[str, Any]:
     node = graph.get_node(node_id)
     detail = node_json(graph, node)
     detail["verifications"] = [node_json(graph, v) for v in graph.verifications(node_id)]
-    detail["edges_out"] = [edge_json(e) for e in graph.edges(src=node_id)]
-    detail["edges_in"] = [edge_json(e) for e in graph.edges(dst=node_id)]
+    # Include retracted edges here — the inspector is where the record is read,
+    # and a withdrawal with its reason is part of the provenance.
+    detail["edges_out"] = [edge_json(e) for e in graph.edges(src=node_id, include_retracted=True)]
+    detail["edges_in"] = [edge_json(e) for e in graph.edges(dst=node_id, include_retracted=True)]
     if node.type in (NodeType.CLAIM, NodeType.CONJECTURE):
         detail["independent_support"] = graph.independent_support(node_id).model_dump(
             mode="json"

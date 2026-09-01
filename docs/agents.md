@@ -48,6 +48,34 @@ overlap while graph writes cannot interleave. Failures are isolated with
 `return_exceptions=True`: one agent's transport error is reported against that
 agent rather than failing the run.
 
+## Agents in one run may not share a model family
+
+Enforced at the run boundary, before any request is made:
+
+    cohort run --agent "…" --model z-ai/glm-5.3-flash \
+               --agent "…" --model deepseek/deepseek-v4-flash
+
+A roster whose agents share a provider prefix is **refused**, naming which
+agents clashed. The reason is this project's own argument, applied to itself:
+two agents on one model share training priors and prompt-shaped convergence, so
+their agreement is one observation reported twice — exactly what
+`independent_support()` exists to catch between witnesses, committed one layer
+up between readers. Declared viewpoint diversity is only real if the readers
+differ.
+
+Set the pool with `OPENROUTER_MODELS` (comma-separated); `OPENROUTER_MODEL`
+stays the single-agent default, and a one-agent run is always allowed — with
+nothing to agree with, shared priors cannot manufacture corroboration.
+
+**What "family" means, and what it cannot mean.** The provider prefix of the
+OpenRouter id: `z-ai/glm-5.3` and `z-ai/glm-5.3-flash` are one family. This is a
+heuristic, stated as one. It catches the ordinary case — a roster filled from
+one provider — and **cannot** catch the same weights served under two provider
+names. It is a floor on independence, not a proof of it.
+
+The model is recorded on each agent's profile, so the graph says what produced
+what rather than leaving it to be assumed.
+
 **Fan-out is not a headline.** Agent count is allowed to grow only when it
 demonstrates declared viewpoint diversity — scale for its own sake is the thing
 being critiqued, not the claim being made.

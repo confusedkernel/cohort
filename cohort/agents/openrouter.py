@@ -132,6 +132,28 @@ def _load_dotenv(path: Path = Path(".env")) -> None:
             os.environ[key] = value
 
 
+def load_model_pool() -> list[str]:
+    """The models a multi-agent run may draw on, from `OPENROUTER_MODELS`.
+
+    Agents in one run must not share a model family
+    (`cohort.agents.roster`), so a roster of several needs several models.
+    `OPENROUTER_MODEL` is always included as the first entry — it is the
+    default a single agent gets — and duplicates are dropped while keeping
+    order, so the list reads as configured.
+
+    An empty or unset pool is not an error: a one-agent run needs nothing more
+    than the default model.
+    """
+    _load_dotenv()
+    pool: list[str] = []
+    default = os.environ.get("OPENROUTER_MODEL")
+    if default:
+        pool.append(default.strip())
+    raw = os.environ.get("OPENROUTER_MODELS") or ""
+    pool.extend(part.strip() for part in raw.split(",") if part.strip())
+    return list(dict.fromkeys(pool))
+
+
 def load_openrouter_config() -> tuple[str, str]:
     _load_dotenv()
     api_key = os.environ.get("OPENROUTER_API_KEY")

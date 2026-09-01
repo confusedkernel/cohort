@@ -59,10 +59,15 @@ from typing import Any
 
 from ..agents.attestation_worker import AttestationWorker
 from ..agents.budget import BudgetedTransport, BudgetExceeded
-from ..agents.openrouter import OpenRouterError, load_openrouter_config
+from ..agents.openrouter import (
+    OpenRouterError,
+    load_model_pool,
+    load_openrouter_config,
+)
 from ..agents.swarm import run_swarm
 from ..eventlog import read_refusals
 from ..graph import Graph
+from ..agents.roster import RosterNotIndependent, check_distinct_model_families
 from ..schemas import AgentKind, AgentProfile
 from ..sources.base import Source
 
@@ -92,11 +97,15 @@ class AgentSpec:
     docstring."""
 
     def __init__(self, agent_id: str, instructions: str,
-                 corpus_scope: str = "", method_label: str = "") -> None:
+                 corpus_scope: str = "", method_label: str = "",
+                 model: str = "") -> None:
         self.agent_id = agent_id.strip()
         self.instructions = instructions.strip()
         self.corpus_scope = corpus_scope.strip()
         self.method_label = method_label.strip()
+        #: empty means "the server's configured default", filled in by
+        #: `RunManager.start` so the roster check sees real ids.
+        self.model = model.strip()
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -104,6 +113,7 @@ class AgentSpec:
             "instructions": self.instructions,
             "corpus_scope": self.corpus_scope,
             "method_label": self.method_label,
+            "model": self.model,
         }
 
 
@@ -214,6 +224,10 @@ class RunManager:
             "corpus_available": self.source is not None,
             "model_configured": configured,
             "model": detail if configured else None,
+            # The pool a multi-agent roster draws on. Agents in one run may not
+            # share a model family, so a browser offering "add agent" has to be
+            # able to offer a different model with it.
+            "models": load_model_pool(),
             "config_error": None if configured else detail,
             "max_budget_usd": self.max_budget_usd,
             "default_budget_usd": min(0.25, self.max_budget_usd),
@@ -294,6 +308,16 @@ class RunManager:
         except OpenRouterError as e:
             raise RunRejected(f"OpenRouter is not configured: {e}") from e
 
+        # Fill in the default before checking, so an unstated model is checked
+        # as what it will actually be rather than skipped.
+        for spec in agents:
+            if not spec.model:
+                spec.model = model
+        try:
+            check_distinct_model_families({a.agent_id: a.model for a in agents})
+        except RosterNotIndependent as e:
+            raise RunRejected(str(e)) from e
+
         with self._lock:
             if self._current is not None and self._current.state in ("starting", "running"):
                 raise RunRejected(
@@ -354,11 +378,12 @@ class RunManager:
                         id=spec.agent_id, kind=AgentKind.WORKER,
                         corpus_scope=spec.corpus_scope or "not declared for this run",
                         method_label=spec.method_label or "not declared for this run",
+                        model=spec.model,
                     )
                     graph.register_agent(profile, authored_by=spec.agent_id)
                 worker = AttestationWorker(
                     graph, source=self.source, authored_by=spec.agent_id,
-                    profile=profile, transport=transport,
+                    profile=profile, transport=transport, model=spec.model,
                 )
                 assignments.append((worker, spec.instructions))
 
