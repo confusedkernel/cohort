@@ -1,16 +1,23 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   acceptNode, attestNode, getAgent, getNode, rejectNode, reopenNode,
   restoreEdge, retractEdge,
 } from './api'
 import { EDGE_STYLE, nodeTitle } from './graph-model'
+import { usePresence } from './motion'
+import Reveal from './Reveal'
 
 export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onChanged }) {
   const [node, setNode] = useState(null)
   const [error, setError] = useState(null)
+  const cardRef = useRef(null)
+  // The card outlives `nodeId` by the length of its exit animation, which is
+  // why `load` below no longer clears the node on close: what fades out should
+  // be the card the reader just had, not an empty one.
+  const card = usePresence(!!nodeId, 190)
 
   const load = useCallback(() => {
-    if (!nodeId) { setNode(null); return undefined }
+    if (!nodeId) return undefined
     let live = true
     setError(null)
     getNode(nodeId)
@@ -21,36 +28,63 @@ export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onCha
 
   useEffect(load, [load])
 
-  if (!nodeId) {
-    return (
-      <aside className="panel empty">
+  // Following a related node from inside the card used to leave it scrolled
+  // where the previous node's edge list had been — part-way down a different
+  // node's provenance, with its title off screen.
+  useEffect(() => {
+    if (nodeId && cardRef.current) cardRef.current.scrollTop = 0
+  }, [nodeId])
+
+  // While the next node is in flight the current one stays on screen, dimmed,
+  // rather than being replaced by "Loading…". Clicking through a chain of
+  // related nodes is how this panel is mostly read, and blanking it at every
+  // hop makes a fast graph feel slow. The bare loading line is for the one
+  // case with nothing to hold: the first selection.
+  const fetching = !!nodeId && !error && node?.id !== nodeId
+
+  return (
+    <>
+      {/* The hint stays mounted and fades out under the card, so selecting a
+          node crossfades instead of swapping one box for another. It is
+          already `pointer-events: none`, so an invisible one is never in the
+          way of the graph. */}
+      <aside className={`panel empty ${nodeId ? 'gone' : ''}`} aria-hidden={!!nodeId}>
         <p className="hint">Select a node to see its provenance — who wrote it, what
         attests it, how it was verified, and whether its support is independent.</p>
       </aside>
-    )
-  }
-  if (error) {
-    return (
-      <aside className="panel">
-        <CloseButton onClose={onClose} />
-        <p className="error">{error}</p>
-      </aside>
-    )
-  }
-  if (!node) {
-    return (
-      <aside className="panel">
-        <CloseButton onClose={onClose} />
-        <p className="hint">Loading…</p>
-      </aside>
-    )
-  }
 
+      {card.mounted && (
+        <aside
+          ref={cardRef}
+          className={`panel ${card.closing ? 'closing' : ''} ${node && fetching ? 'fetching' : ''}`}
+        >
+          <CloseButton onClose={onClose} />
+          {error && <p className="error">{error}</p>}
+          {!error && !node && <p className="hint">Loading…</p>}
+          {/* Keyed by node, so moving between nodes crossfades the contents of
+              a card that stays put — the card itself only animates when it
+              opens or closes. */}
+          {!error && node && (
+            <NodeCard
+              key={node.id}
+              node={node}
+              onSelect={onSelect}
+              canWrite={canWrite}
+              reload={load}
+              onGraphChanged={onChanged}
+            />
+          )}
+        </aside>
+      )}
+    </>
+  )
+}
+
+function NodeCard({ node, onSelect, canWrite, reload, onGraphChanged }) {
   const support = node.independent_support
 
   return (
-    <aside className="panel">
-      <CloseButton onClose={onClose} />
+    <div className="panel-body">
       <header className="panel-head">
         <div className={`badge t-${node.type}`}>{node.type}</div>
         <div className={`badge s-${node.status}`}>{node.status}</div>
@@ -65,7 +99,7 @@ export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onCha
       {canWrite && (
         <Verdict
           node={node}
-          onDone={() => { load(); onChanged?.() }}
+          onDone={() => { reload(); onGraphChanged?.() }}
         />
       )}
 
@@ -138,9 +172,9 @@ export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onCha
       )}
 
       <EdgeList title="Outgoing" edges={node.edges_out} field="dst" onSelect={onSelect}
-                canWrite={canWrite} onChanged={load} />
+                canWrite={canWrite} onChanged={reload} />
       <EdgeList title="Incoming" edges={node.edges_in} field="src" onSelect={onSelect}
-                canWrite={canWrite} onChanged={load} />
+                canWrite={canWrite} onChanged={reload} />
 
       <Section title="Authorship">
         <ul className="authorship">
@@ -153,7 +187,7 @@ export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onCha
           ))}
         </ul>
       </Section>
-    </aside>
+    </div>
   )
 }
 
@@ -173,13 +207,16 @@ function AuthorLink({ author }) {
     if (next && !report) getAgent(author).then(setReport).catch(() => setReport(false))
   }
 
+  // A div rather than a span: it holds a `Reveal`, and a block inside an
+  // inline element is invalid nesting. The layout is unchanged — `.author-wrap`
+  // sets `display` explicitly.
   return (
-    <span className="author-wrap">
+    <div className="author-wrap">
       <button className={`author link ${open ? 'on' : ''}`} onClick={toggle} title="Contribution history">
         {author}
       </button>
-      {open && (
-        <span className="author-report">
+      <Reveal open={open}>
+        <div className="author-report">
           {report === false && <em>no report available</em>}
           {report === null && <em>loading…</em>}
           {report && (
@@ -192,9 +229,9 @@ function AuthorLink({ author }) {
               <span className="hint small">counts, not a score</span>
             </>
           )}
-        </span>
-      )}
-    </span>
+        </div>
+      </Reveal>
+    </div>
   )
 }
 
@@ -279,7 +316,7 @@ function EdgeRow({ edge: e, field, onSelect, canWrite, onChanged }) {
       {e.retracted && e.retracted_reason && (
         <p className="edge-reason withdrawn">withdrawn: {e.retracted_reason}</p>
       )}
-      {open && (
+      <Reveal open={open}>
         <div className="edge-verdict">
           <textarea
             rows={2} className="reason-input"
@@ -293,14 +330,14 @@ function EdgeRow({ edge: e, field, onSelect, canWrite, onChanged }) {
             Nothing is deleted. The edge stays in the log and in the graph,
             marked withdrawn, and stops counting toward independence.
           </p>
-          {refusal && (
+          <Reveal open={!!refusal}>
             <div className="refusal">
-              {refusal.rule && <strong>{refusal.rule}</strong>}
-              <p>{refusal.message}</p>
+              {refusal?.rule && <strong>{refusal.rule}</strong>}
+              <p>{refusal?.message}</p>
             </div>
-          )}
+          </Reveal>
         </div>
-      )}
+      </Reveal>
     </div>
   )
 }
@@ -389,15 +426,18 @@ function Verdict({ node, onDone }) {
           </>
         )}
       </div>
-      {refusal && (
-        <div className={`refusal ${refusal.status === 409 ? 'conflict' : ''}`}>
-          {refusal.rule && <strong>{refusal.rule}</strong>}
-          <p>{refusal.message}</p>
-          {refusal.status === 409 && (
+      {/* A refusal is the system declining to record something, so it arrives
+          rather than blinking into place — and it is the last thing in a
+          scrolling panel, where a jump would move the buttons just pressed. */}
+      <Reveal open={!!refusal}>
+        <div className={`refusal ${refusal?.status === 409 ? 'conflict' : ''}`}>
+          {refusal?.rule && <strong>{refusal.rule}</strong>}
+          <p>{refusal?.message}</p>
+          {refusal?.status === 409 && (
             <p className="small">Single-writer discipline: nothing was changed.</p>
           )}
         </div>
-      )}
+      </Reveal>
     </section>
   )
 }

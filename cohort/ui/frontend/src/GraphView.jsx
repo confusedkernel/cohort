@@ -86,15 +86,21 @@ export default function GraphView({ data, selectedId, onSelect, showAudit }) {
           {[...positions.values()].map(({ x, y, w, h, node }) => {
             const isSel = node.id === selectedId
             const dim = selectedId && !isSel && !neighbours.has(node.id)
+            // A second click on the selected node closes the inspector.
+            // Selecting is a toggle everywhere else in this UI — the refusals
+            // pill, the gear, the stats disclosure — and without it undoing a
+            // click means reaching for the close button or Escape.
+            const pick = () => onSelect(isSel ? null : node.id)
             return (
               <g
                 key={node.id}
                 transform={`translate(${x},${y})`}
                 className={`node n-${node.type} s-${node.status} ${isSel ? 'selected' : ''} ${dim ? 'dim' : ''}`}
-                onClick={() => onSelect(node.id)}
+                onClick={pick}
                 tabIndex={0}
                 role="button"
-                onKeyDown={(ev) => (ev.key === 'Enter' || ev.key === ' ') && onSelect(node.id)}
+                aria-pressed={isSel}
+                onKeyDown={(ev) => (ev.key === 'Enter' || ev.key === ' ') && pick()}
               >
                 <rect width={w} height={h} rx="7" className="node-box" />
                 <g clipPath="url(#node-clip)">

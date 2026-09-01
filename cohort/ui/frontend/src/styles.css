@@ -101,6 +101,9 @@
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --fast: 140ms var(--ease);
   --med: 220ms var(--ease);
+  /* A selection that travels reads better with a trace of overshoot than with
+     a purely decelerating curve — small enough that it never looks springy. */
+  --ease-thumb: cubic-bezier(0.34, 1.26, 0.64, 1);
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.35);
@@ -297,7 +300,11 @@ code { font-family: var(--mono); font-size: .9em; }
 }
 
 /* Segmented control, the way macOS renders a small tab bar: one recessed
-   track with the active segment raised out of it.
+   track with the active segment raised out of it. The raised surface is a
+   single `.seg-thumb` that *moves* between segments (see `.seg-thumb` below
+   and motion.js) rather than a background painted on whichever button is
+   active — a selection that switches off in one place and on in another is
+   the one thing this control does not do anywhere else in the system.
 
    The outer ring is `--line` at 1px, the same outline every other control in
    the top bar carries as a border — the gear, the stats disclosure, the
@@ -314,9 +321,13 @@ code { font-family: var(--mono); font-size: .9em; }
   background: var(--track);
   border-radius: var(--radius-control);
   box-shadow: inset 0 0 0 1px var(--line);
+  /* the thumb's offset parent */
+  position: relative;
 }
 .tab {
   appearance: none;
+  /* above the thumb, which is the track's first child */
+  position: relative; z-index: 1;
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0 15px;
   font: inherit; font-family: inherit; font-size: 13px; font-weight: 500;
@@ -328,17 +339,50 @@ code { font-family: var(--mono); font-size: .9em; }
   cursor: pointer;
   white-space: nowrap;
   max-width: none;
-  transition: color var(--fast), background var(--fast),
-              box-shadow var(--fast), transform var(--fast);
+  transition: color var(--fast), background var(--fast), transform var(--fast);
 }
-.tab:hover { color: var(--text); background: var(--fill-2); border: none; }
+/* Hover moves the label, not the surface. A tinted box on an inactive segment
+   competes with the thumb for the same job, and it makes the slide look worse
+   than it is: the thumb arrives at a segment that is already lit, so the
+   moment of arrival — the thing the movement exists to show — lands on no
+   visible change. Colour alone still reads as "this one is under the pointer".
+
+   `background` is declared rather than left out because the generic
+   `button:hover` rule would otherwise tint it — `--fill-4`, and on the active
+   segment that lands on top of the thumb. It applies to every segment for that
+   reason, active included; the active one's hover feedback is the thumb
+   lifting instead (see `.seg-thumb`). */
+.tab:hover { color: var(--text); background: transparent; border: none; }
 .tab:active { transform: scale(0.97); }
-.tab.on {
-  color: var(--text);
+.tab.on { color: var(--text); }
+
+/* The travelling segment, shared by the tab bar and the theme picker.
+   Positioned entirely from JS: motion.js measures the active segment, so the
+   thumb's width travels too — "Graph" and "Agent run" are nowhere near the
+   same size. Kept invisible until that first measurement (its `opacity`
+   arrives with its position) so it can never flash at the track's left edge. */
+.seg-thumb {
+  position: absolute;
+  top: 2px; bottom: 2px; left: 0;
+  width: 0; opacity: 0;
+  border-radius: var(--radius-control-inner);
   background: var(--bg-elevated);
   box-shadow: var(--shadow-1), inset 0 1px 0 var(--fill-3);
+  pointer-events: none;
 }
-.tab.on:hover { background: var(--bg-elevated); filter: brightness(1.08); }
+/* Set one frame after the first measurement (motion.js), so the first paint
+   is a placement and every later one is a move. */
+.seg-thumb[data-animate] {
+  transition: transform 300ms var(--ease-thumb), width 300ms var(--ease-thumb),
+              opacity var(--fast), box-shadow var(--fast);
+}
+/* Hovering the active segment lifts the thumb. A shadow rather than the
+   brightness filter this used to carry: `--bg-elevated` is pure white in
+   light mode, where brightening it does nothing at all. */
+.tabs:has(.tab.on:hover) .seg-thumb,
+.seg:has(.seg-item.on:hover) .seg-thumb {
+  box-shadow: var(--shadow-2), inset 0 1px 0 var(--fill-3);
+}
 
 /* Refusals + stats describe the graph, so they ride together and only on the
    Graph tab. The group keeps its box when hidden rather than unmounting: the
@@ -368,7 +412,29 @@ code { font-family: var(--mono); font-size: .9em; }
    than the viewport — it must stay below the top bar, and `fixed` would ignore
    it. */
 .body { display: flex; flex: 1; min-height: 0; position: relative; }
-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
+/* `overflow: hidden` here and `auto` on the panel inside it: the panel is
+   what slides, and a transformed child contributes to its scroll container's
+   overflow, so leaving the scrolling on `main` flashed a horizontal scrollbar
+   on every tab change. The panel is the same box `main` used to be, so the
+   graph and the refusals list still share one scrollable column. */
+main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* One panel per tab, keyed by tab in App.jsx — that key is what replays the
+   entrance on every change. */
+.tab-panel {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: auto;
+  animation: tab-fade 260ms var(--ease);
+}
+/* Direction comes from the tab bar: the panel arrives from the side the reader
+   came from, so it travels the same way the thumb just did. The first mount
+   has no direction to report and simply fades. */
+.tab-panel[data-dir="next"] { animation: tab-next 300ms var(--ease); }
+.tab-panel[data-dir="prev"] { animation: tab-prev 300ms var(--ease); }
+@keyframes tab-fade { from { opacity: 0 } }
+@keyframes tab-next { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
+@keyframes tab-prev { from { opacity: 0; transform: translateX(-24px) } to { opacity: 1; transform: none } }
 
 /* --- legend -------------------------------------------------------------- */
 .legend {
@@ -421,7 +487,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: a
 .a-contradicts { fill: var(--contradicts); }
 .a-tests { fill: var(--tests); }
 
-.node { cursor: pointer; }
+.node { cursor: pointer; transition: opacity var(--med); }
 .node-box {
   fill: var(--node-fill); stroke: var(--line); stroke-width: 1;
   transition: stroke var(--fast), fill var(--fast);
@@ -475,11 +541,65 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: a
   backdrop-filter: saturate(180%) blur(30px);
   -webkit-backdrop-filter: saturate(180%) blur(30px);
   box-shadow: var(--shadow-panel), 0 1px 0 var(--fill-2) inset;
-  animation: panel-in 240ms var(--ease);
+  animation: panel-in 250ms var(--ease);
   overscroll-behavior: contain;
+  transform-origin: top right;
+  transition: opacity var(--fast), transform var(--med);
 }
 @keyframes panel-in {
-  from { opacity: 0; transform: translateX(12px) scale(0.985) }
+  from { opacity: 0; transform: translateX(14px) scale(0.98) }
+  to   { opacity: 1; transform: none }
+}
+/* The exit React does not give away for free: DetailPanel keeps the card
+   mounted for exactly this long and marks it `closing` (motion.js). `forwards`
+   holds the last frame until the unmount, and `pointer-events: none` stops a
+   card on its way out from swallowing the next click on the graph. */
+.panel.closing {
+  animation: panel-out 190ms var(--ease) forwards;
+  pointer-events: none;
+}
+@keyframes panel-out {
+  to { opacity: 0; transform: translateX(14px) scale(0.98) }
+}
+/* Waiting on the next node. The one on screen stays readable but visibly no
+   longer current, instead of being thrown away for a loading line — following
+   a chain of related nodes is how this panel is mostly read. */
+.panel.fetching { opacity: .62; pointer-events: none; }
+
+/* --- in-flow disclosures ------------------------------------------------- */
+/* A region that grows the layout open instead of arriving at full size: the
+   retract form under an edge, an author's contribution history, the refusal a
+   write came back with, a corpus record. Driven from Reveal.jsx.
+
+   `grid-template-rows: 0fr -> 1fr` is the only way CSS can transition *to* a
+   content height — `height: auto` is not an interpolable value — and the inner
+   box's clip is what makes a part-grown row show part of its content. A
+   browser too old for it still gets the opacity fade and an instant open,
+   which is what this looked like before.
+
+   The clip is dropped once the growth has finished: `overflow: hidden` cuts
+   the focus ring off a control inside, and these hold a textarea and two
+   buttons. */
+.reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--med), opacity var(--fast);
+}
+.reveal[data-open] { grid-template-rows: 1fr; opacity: 1; }
+/* Child selectors, not descendant ones: a refusal inside the retract form is
+   itself a `.reveal`, and a descendant rule let the settled outer one drop the
+   clip off the inner one mid-growth — the refusal appeared at full size while
+   its own row was still opening. */
+.reveal > .reveal-in { min-height: 0; overflow: hidden; }
+.reveal[data-settled] > .reveal-in { overflow: visible; }
+
+/* Replayed whenever the card's contents change under a card that stays where
+   it is (DetailPanel keys it by node). Downward motion is deliberately absent:
+   this box scrolls, and a transform below the origin would lengthen it. */
+.panel-body { animation: body-in 220ms var(--ease); }
+@keyframes body-in {
+  from { opacity: 0; transform: translateY(-4px) }
   to   { opacity: 1; transform: none }
 }
 
@@ -496,7 +616,17 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: a
   box-shadow: var(--shadow-2);
   pointer-events: none;
   opacity: .82;
+  /* Not `panel-in`, and with no fill mode: the resting state has to stay
+     transitionable, because this card fades out under the real one rather
+     than being unmounted. */
+  animation: hint-in 300ms var(--ease);
 }
+@keyframes hint-in {
+  from { opacity: 0; transform: translateY(8px) }
+  to   { opacity: .82; transform: none }
+}
+/* Selecting a node crossfades: the hint sinks out as the card rises in. */
+.panel.empty.gone { opacity: 0; transform: translateY(8px); }
 .panel.empty .hint { font-size: 12px; margin: 0; }
 
 .panel-close {
@@ -721,6 +851,23 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 .refusal p { margin: 0; color: var(--text-dim); }
 
 /* --- refused writes ------------------------------------------------------ */
+/* Toggled from the top bar, so it earns an entrance and an exit like the
+   floating panels — App.jsx holds it mounted for the exit (motion.js). It
+   moves upward only: it sits in a scrolling column, and downward motion would
+   lengthen it while it played. */
+.refusals { animation: reveal 260ms var(--ease); }
+.refusals.closing {
+  animation: conceal 200ms var(--ease) forwards;
+  pointer-events: none;
+}
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(-10px) }
+  to   { opacity: 1; transform: none }
+}
+@keyframes conceal {
+  to { opacity: 0; transform: translateY(-10px) }
+}
+
 .refusal-tab {
   display: inline-flex; align-items: center; gap: 7px;
   height: var(--control-h);
@@ -955,6 +1102,11 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
     from { opacity: 0; transform: translateY(16px) }
     to   { opacity: 1; transform: none }
   }
+  /* A sheet leaves the way it arrived — downwards, not sideways. */
+  .panel.closing { animation: sheet-out 200ms var(--ease) forwards; }
+  @keyframes sheet-out {
+    to { opacity: 0; transform: translateY(16px) }
+  }
   /* the tagline is the first thing to go: decorative, and it costs a whole
      control's width */
   .tag { display: none; }
@@ -1108,11 +1260,24 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   backdrop-filter: saturate(180%) blur(30px);
   -webkit-backdrop-filter: saturate(180%) blur(30px);
   box-shadow: var(--shadow-panel);
-  animation: pop-in 170ms var(--ease);
+  /* grows out of the control it hangs from, not out of its own middle */
+  transform-origin: top right;
+  animation: pop-in 180ms var(--ease);
 }
 @keyframes pop-in {
   from { opacity: 0; transform: translateY(-6px) scale(0.97) }
   to   { opacity: 1; transform: none }
+}
+/* Both top-bar popovers leave the way they came. Settings and StatsBar hold
+   them mounted for the length of this animation (motion.js); `forwards` keeps
+   the last frame until then, and `pointer-events: none` stops a fading panel
+   from catching the click that dismissed it. */
+.settings-pop.closing, .stats-pop.closing {
+  animation: pop-out 150ms var(--ease) forwards;
+  pointer-events: none;
+}
+@keyframes pop-out {
+  to { opacity: 0; transform: translateY(-6px) scale(0.97) }
 }
 .settings-pop h3 {
   margin: 0 0 8px; font-size: 11px; letter-spacing: .08em;
@@ -1124,7 +1289,8 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 }
 .settings-pop .hint.small { margin: 7px 0 0; }
 
-/* Segmented control, matching the tab bar so the two read as one idiom. */
+/* Segmented control, matching the tab bar so the two read as one idiom —
+   including the thumb, which slides here too. */
 .seg {
   display: flex; gap: 2px; padding: 2px;
   align-items: stretch;
@@ -1132,9 +1298,11 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   background: var(--track);
   border-radius: var(--radius-control);
   box-shadow: inset 0 0 0 1px var(--line);
+  position: relative;
 }
 .seg-item {
   flex: 1;
+  position: relative; z-index: 1;
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0 4px;
   font: inherit; font-family: inherit; font-size: 12.5px; font-weight: 500;
@@ -1142,16 +1310,11 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   color: var(--text-dim);
   background: transparent; border: none; border-radius: var(--radius-control-inner);
   cursor: pointer; max-width: none;
-  transition: color var(--fast), background var(--fast),
-              box-shadow var(--fast), transform var(--fast);
+  transition: color var(--fast), background var(--fast), transform var(--fast);
 }
-.seg-item:hover { color: var(--text); background: var(--fill-2); border: none; }
+.seg-item:hover { color: var(--text); background: transparent; border: none; }
 .seg-item:active { transform: scale(0.97); }
-.seg-item.on {
-  color: var(--text);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-1), inset 0 1px 0 var(--fill-2);
-}
+.seg-item.on { color: var(--text); }
 
 .setting-row {
   display: flex; gap: 10px; align-items: flex-start;
@@ -1341,7 +1504,7 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 }
 
 /* Contribution history, inline under an author name. */
-.author-wrap { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; }
+.author-wrap { display: inline-flex; flex-direction: column; min-width: 0; }
 .author.link {
   padding: 0; font: inherit; text-align: left;
   background: none; border: none; cursor: pointer;
@@ -1349,7 +1512,11 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   text-underline-offset: 3px;
 }
 .author.link:hover, .author.link.on { color: var(--supports); }
+/* The 4px above the report is a margin rather than the wrapper's `gap`: it
+   has to sit *inside* the clipped box, or a collapsed disclosure still costs
+   its spacing and opening jumps by that much before it starts growing. */
 .author-report {
+  margin-top: 4px;
   display: flex; flex-wrap: wrap; gap: 4px 12px;
   padding: 7px 9px;
   font-size: 12px; color: var(--text-dim);

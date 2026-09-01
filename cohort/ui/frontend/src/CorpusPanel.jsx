@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchCorpus, searchCorpus } from './api'
+import Reveal from './Reveal'
 
 // Browsing and searching the corpus, so the web UI can do what a script can.
 //
@@ -147,7 +148,7 @@ export default function CorpusPanel({ onCite }) {
                   )}
                 </div>
                 {h.snippet && <p className="corpus-snippet">{h.snippet}</p>}
-                {openRef === h.ref && (
+                <Reveal open={openRef === h.ref}>
                   <div className="corpus-record">
                     {!record ? (
                       <p className="hint">Loading…</p>
@@ -187,7 +188,7 @@ export default function CorpusPanel({ onCite }) {
                       </>
                     )}
                   </div>
-                )}
+                </Reveal>
               </li>
             ))}
           </ul>

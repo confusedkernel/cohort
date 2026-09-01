@@ -9,6 +9,7 @@ import RunPanel from './RunPanel'
 import Settings, { applyTheme, loadTheme } from './Settings'
 import StatsBar from './StatsBar'
 import { EDGE_STYLE } from './graph-model'
+import { usePresence, useSlidingIndicator } from './motion'
 
 export default function App() {
   const [data, setData] = useState(null)
@@ -19,6 +20,9 @@ export default function App() {
   const [showAudit, setShowAudit] = useState(false)
   const [showRefusals, setShowRefusals] = useState(false)
   const [tab, setTab] = useState('graph')
+  // Which way the last tab change travelled, so the incoming panel slides in
+  // from the side the reader came from rather than always from the same edge.
+  const [tabDir, setTabDir] = useState('none')
   const [theme, setTheme] = useState(loadTheme)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
@@ -40,6 +44,32 @@ export default function App() {
   useEffect(() => { if (tab !== 'graph') setStatsOpen(false) }, [tab])
 
   useEffect(reload, [reload])
+
+  // The refused-writes panel is toggled, so it needs an exit as much as an
+  // entrance; without one it disappears on a frame while everything else on
+  // the tab moves.
+  const refusalsShown = usePresence(showRefusals && tab === 'graph', 200)
+
+  // The tab list, and the thumb that tracks it. Both live above the early
+  // returns below: hooks must run on every render, and the list has to be a
+  // value rather than inline JSX so a click can tell which way it is moving.
+  const tabs = [
+    ['graph', 'Graph'],
+    ['findings', 'Findings'],
+    health?.corpus_enabled && ['corpus', 'Corpus'],
+    health?.runs_enabled && ['run', 'Agent run'],
+  ].filter(Boolean)
+
+  const { trackRef: tabTrackRef, thumbProps: tabThumbProps } =
+    useSlidingIndicator(tab, tabs.length, !!data)
+
+  const goTab = (key) => {
+    if (key === tab) return
+    const from = tabs.findIndex(([k]) => k === tab)
+    const to = tabs.findIndex(([k]) => k === key)
+    setTabDir(to > from ? 'next' : 'prev')
+    setTab(key)
+  }
 
   // Escape dismisses the floating inspector — the ordinary gesture for a panel
   // that overlays content rather than sitting beside it.
@@ -95,17 +125,17 @@ export default function App() {
             onToggle={(v) => { setStatsOpen(v); if (v) setSettingsOpen(false) }}
           />
         </div>
-        <nav className="tabs">
-          {[
-            ['graph', 'Graph'],
-            ['findings', 'Findings'],
-            health?.corpus_enabled && ['corpus', 'Corpus'],
-            health?.runs_enabled && ['run', 'Agent run'],
-          ].filter(Boolean).map(([key, label]) => (
+        <nav className="tabs" ref={tabTrackRef}>
+          {/* One raised surface that slides between segments, rather than a
+              background switching off here and on there: the tab bar is a
+              macOS segmented control (styles.css), and that control moves. */}
+          <span {...tabThumbProps} />
+          {tabs.map(([key, label]) => (
             <button
               key={key}
               className={`tab ${tab === key ? 'on' : ''}`}
-              onClick={() => setTab(key)}
+              data-seg-on={tab === key}
+              onClick={() => goTab(key)}
             >{label}</button>
           ))}
         </nav>
@@ -131,31 +161,41 @@ export default function App() {
 
       <div className="body">
         <main>
-          {tab === 'graph' && (
-            <>
-              <Legend />
-              <GraphView
-                data={data}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                showAudit={showAudit}
+          {/* One keyed panel per tab. The key is what restarts the entrance
+              animation on every change, and `data-dir` sends the panel in from
+              the side the reader came from, so the movement agrees with the
+              thumb sliding in the tab bar above. The panel — not `main` — is
+              the scroller, so the graph and the refusals list share one
+              scrollable column exactly as they did when `main` held them. */}
+          <div className="tab-panel" key={tab} data-dir={tabDir}>
+            {tab === 'graph' && (
+              <>
+                <Legend />
+                <GraphView
+                  data={data}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  showAudit={showAudit}
+                />
+                {refusalsShown.mounted && (
+                  <RefusalsPanel refusals={refusals} closing={refusalsShown.closing} />
+                )}
+              </>
+            )}
+            {tab === 'findings' && (
+              <FindingsPanel
+                onSelect={(id) => { setSelectedId(id); goTab('graph') }}
               />
-            </>
-          )}
-          {tab === 'findings' && (
-            <FindingsPanel
-              onSelect={(id) => { setSelectedId(id); setTab('graph') }}
-            />
-          )}
-          {tab === 'corpus' && (
-            <CorpusPanel
-              onCite={(phrase) => { setAgentSeed(phrase); setTab('run') }}
-            />
-          )}
-          {tab === 'run' && (
-            <RunPanel instructionSeed={agentSeed} onGraphChanged={reload} />
-          )}
-          {tab === 'graph' && showRefusals && <RefusalsPanel refusals={refusals} />}
+            )}
+            {tab === 'corpus' && (
+              <CorpusPanel
+                onCite={(phrase) => { setAgentSeed(phrase); goTab('run') }}
+              />
+            )}
+            {tab === 'run' && (
+              <RunPanel instructionSeed={agentSeed} onGraphChanged={reload} />
+            )}
+          </div>
         </main>
         {/* Floating inspector, and only over the graph: it is the graph's
             detail view, so overlaying the corpus or run panels with it would

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { usePresence } from './motion'
 
 // The node/edge counts, collapsed behind a disclosure.
 //
@@ -19,6 +20,8 @@ const TYPE_ORDER = [
 
 export default function StatsBar({ health, open, onToggle }) {
   const wrapRef = useRef(null)
+  // Kept mounted through its exit animation — see Settings for the pattern.
+  const pop = usePresence(open, 150)
 
   useEffect(() => {
     if (!open) return undefined
@@ -60,8 +63,12 @@ export default function StatsBar({ health, open, onToggle }) {
         <Chevron open={open} />
       </button>
 
-      {open && (
-        <div className="stats-pop" role="dialog" aria-label="Graph contents">
+      {pop.mounted && (
+        <div
+          className={`stats-pop ${pop.closing ? 'closing' : ''}`}
+          role="dialog"
+          aria-label="Graph contents"
+        >
           <h3>Graph contents</h3>
           <ul className="stats-list">
             {ordered.map(([type, n]) => (

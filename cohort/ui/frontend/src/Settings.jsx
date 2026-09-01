@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { usePresence, useSlidingIndicator } from './motion'
 
 // The settings popover: a gear in the top bar, a floating panel under it.
 //
@@ -44,6 +45,11 @@ export default function Settings({
   open, onToggle, theme, onTheme, showAudit, onShowAudit,
 }) {
   const wrapRef = useRef(null)
+  // Held on screen while its exit animation plays, and marked `closing` while
+  // it does; `pointer-events: none` in styles.css keeps the fading panel from
+  // catching the click that dismissed it.
+  const pop = usePresence(open, 150)
+  const { trackRef, thumbProps } = useSlidingIndicator(theme, THEMES.length, pop.mounted)
 
   // Dismiss on outside click and on Escape — the two gestures a popover owes
   // its reader. Bound only while open, so the app is not listening to every
@@ -76,16 +82,25 @@ export default function Settings({
         <GearIcon />
       </button>
 
-      {open && (
-        <div className="settings-pop" role="dialog" aria-label="Settings">
+      {pop.mounted && (
+        <div
+          className={`settings-pop ${pop.closing ? 'closing' : ''}`}
+          role="dialog"
+          aria-label="Settings"
+        >
           <h3>Appearance</h3>
-          <div className="seg" role="radiogroup" aria-label="Theme">
+          <div className="seg" role="radiogroup" aria-label="Theme" ref={trackRef}>
+            {/* Same sliding thumb as the tab bar, because styles.css makes the
+                two the same control — a segmented picker whose selection
+                travels rather than teleports. */}
+            <span {...thumbProps} />
             {THEMES.map(([key, label]) => (
               <button
                 key={key}
                 role="radio"
                 aria-checked={theme === key}
                 className={`seg-item ${theme === key ? 'on' : ''}`}
+                data-seg-on={theme === key}
                 onClick={() => onTheme(key)}
               >
                 {label}

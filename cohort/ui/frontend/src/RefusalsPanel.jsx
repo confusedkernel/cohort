@@ -25,10 +25,15 @@ const RULE_NOTE = {
   PassageNotLocated: 'A passage must sit inside a witness.',
 }
 
-export default function RefusalsPanel({ refusals }) {
+export default function RefusalsPanel({ refusals, closing }) {
+  // `closing` is set while the panel is on its way out (see motion.js): the
+  // pill that opens it is a toggle, and a toggled surface that vanishes on a
+  // frame reads as a glitch rather than a dismissal.
+  const cls = `refusals ${closing ? 'closing' : ''}`
+
   if (!refusals?.available) {
     return (
-      <section className="refusals">
+      <section className={cls}>
         <h2>Refused writes</h2>
         <p className="hint">
           No event log beside this projection, so refusals cannot be read. This
@@ -42,7 +47,7 @@ export default function RefusalsPanel({ refusals }) {
   const byRule = rows.reduce((acc, r) => ({ ...acc, [r.rule]: (acc[r.rule] || 0) + 1 }), {})
 
   return (
-    <section className="refusals">
+    <section className={cls}>
       <h2>
         Refused writes <span className="refusal-total">{refusals.total}</span>
       </h2>
