@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { acceptNode, getNode, rejectNode, reopenNode } from './api'
+import { acceptNode, getAgent, getNode, rejectNode, reopenNode } from './api'
 import { EDGE_STYLE, nodeTitle } from './graph-model'
 
 export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onChanged }) {
@@ -142,13 +142,54 @@ export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onCha
           {node.authorship.map((a, i) => (
             <li key={i}>
               <span className="action">{a.action}</span>
-              <span className="author">{a.author}</span>
+              <AuthorLink author={a.author} />
               <time>{a.at}</time>
             </li>
           ))}
         </ul>
       </Section>
     </aside>
+  )
+}
+
+// An author's contribution history, one click from a node they wrote. The
+// endpoint has always existed; nothing in the browser reached it until now.
+//
+// It is counts and never a score. A reputation number would reward volume, and
+// an agent that proposes ten weak claims would outrank one that proposes a
+// single good one — which is why docs/design.md §9 rules it out.
+function AuthorLink({ author }) {
+  const [report, setReport] = useState(null)
+  const [open, setOpen] = useState(false)
+
+  const toggle = () => {
+    const next = !open
+    setOpen(next)
+    if (next && !report) getAgent(author).then(setReport).catch(() => setReport(false))
+  }
+
+  return (
+    <span className="author-wrap">
+      <button className={`author link ${open ? 'on' : ''}`} onClick={toggle} title="Contribution history">
+        {author}
+      </button>
+      {open && (
+        <span className="author-report">
+          {report === false && <em>no report available</em>}
+          {report === null && <em>loading…</em>}
+          {report && (
+            <>
+              {Object.entries(report)
+                .filter(([, v]) => typeof v === 'number')
+                .map(([k, v]) => (
+                  <span key={k}><b>{v}</b> {k.replace(/_/g, ' ')}</span>
+                ))}
+              <span className="hint small">counts, not a score</span>
+            </>
+          )}
+        </span>
+      )}
+    </span>
   )
 }
 

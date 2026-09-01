@@ -15,7 +15,7 @@ multi-agent textual research.*
 | How do I run agents, and what does it cost? | [agents.md](agents.md) |
 | How do I point it at a corpus? | [corpus.md](corpus.md) |
 | How do I use the web interface? | [ui.md](ui.md) |
-| What command do I run? | [cli.md](cli.md) |
+| What command do I run? | [cli.md](cli.md) — the `cohort` CLI, same capabilities as the UI |
 | Why is it built this way? What got reversed? | [decisions.md](decisions.md) |
 | What's the plan and how far along is it? | [roadmap.md](roadmap.md) |
 | How did it get here? | [changelog.md](changelog.md) |

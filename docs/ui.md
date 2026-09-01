@@ -64,6 +64,21 @@ a poor property for something meant to be read and cited.
 Audit nodes (`verification`, `decision`) are hidden by default as bookkeeping
 rather than evidence, behind a toggle in settings.
 
+## Tabs
+
+- **Graph** — the evidence graph, its legend, provenance on click. The refusal
+  count and the node/edge stats live here, because both describe this graph.
+- **Findings** — what the researcher has accepted (the only citable nodes) and
+  what they rejected, with reasons, side by side; plus the two integrity checks.
+  Rejections sit next to findings deliberately: showing conclusions without
+  showing what was thrown out and why would misrepresent the record.
+- **Corpus** — browse and search, with `--corpus`.
+- **Agent run** — the launcher, with `--allow-runs`.
+
+Clicking an author in a node's provenance opens that agent's contribution
+counts. Counts, never a score: a reputation number would reward volume, so an
+agent proposing ten weak claims would outrank one proposing a single good one.
+
 ## HTTP API
 
 JSON throughout. Node ids are passed as **query parameters, never path
@@ -81,10 +96,20 @@ URL path silently truncates at the fragment.
 | `GET /api/rejected?node_type=` | rejected nodes **with their reasons** |
 | `GET /api/agent?id=` | contribution counts, not a score |
 | `GET /api/refusals?limit=` | refused writes, read from the event log |
+| `GET /api/integrity?id=` | re-hash stored payloads against their recorded hashes |
+| `GET /api/rebuild` | replay the log and diff it against this projection |
 
 `truncated` is reported rather than silently cutting: a truncated graph shows
 fewer supporting witnesses than exist, which here changes what the picture
 appears to say about support.
+
+Both integrity routes are `GET` because neither changes anything — `rebuild`
+names what it replays into a throwaway in-memory graph. Neither needs the
+writer's lock, so a read-only deployment can still verify itself; refusing to
+let you check a projection you are allowed to read would be a strange place to
+draw the line. A rebuild mismatch comes back as `ok: false` with the diff rather
+than a 500: the projection being wrong is a finding about the system, not a
+fault in the request.
 
 `/api/refusals` returns `available: false` when there's no log, rather than an
 empty list — an in-memory or freshly copied projection legitimately has none,

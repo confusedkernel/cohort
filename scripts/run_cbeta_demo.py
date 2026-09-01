@@ -33,7 +33,7 @@ from cohort.sources.cbeta_reader import CbetaArchiveError, CbetaReader
 #: the archive version this SHA-256 identifies — not corpus bytes, a fact
 #: about which version was verified (docs/handoff.md, re-verified independently
 #: against the actual file before this script existed).
-CBETA_V061_SHA256 = "90a663f212bc854e6a758ed06c74776cef5cbf8e7040d0192ff3301e6f7158f2"
+from cohort.sources.env import CBETA_V061_SHA256  # one definition; see docs/corpus.md
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INDEX_PATH = REPO_ROOT / "cbeta_index.json"

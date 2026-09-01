@@ -19,7 +19,7 @@ What is true as of **2026-09-02**. For how the system got here, see
 
 ## Verified state
 
-    .venv/bin/pytest -q      # 260 passed
+    .venv/bin/pytest -q      # 288 passed
     .venv/bin/python demo.py # no corpus, no API key, no network
 
 Proven by real runs rather than by assertion — every one manual, none
@@ -46,9 +46,11 @@ integrity are re-checked after each live run, not assumed.
 - **Six agent tools** behind `AttestationWorker`, plus `run_swarm()` for real
   concurrent multi-agent execution and a spend cap enforced in code. See
   [tools.md](tools.md) and [agents.md](agents.md).
-- **The researcher UI.** Graph view, provenance panel, corpus browse/search,
-  accept/reject/reopen, refusal log, and a multi-agent run launcher. Each
-  capability is opt-in behind its own flag. See [ui.md](ui.md).
+- **Two front ends with the same capabilities.** The `cohort` CLI and the web
+  UI cover the same set — graph, provenance, findings, refusals, integrity
+  checks, accept/reject/reopen, corpus, agent runs — and `tests/test_parity.py`
+  fails if one gains something the other lacks. See [cli.md](cli.md) and
+  [ui.md](ui.md). The UI's capabilities are each opt-in behind their own flag.
 - **Agent identity.** `register_agent`, `AgentProfile`, and `agent_report()` as
   a pure contribution count — deliberately not a reputation score.
 

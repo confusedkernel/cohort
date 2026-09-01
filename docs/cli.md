@@ -1,6 +1,49 @@
 # Command-line reference
 
-Every runnable entry point, what it needs, and what it costs.
+## `cohort` — the terminal front end
+
+Installed by `pip install -e .`. **It has the same capabilities as the web UI**,
+and that is enforced rather than intended: `tests/test_parity.py` fails if
+either front end gains something the other lacks. Both call the same library
+functions, so a rule refuses identically whichever way you reach it.
+
+    cohort health                             # node and edge counts
+    cohort graph --type claim --limit 50      # list nodes and their edges
+    cohort node claim:abc123                  # full provenance, with independence
+    cohort citable                            # accepted nodes — the only citable ones
+    cohort rejected                           # thrown out, with reasons
+    cohort agent agent:worker-1               # contribution counts, not a score
+    cohort refusals                           # writes the graph declined
+    cohort integrity                          # re-hash payloads against their hashes
+    cohort rebuild                            # replay the log, diff this projection
+
+    cohort accept claim:abc123
+    cohort reject claim:abc123 --reason "conflates two recensions"
+    cohort reopen claim:abc123 --reason "the objection was mine, not the text's"
+
+    cohort search 色即是空                     # same hits as the browser, same order
+    cohort fetch "T08n0251::色即是空"
+    cohort run --agent "find attestations for 色即是空" --budget 0.05
+
+Global options: `--db` (default `demo_graph.sqlite`), `--log` (default: `--db`
+with `.jsonl`), and `--json`.
+
+**`--json` prints exactly what the corresponding HTTP route returns.** That is
+what makes the parity claim checkable instead of asserted — there is a test
+comparing the two payloads for equality, not for a few matching keys.
+
+Exit codes: `0` success, `1` usage or missing graph, **`2` a refused write** —
+distinguished because a refusal is a real answer from this system, already
+recorded to the event log, not a failure to run.
+
+`cohort run` blocks and Ctrl-C stops it after the current turn. The web
+launcher is asynchronous only because a browser cannot block.
+
+## Scripts
+
+Everything below is a demo, a corpus builder or the server — not part of the
+CLI/UI parity surface.
+
 
 **The rule that governs this whole directory: anything that calls a model is
 manual-only and is never run by the test suite.** Each such script names its own

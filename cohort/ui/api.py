@@ -42,47 +42,18 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..errors import CohortError, NodeNotFound, SingleWriterViolation
+from ..errors import CohortError, NodeNotFound, RebuildMismatch, SingleWriterViolation
 from ..eventlog import read_refusals
 from ..graph import Graph
 from ..schemas import RESEARCHER, EdgeType, NodeType
 from ..sources.base import Source
 from ..sources.cbeta_markup import strip_markup_for_display
+from ..views import DISCOUNTING_EDGE_TYPES, node_detail_json
+from ..views import edge_json as _edge_json
+from ..views import node_json as _node_json
 from .runs import AgentSpec, RunManager, RunRejected
 
-#: edge types that *discount* support rather than add it (docs/design.md §4): two
-#: witnesses linked by either are evidence of shared descent, not independent
-#: confirmation. Named here so the frontend never has to re-derive it.
-DISCOUNTING_EDGE_TYPES = frozenset({EdgeType.DESCENDS_FROM, EdgeType.PARALLEL_OF})
-
 FRONTEND_DIR = Path(__file__).resolve().parent / "static"
-
-
-def _node_json(graph: Graph, node) -> dict[str, Any]:
-    return {
-        "id": node.id,
-        "type": node.type,
-        "status": node.status,
-        "payload": node.payload,
-        "rejected_reason": node.rejected_reason,
-        "authorship": [a.model_dump(mode="json") for a in node.authorship],
-        "created_seq": node.created_seq,
-        "updated_seq": node.updated_seq,
-        "assurance": graph.assurance_for(node.id),
-    }
-
-
-def _edge_json(edge) -> dict[str, Any]:
-    return {
-        "id": edge.id,
-        "type": edge.type,
-        "src": edge.src,
-        "dst": edge.dst,
-        "discounts": edge.type in DISCOUNTING_EDGE_TYPES,
-        "reason": edge.reason,
-        "authorship": [a.model_dump(mode="json") for a in edge.authorship],
-        "created_seq": edge.created_seq,
-    }
 
 
 def create_app(
@@ -197,17 +168,7 @@ def create_app(
             except NodeNotFound as e:
                 raise HTTPException(status_code=404, detail=str(e)) from e
 
-            detail = _node_json(graph, node)
-            detail["verifications"] = [
-                _node_json(graph, v) for v in graph.verifications(node_id)
-            ]
-            detail["edges_out"] = [_edge_json(e) for e in graph.edges(src=node_id)]
-            detail["edges_in"] = [_edge_json(e) for e in graph.edges(dst=node_id)]
-            if node.type in (NodeType.CLAIM, NodeType.CONJECTURE):
-                detail["independent_support"] = graph.independent_support(
-                    node_id
-                ).model_dump(mode="json")
-            return detail
+            return node_detail_json(graph, node_id)
         finally:
             graph.close()
 
@@ -265,6 +226,45 @@ def create_app(
             "truncated": len(shown) < len(all_refusals),
             "refusals": [r.model_dump(mode="json") for r in shown],
         }
+
+    @app.get("/api/integrity")
+    def integrity(id: str | None = Query(default=None)) -> dict[str, Any]:
+        """Re-hash stored payloads and compare against their recorded hashes.
+
+        A read, not a repair: it reports tampering rather than correcting it,
+        and it is on demand rather than ambient because one bad row must not
+        turn every future read touching it into a crash."""
+        graph = read()
+        try:
+            return graph.verify_integrity(id).model_dump(mode="json")
+        finally:
+            graph.close()
+
+    @app.get("/api/rebuild")
+    def rebuild() -> dict[str, Any]:
+        """Replay the event log into a shadow graph and diff it against this
+        projection — the check that the log, not the database, is ground truth
+        (docs/design.md §5 principle 1).
+
+        A mismatch is this endpoint's most important answer, so it is reported
+        as `ok: false` with the diff rather than raised as a 500: the projection
+        being wrong is a finding about the system, not a fault in the request.
+
+        GET because it changes nothing. `rebuild` names what it replays into a
+        throwaway in-memory graph, not anything it writes here."""
+        if not log_path.is_file():
+            return {"available": False, "log_path": str(log_path)}
+        graph = read()
+        try:
+            report = graph.rebuild(log_path=log_path).model_dump(mode="json")
+            return {"available": True, "log_path": str(log_path), **report}
+        except RebuildMismatch as e:
+            return {
+                "available": True, "log_path": str(log_path),
+                "ok": False, "mismatch": str(e),
+            }
+        finally:
+            graph.close()
 
     if allow_writes:
 

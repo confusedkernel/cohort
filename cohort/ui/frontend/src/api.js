@@ -26,6 +26,10 @@ export const getGraph = (limit = 500) => json(`/api/graph?limit=${limit}`)
 export const getNode = (id) => json(`/api/node?id=${encodeURIComponent(id)}`)
 export const getAgent = (id) => json(`/api/agent?id=${encodeURIComponent(id)}`)
 export const getRefusals = (limit = 100) => json(`/api/refusals?limit=${limit}`)
+export const getCitable = () => json('/api/citable')
+export const getRejected = () => json('/api/rejected')
+export const getIntegrity = () => json('/api/integrity')
+export const getRebuild = () => json('/api/rebuild')
 
 const post = (path, id, body) =>
   json(`${path}?id=${encodeURIComponent(id)}`, {

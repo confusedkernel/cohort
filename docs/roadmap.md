@@ -202,11 +202,13 @@ cohort/                          # repo root
 ├── cohort/
 │   ├── schemas.py               # closed vocabulary: nodes, edges, events, dating,
 │   │                            #   verification/assurance, agent identity
+│   ├── views.py                 # shared read-shapes: one answer for both front ends
+│   ├── cli.py                   # the terminal front end (`cohort ...`)
 │   ├── errors.py                # one exception per rule the design claims
 │   ├── eventlog.py              # append-only JSONL, never truncated
 │   ├── graph.py                 # SQLite projection, the only writer
 │   ├── migrations.py            # numbered, forward-only (at version 3)
-│   ├── sources/                 # base.py, local_reader.py,
+│   ├── sources/                 # base.py, local_reader.py, env.py,
 │   │                            #   cbeta_reader.py, cbeta_fts.py, cbeta_markup.py
 │   ├── tools/                   # propose_claim, find_attestations, propose_conjecture,
 │   │                            #   record_contradiction, link_parallels,
@@ -214,7 +216,7 @@ cohort/                          # repo root
 │   ├── agents/                  # openrouter.py, attestation_worker.py,
 │   │                            #   swarm.py, budget.py
 │   └── ui/                      # api.py, runs.py, frontend/ (React+Vite), static/
-└── tests/                       # 18 modules, 260 tests
+└── tests/                       # 20 modules, 288 tests
 ```
 
 Built fresh, so the layout ATELIER already uses (package dir + sibling
@@ -443,7 +445,7 @@ the current concrete state and next steps.
 
 Stage 1's original check — `pytest -q` green, `demo.py` printing the
 `independent_support()` flip, and a manual rebuild diff — is done and has
-stayed green through every stage since (260 tests). `demo.py` still runs with
+stayed green through every stage since (288 tests). `demo.py` still runs with
 no corpus and no API key.
 
 What the live scripts have additionally proven, each run by hand and never

@@ -705,11 +705,19 @@ class Graph:
             non_independent_pairs=flips,
         )
 
-    def rebuild(self) -> RebuildReport:
+    def rebuild(self, *, log_path: str | Path | None = None) -> RebuildReport:
         """Replay the event log into a shadow graph and diff it against the
         live projection. A failing diff is a bug, not a warning (design doc
-        §5 principle 1)."""
-        log_path = self.event_log_or_raise().path
+        §5 principle 1).
+
+        `log_path` defaults to the attached event log. Passing it explicitly is
+        what lets a read-only handle run this check: replaying and diffing are
+        pure reads, and the attached log was the only thing here that required
+        the writer's lock. Refusing to verify a projection you are allowed to
+        read would be a strange place to draw the line — this is the check that
+        proves the projection is honest."""
+        if log_path is None:
+            log_path = self.event_log_or_raise().path
         shadow = Graph(":memory:", event_log=None)
         events = list(read_events(log_path))
         for ev in events:

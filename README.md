@@ -29,6 +29,16 @@ at two while its independence flag flips to false the moment a `parallel_of`
 edge is recorded. That is the counter-argument to consensus-seeking, in three
 lines of output.
 
+## Two front ends, same capabilities
+
+    cohort node claim:abc123      # provenance, with independence stated
+    cohort accept claim:abc123
+    cohort search 色即是空
+
+Installed with the package. The CLI and the web UI cover the same capability
+set, and that is enforced by a test rather than intended — see
+[docs/cli.md](docs/cli.md).
+
 ## The researcher UI
 
 The same functionality as the Python API, in a browser — because COHORT should

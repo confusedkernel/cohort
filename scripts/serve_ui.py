@@ -34,7 +34,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -42,40 +41,19 @@ from cohort.ui.runs import DEFAULT_MAX_BUDGET_USD
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-CBETA_V061_SHA256 = "90a663f212bc854e6a758ed06c74776cef5cbf8e7040d0192ff3301e6f7158f2"
-
-
 def _open_corpus():
-    """The same reader the scripts build, from the same environment — so a
-    query in the browser and a query in Python hit one index, not two.
+    """The same reader the CLI and the scripts build, from the same
+    environment — so a query in the browser and a query in Python hit one
+    index, not two. Shared implementation in `cohort.sources.env`.
 
-    Returns None with an explanation rather than raising: the UI is useful
-    without the corpus (the graph is already there), so a missing archive
-    should degrade the feature, not refuse to start the server."""
-    from cohort.agents.openrouter import _load_dotenv
-    from cohort.sources.cbeta_fts import CbetaFtsIndex
-    from cohort.sources.cbeta_reader import CbetaArchiveError, CbetaReader
+    A missing archive disables the feature rather than refusing to start: the
+    UI is useful without the corpus, since the graph is already there."""
+    from cohort.sources.env import open_corpus_from_env
 
-    _load_dotenv(REPO_ROOT / ".env")
-    archive = os.environ.get("CBETA_ARCHIVE_PATH")
-    if not archive:
-        print("note: CBETA_ARCHIVE_PATH is not set — corpus endpoints disabled", file=sys.stderr)
-        return None
-    fts_path = Path(os.environ.get("CBETA_FTS_PATH") or (REPO_ROOT / "cbeta_fts.sqlite"))
-    try:
-        fts = CbetaFtsIndex(fts_path, CBETA_V061_SHA256) if fts_path.is_file() else None
-        if fts is None:
-            print(
-                f"note: no FTS index at {fts_path} — corpus search would raise, so "
-                "corpus endpoints are disabled.\n"
-                "      build it: .venv/bin/python scripts/build_cbeta_index.py",
-                file=sys.stderr,
-            )
-            return None
-        return CbetaReader(archive, CBETA_V061_SHA256, fts=fts)
-    except CbetaArchiveError as e:
-        print(f"note: corpus endpoints disabled — {e}", file=sys.stderr)
-        return None
+    source, reason = open_corpus_from_env(repo_root=REPO_ROOT)
+    if source is None:
+        print(f"note: corpus endpoints disabled — {reason}", file=sys.stderr)
+    return source
 
 
 def main() -> None:

@@ -54,7 +54,7 @@ from cohort.tools.record_contradiction import (
 from cohort.tools.link_parallels import LinkParallelsInput, link_parallels
 from cohort.tools.verify_exact_span import verify_exact_span
 
-CBETA_V061_SHA256 = "90a663f212bc854e6a758ed06c74776cef5cbf8e7040d0192ff3301e6f7158f2"
+from cohort.sources.env import CBETA_V061_SHA256  # one definition; see docs/corpus.md
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 AGENT = "agent:worker-heart"

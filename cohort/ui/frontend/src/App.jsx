@@ -3,6 +3,7 @@ import { getGraph, getHealth, getRefusals } from './api'
 import DetailPanel from './DetailPanel'
 import GraphView from './GraphView'
 import CorpusPanel from './CorpusPanel'
+import FindingsPanel from './FindingsPanel'
 import RefusalsPanel from './RefusalsPanel'
 import RunPanel from './RunPanel'
 import Settings, { applyTheme, loadTheme } from './Settings'
@@ -97,6 +98,7 @@ export default function App() {
         <nav className="tabs">
           {[
             ['graph', 'Graph'],
+            ['findings', 'Findings'],
             health?.corpus_enabled && ['corpus', 'Corpus'],
             health?.runs_enabled && ['run', 'Agent run'],
           ].filter(Boolean).map(([key, label]) => (
@@ -139,6 +141,11 @@ export default function App() {
                 showAudit={showAudit}
               />
             </>
+          )}
+          {tab === 'findings' && (
+            <FindingsPanel
+              onSelect={(id) => { setSelectedId(id); setTab('graph') }}
+            />
           )}
           {tab === 'corpus' && (
             <CorpusPanel

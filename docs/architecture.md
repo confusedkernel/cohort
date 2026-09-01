@@ -127,15 +127,47 @@ caused. So `model_call_id` on a node answers "which call produced this", and
 `summarize_model_calls()` totals spend from the log itself rather than from a
 running tally that could drift.
 
+## Two front ends, one capability set
+
+COHORT is meant to be driven from a terminal or from a browser, and "the same
+functionality either way" is the kind of promise that decays quietly: someone
+adds a route and forgets the command, and nothing complains until a user finds
+the hole.
+
+So the promise is a test. `tests/test_parity.py` maps every HTTP route to a CLI
+command and fails if either side gains a capability the other lacks. A
+deliberate asymmetry is allowed but has to be written into its `EXEMPT` table
+with a reason, which makes it a decision instead of an oversight.
+
+Three shared modules keep the two honest, each extracted after the duplication
+had already caused a divergence:
+
+- **`cohort/views.py`** — the read-shapes. When the CLI and the API each had
+  their own serializer they disagreed about the shape of a node immediately.
+  A test now asserts `cohort node X --json` and `GET /api/node?id=X` are equal
+  payloads, not merely similar ones.
+- **`cohort/sources/env.py`** — builds the CBETA reader from the environment,
+  so a query in the browser and a query in the terminal hit one index. The
+  archive hash lives here too; it had been copy-pasted into eight scripts, and
+  the provenance argument rests on it.
+- **`cohort/ui/runs.py`** — the run launcher both front ends drive.
+
+Neither front end enforces a rule. `cohort accept` and `POST /api/accept` both
+call `Graph.accept()`, so the write boundary refuses identically whichever way
+you arrive — which is the point of principle 4.
+
 ## Layer map
 
     cohort/
       schemas.py        closed vocabulary: nodes, edges, events, dating, verification
+      views.py          shared read-shapes, so the CLI and the API describe a node identically
+      cli.py            the terminal front end
       errors.py         one exception per rule the design claims
       eventlog.py       append-only JSONL; read_events / read_refusals
       graph.py          the projection and the only writer
       migrations.py     numbered, forward-only
       sources/          search(query) / fetch(ref) — the whole corpus seam
+                        (env.py builds the CBETA reader for every front end)
       tools/            named, schema-validated, individually refusable writes
       agents/           OpenRouter transport, worker, swarm, budget cap
       ui/               FastAPI JSON API + React frontend (optional `ui` extra)

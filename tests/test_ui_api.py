@@ -312,3 +312,89 @@ def test_edge_reason_reaches_the_frontend(tmp_path):
     assert contradicts
     assert all(e["reason"] == "incompatible datings" for e in contradicts)
     assert all(e["discounts"] is False for e in contradicts)
+
+
+# --- the integrity checks, reachable without the writer's lock --------------
+
+def test_rebuild_endpoint_confirms_the_projection_matches_the_log(populated):
+    """The check that the log, not the database, is ground truth. It has to be
+    reachable from a read-only deployment: refusing to verify a projection you
+    are allowed to read would be a strange place to draw the line."""
+    db_path, _ = populated
+    log_path = db_path.parent / "events.jsonl"
+    body = TestClient(create_app(db_path, log_path)).get("/api/rebuild").json()
+    assert body["available"] is True
+    assert body["ok"] is True
+    assert body["events_replayed"] > 0
+
+
+def test_rebuild_endpoint_works_while_a_writer_holds_the_lock(populated):
+    db_path, _ = populated
+    log_path = db_path.parent / "events.jsonl"
+    holder = Graph.open(db_path, log_path)
+    try:
+        client = TestClient(create_app(db_path, log_path))
+        assert client.get("/api/rebuild").json()["ok"] is True
+    finally:
+        holder.close()
+
+
+def test_rebuild_reports_a_missing_log_rather_than_claiming_ok(tmp_path):
+    """A missing log must never read as a passing check."""
+    db_path = tmp_path / "g.sqlite"
+    Graph.open(db_path, tmp_path / "gone.jsonl").close()
+    (tmp_path / "gone.jsonl").unlink()
+    body = TestClient(create_app(db_path, tmp_path / "gone.jsonl")).get("/api/rebuild").json()
+    assert body["available"] is False
+    assert "ok" not in body
+
+
+def test_rebuild_reports_a_mismatch_as_a_finding_not_a_500(populated):
+    """A projection disagreeing with the log is this endpoint's most important
+    answer, so it must arrive as data rather than as a server error."""
+    db_path, _ = populated
+    log_path = db_path.parent / "events.jsonl"
+    # Tamper with the projection only — the log still says what really happened.
+    g = Graph.open_read_only(db_path)
+    g.close()
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    # The fixture already accepts this claim, so demote it: the log says
+    # accepted, the projection now says proposed, and they must disagree.
+    conn.execute("UPDATE nodes SET status='proposed' WHERE type='claim'")
+    conn.commit()
+    conn.close()
+
+    body = TestClient(create_app(db_path, log_path)).get("/api/rebuild").json()
+    assert body["available"] is True
+    assert body["ok"] is False
+    assert body["mismatch"]
+
+
+def test_integrity_endpoint_finds_no_tampering_in_a_clean_graph(populated):
+    db_path, _ = populated
+    body = TestClient(create_app(db_path)).get("/api/integrity").json()
+    assert body["checked"] > 0
+    assert body["mismatched"] == []
+
+
+def test_integrity_endpoint_catches_an_edited_payload(populated):
+    """The payload hash is independent of the payload, so editing the row
+    behind the graph's back is detectable rather than invisible."""
+    db_path, _ = populated
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE nodes SET payload='{\"text\":\"tampered\"}' WHERE type='claim'")
+    conn.commit()
+    conn.close()
+
+    body = TestClient(create_app(db_path)).get("/api/integrity").json()
+    assert body["mismatched"], "an edited payload must not pass the hash check"
+
+
+def test_integrity_can_check_one_node(populated):
+    db_path, _ = populated
+    client = TestClient(create_app(db_path))
+    claim = next(n for n in client.get("/api/graph").json()["nodes"] if n["type"] == "claim")
+    body = client.get("/api/integrity", params={"id": claim["id"]}).json()
+    assert body["checked"] == 1

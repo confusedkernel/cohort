@@ -21,6 +21,11 @@ ui = ["fastapi>=0.110", "uvicorn[standard]>=0.27"]
 # urllib.request, not a client library — see cohort/agents/openrouter.py's
 # module docstring for why. No extra needed for it.
 
+[project.scripts]
+# The terminal front end. Same capabilities as the web UI, enforced by
+# tests/test_parity.py rather than by intention.
+cohort = "cohort.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["cohort*"]
 
