@@ -23,7 +23,7 @@ from .errors import (
     EdgeDomainViolation,
     EdgeEndpointMissing,
     EdgeSelfLoop,
-    MeepError,
+    CohortError,
     MissingRejectionReason,
     NodeNotFound,
     NoEventLog,
@@ -436,7 +436,7 @@ class Graph:
         to its own promotion ladder would be a regress. `HUMAN_REVIEW`
         requires the researcher, same pattern as `accept()`. The four
         hash-chain fields are optional and only meaningful for EXACT_SPAN
-        checks (`meep/tools/verify_exact_span.py`)."""
+        checks (`cohort/tools/verify_exact_span.py`)."""
         subject = self._require_node(subject_node_id)
         if subject.type not in (NodeType.CLAIM, NodeType.CONJECTURE, NodeType.PASSAGE, NodeType.WITNESS):
             self._refuse(
@@ -690,7 +690,7 @@ class Graph:
         elif ev.event == "model_call":
             pass  # an audit marker only; never mutates state
         else:  # pragma: no cover — Event already validates against EVENT_TYPES
-            raise MeepError(f"no _apply handler for event {ev.event!r}")
+            raise CohortError(f"no _apply handler for event {ev.event!r}")
 
     def _apply_propose(self, ev: Event) -> None:
         detail = ev.detail
@@ -777,7 +777,7 @@ class Graph:
     # --- small helpers ---------------------------------------------------------
 
     def _refuse(
-        self, attempted: str, authored_by: str, error: MeepError, *,
+        self, attempted: str, authored_by: str, error: CohortError, *,
         node_id: str | None = None, edge_id: str | None = None,
         node_type: NodeType | None = None, edge_type: EdgeType | None = None,
     ) -> NoReturn:

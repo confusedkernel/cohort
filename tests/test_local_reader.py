@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from meep.sources.local_reader import LocalReader, ManifestError
+from cohort.sources.local_reader import LocalReader, ManifestError
 
 FIXTURE = Path(__file__).parent.parent / "examples" / "local_corpus"
 

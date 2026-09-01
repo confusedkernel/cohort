@@ -1,6 +1,6 @@
 """Manual live smoke test for the OpenRouter transport.
 
-Never imported by pytest, never run automatically — same discipline MEEP
+Never imported by pytest, never run automatically — same discipline COHORT
 already established for the (now-replaced) Anthropic worker: "not
 smoke-tested against the live API... run once against a real key before
 trusting it." This is that run, for real, for the first time in this
@@ -18,7 +18,7 @@ import json
 import sys
 import time
 
-from meep.agents.openrouter import OpenRouterError, complete, load_openrouter_config
+from cohort.agents.openrouter import OpenRouterError, complete, load_openrouter_config
 
 
 def main() -> None:

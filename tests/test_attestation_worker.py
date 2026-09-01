@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from meep.agents.attestation_worker import AttestationWorker
-from meep.eventlog import summarize_model_calls
-from meep.schemas import RESEARCHER, AgentKind, AgentProfile, ConjecturePayload, EdgeType
-from meep.sources.local_reader import LocalReader
+from cohort.agents.attestation_worker import AttestationWorker
+from cohort.eventlog import summarize_model_calls
+from cohort.schemas import RESEARCHER, AgentKind, AgentProfile, ConjecturePayload, EdgeType
+from cohort.sources.local_reader import LocalReader
 
 AGENT = "agent:worker-1"
 FIXTURE = Path(__file__).parent.parent / "examples" / "local_corpus"

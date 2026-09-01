@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from meep.schemas import Dating, DatingRoute, Event, Node, WitnessPayload
+from cohort.schemas import Dating, DatingRoute, Event, Node, WitnessPayload
 
 
 def test_dating_rejects_a_basis_that_is_just_a_label():

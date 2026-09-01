@@ -1,8 +1,8 @@
-"""MEEP: evidential pluralism made auditable."""
+"""COHORT: evidential pluralism made auditable."""
 
 __version__ = "0.1.0"
 
-from .errors import MeepError
+from .errors import CohortError
 from .eventlog import EventLog, read_events
 from .graph import Graph
 from .schemas import (
@@ -40,7 +40,7 @@ __all__ = [
     "EventLog",
     "Graph",
     "IndependentSupport",
-    "MeepError",
+    "CohortError",
     "Node",
     "NodeStatus",
     "NodeType",

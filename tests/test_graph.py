@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from meep.errors import (
+from cohort.errors import (
     EdgeDomainViolation,
     EdgeEndpointMissing,
     EdgeSelfLoop,
@@ -18,9 +18,9 @@ from meep.errors import (
     UnattestableClaim,
     UnattestableConjecture,
 )
-from meep.eventlog import EventLog, read_events
-from meep.graph import Graph
-from meep.schemas import (
+from cohort.eventlog import EventLog, read_events
+from cohort.graph import Graph
+from cohort.schemas import (
     RESEARCHER,
     ClaimPayload,
     ConjecturePayload,

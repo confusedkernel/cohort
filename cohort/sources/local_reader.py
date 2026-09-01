@@ -1,6 +1,6 @@
 """Local text-file reader — a folder of texts you hold rights to.
 
-Reimplements (not imports — MEEP stays standalone, design doc §2) the
+Reimplements (not imports — COHORT stays standalone, design doc §2) the
 character-unigram FTS5 trick from `atelier/atelier/adapters/local_corpus_adapter.py`:
 FTS5's default tokenizer treats an unbroken CJK run as a single token, so
 `MATCH "寂寞"` against running Chinese text matches nothing at all. Indexing
@@ -48,7 +48,7 @@ class LocalReader(Source):
             raise ManifestError(f"corpus root is not a directory: {self.root}")
         self.manifest_path = Path(manifest) if manifest else self.root / "manifest.csv"
         self._meta: dict[str, dict] = {}
-        self._tempdir_obj = tempfile.TemporaryDirectory(prefix="meep_local_reader_")
+        self._tempdir_obj = tempfile.TemporaryDirectory(prefix="cohort_local_reader_")
         self.tempdir = Path(self._tempdir_obj.name)
         self.conn: sqlite3.Connection | None = sqlite3.connect(self.tempdir / "corpus.sqlite")
         self.stats: dict = {}

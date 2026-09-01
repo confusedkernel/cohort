@@ -57,12 +57,12 @@ demonstrated is that the machinery refuses the right things.
 
 ## 2. Scope: standalone, and what that forbids
 
-MEEP is the swarm and evidence-graph layer. ATELIER, the existing governance
+COHORT is the swarm and evidence-graph layer. ATELIER, the existing governance
 layer (which source, under what licence, approved by whom, what was taken, what
 was kept, verified deletion) stays a separate working system and is integrated
 later, not now.
 
-**What MEEP gets instead.** A thin source interface, `search(query)` and
+**What COHORT gets instead.** A thin source interface, `search(query)` and
 `fetch(ref)`, with one local implementation over text held on disk. No policy
 file, no allowlist, no caps, no retention rules, no deletion verification.
 Deliberately minimal, because governance is ATELIER's job and a weak version of
@@ -70,14 +70,14 @@ it here would produce two half-answers.
 
 **Keep the seam narrow, and shaped like ATELIER's.** ATELIER's adapter interface
 is already `search` / `fetch`. Match it exactly. Integration then means writing
-one adapter class rather than reshaping the swarm. Do not design MEEP's
+one adapter class rather than reshaping the swarm. Do not design COHORT's
 internals around anything else ATELIER does; the coupling should be one function
 signature wide.
 
 **Two rules this phase must not break.**
 
 1. **Public-domain or locally-held material only.** This is what makes building
-   without a governance layer legitimate rather than a shortcut. Pointing MEEP
+   without a governance layer legitimate rather than a shortcut. Pointing COHORT
    at a restricted source before ATELIER is under it turns a staging decision
    into a hole.
 2. **Claim no governance.** No retention language, no rights-aware framing, no
@@ -86,7 +86,7 @@ signature wide.
    not connected. Overclaiming here would repeat the exact failure the previous
    build spent a phase fixing.
 
-**Where the layers meet later.** MEEP's source interface becomes an ATELIER
+**Where the layers meet later.** COHORT's source interface becomes an ATELIER
 adapter, and ATELIER's cumulative-coverage question (a persistent graph of
 offsets and counts can, at sufficient density, approximate a copy) becomes a
 real design item at that point. Note it now; do not solve it now.
@@ -96,16 +96,16 @@ real design item at that point. Note it now; do not solve it now.
 ## 3. Where this sits in Sindia
 
 Infrastructure serves the other legs rather than competing with them. In this
-phase MEEP is developed as its own tool, so the dependencies below are what it
+phase COHORT is developed as its own tool, so the dependencies below are what it
 *will* owe, not what it owes this month.
 
-| Leg | Owner | Relationship to MEEP |
+| Leg | Owner | Relationship to COHORT |
 |---|---|---|
-| CWN.dia: word sense dating, toward a diachronic CWN | Amber, Chungche | shares the dating problem; MEEP's `witness` dating routes are directly reusable |
+| CWN.dia: word sense dating, toward a diachronic CWN | Amber, Chungche | shares the dating problem; COHORT's `witness` dating routes are directly reusable |
 | 寂寞: LLM-supported semantic change | Wei-Ling | **do not duplicate.** It was the old fixture demo; hand it over |
-| MEEP (this document) | rich, Tyler, Chunki | the swarm and the evidence graph |
+| COHORT (this document) | rich, Tyler, Chunki | the swarm and the evidence graph |
 | ATELIER | same team | governance, developed and shown separately for now |
-| Temporal KG visualization | Joanne, project lead | consumes MEEP's graph projection (section 10) |
+| Temporal KG visualization | Joanne, project lead | consumes COHORT's graph projection (section 10) |
 
 Two working systems shown side by side is an easier story for PNC than one
 integration that has to be finished by the deadline. ATELIER already works.
@@ -326,10 +326,10 @@ Each is a plausible wrong turn that would look like progress.
 - **A knowledge graph of asserted facts.** Principle 2.
 - **Agent-to-agent conversation.** Unauditable and quadratic. Principle 3.
 - **An open node or edge vocabulary.** Section 6.
-- **Reimplementing governance inside MEEP.** Section 2. A weak policy layer here
+- **Reimplementing governance inside COHORT.** Section 2. A weak policy layer here
   competes with a working one next door and makes the eventual integration
   harder.
-- **Claiming governance MEEP does not have.** Section 2, rule 2.
+- **Claiming governance COHORT does not have.** Section 2, rule 2.
 - **Content-layer claims.** 工具層 contribution. Do not ship an argument about
   textual history dressed as a demo.
 - **Agent count as a headline number.** A scale claim, not a mechanism.
@@ -371,7 +371,7 @@ model, no network. Everything in sections 5 to 8 enforceable without a corpus is
 enforced and tested.
 
 ```
-meep/
+cohort/
 ├── schemas.py     closed vocabulary; nodes, edges, events, dating
 ├── errors.py      one exception per rule the design claims
 ├── eventlog.py    append-only JSONL, flushed per event, monotonic seq
@@ -380,7 +380,7 @@ tests/test_graph.py
 demo.py
 ```
 
-*The package currently ships under an earlier name; rename to `meep` before
+*The package currently ships under an earlier name; rename to `cohort` before
 stage 2. Mechanical, no design change.*
 
 Enforced and tested: source-derived identity with author accumulation; edges
@@ -441,7 +441,7 @@ needing a test. Write the contention test before the fan-out.
 
 ## 13. Reuse rather than rebuild
 
-Carry into MEEP by hand, with tests. ATELIER stays a separate system, so this is
+Carry into COHORT by hand, with tests. ATELIER stays a separate system, so this is
 copying a pattern, not taking a dependency.
 
 - Dating assignment with a stated basis, and `unknown` as a real answer. It now
@@ -481,9 +481,9 @@ with CWN.dia, which has the same problem in a different corpus.
 **Division of labour** across rich, Tyler and Chunki. Stages 2 and 4 are
 separable; stage 3 probably is not.
 
-**Name.** MEEP is deliberately unrelated to the content, which avoids
+**Name.** COHORT is deliberately unrelated to the content, which avoids
 overclaiming and avoids grepping for a corpus term inside its own package.
-`meep` is taken on PyPI by an MIT electromagnetics simulator, which does not
+`cohort` is taken on PyPI by an MIT electromagnetics simulator, which does not
 matter for an internal project and would matter for a published one. Do not
 backronym it.
 
@@ -495,7 +495,7 @@ backronym it.
 > fact-checking: many sources agreeing raises confidence. Transmitted textual
 > corpora violate the independence assumption that model requires, because
 > agreement between witnesses is usually evidence of shared descent rather than
-> independent confirmation. MEEP proposes evidential pluralism made auditable: an
+> independent confirmation. COHORT proposes evidential pluralism made auditable: an
 > evidence graph in which nothing is asserted as true, relations of descent and
 > parallelism are first-class, claims must cite their sources, conjectures must
 > arrive with what would refute them, and only the researcher can promote a

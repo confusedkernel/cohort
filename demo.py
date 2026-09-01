@@ -1,4 +1,4 @@
-"""MEEP demo — no corpus, no live API, no network (design doc §11; the
+"""COHORT demo — no corpus, no live API, no network (design doc §11; the
 verification/agent-identity sections added under ROADMAP.md "Scope
 revision" need no corpus or API key either, since they operate on synthetic
 refs and mocked-free graph calls).
@@ -13,9 +13,9 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from meep.eventlog import read_events, summarize_model_calls
-from meep.graph import Graph
-from meep.schemas import (
+from cohort.eventlog import read_events, summarize_model_calls
+from cohort.graph import Graph
+from cohort.schemas import (
     RESEARCHER,
     AgentKind,
     AgentProfile,
@@ -36,11 +36,11 @@ AGENT = "agent:demo-worker"
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="meep_demo_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="cohort_demo_") as tmp:
         tmp_path = Path(tmp)
         g = Graph.open(tmp_path / "graph.sqlite", tmp_path / "events.jsonl")
 
-        print("=== MEEP demo ===\n")
+        print("=== COHORT demo ===\n")
 
         w1 = g.propose_witness(
             WitnessPayload(
@@ -179,7 +179,7 @@ def main() -> None:
             print(f"  [{n.type}] {n.payload['text']!r}")
             print(f"    reason: {n.rejected_reason}")
         print("(this is exactly what AttestationWorker.run() prepends to its instructions —")
-        print(" see meep/agents/attestation_worker.py::_rejected_context)\n")
+        print(" see cohort/agents/attestation_worker.py::_rejected_context)\n")
 
         print("--- multi-agent identity and contribution history ---")
         g.register_agent(

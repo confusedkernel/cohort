@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from meep.errors import UnattestableConjecture
-from meep.schemas import (
+from cohort.errors import UnattestableConjecture
+from cohort.schemas import (
     ClaimPayload,
     ConjecturePayload,
     Dating,
@@ -16,9 +16,9 @@ from meep.schemas import (
     NodeStatus,
     WitnessPayload,
 )
-from meep.sources.local_reader import LocalReader
-from meep.tools.find_attestations import FindAttestationsInput, find_attestations
-from meep.tools.propose_conjecture import ProposeConjectureInput, propose_conjecture
+from cohort.sources.local_reader import LocalReader
+from cohort.tools.find_attestations import FindAttestationsInput, find_attestations
+from cohort.tools.propose_conjecture import ProposeConjectureInput, propose_conjecture
 
 AGENT = "agent:worker-1"
 FIXTURE = Path(__file__).parent.parent / "examples" / "local_corpus"

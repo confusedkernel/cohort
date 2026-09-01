@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import pytest
 
-from meep.errors import EdgeDomainViolation, NotResearcher
-from meep.eventlog import EventLog
-from meep.graph import Graph
-from meep.schemas import (
+from cohort.errors import EdgeDomainViolation, NotResearcher
+from cohort.eventlog import EventLog
+from cohort.graph import Graph
+from cohort.schemas import (
     RESEARCHER,
     AssuranceLevel,
     ClaimPayload,

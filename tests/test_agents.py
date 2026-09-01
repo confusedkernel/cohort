@@ -5,9 +5,9 @@ are explicitly deferred).
 """
 from __future__ import annotations
 
-from meep.eventlog import EventLog
-from meep.graph import Graph
-from meep.schemas import (
+from cohort.eventlog import EventLog
+from cohort.graph import Graph
+from cohort.schemas import (
     RESEARCHER,
     AgentKind,
     AgentProfile,

@@ -196,7 +196,7 @@ class WitnessPayload(_Model):
     #: license/rights terms for a restrictively-licensed but locally-held
     #: source (e.g. CBETA — CC BY-NC-SA-equivalent, not public domain).
     #: Additive; a single descriptive string is deliberate, not a
-    #: structured rights model — DESIGN.md §2 forbids MEEP from building a
+    #: structured rights model — DESIGN.md §2 forbids COHORT from building a
     #: governance layer, even a small one (ROADMAP.md "Scope revision").
     source_terms: str | None = None
 

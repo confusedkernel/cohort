@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "meep"
+name = "cohort"
 version = "0.1.0"
 description = "Evidential pluralism made auditable: a supervised evidence graph for multi-agent textual research."
 readme = "README.md"
@@ -12,12 +12,12 @@ dependencies = ["pydantic>=2.6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-# The agent/LLM layer (meep/agents/) uses OpenRouter over stdlib
-# urllib.request, not a client library — see meep/agents/openrouter.py's
+# The agent/LLM layer (cohort/agents/) uses OpenRouter over stdlib
+# urllib.request, not a client library — see cohort/agents/openrouter.py's
 # module docstring for why. No extra needed for it.
 
 [tool.setuptools.packages.find]
-include = ["meep*"]
+include = ["cohort*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from meep.migrations import MIGRATIONS, Migration, MigrationError, apply_migrations
+from cohort.migrations import MIGRATIONS, Migration, MigrationError, apply_migrations
 
 
 def test_baseline_creates_the_expected_tables(tmp_path):

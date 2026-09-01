@@ -2,9 +2,9 @@
 
 ## Scope revision
 
-After comparing MEEP against `epistemic-swarm` (a labmate's parallel project
+After comparing COHORT against `epistemic-swarm` (a labmate's parallel project
 built from the same "evidential pluralism made auditable" brief), the user
-decided to deliberately widen MEEP's scope toward four of that project's
+decided to deliberately widen COHORT's scope toward four of that project's
 capabilities: a graded verification/assurance model, a richer falsifiable-
 conjecture dossier, a persistent multi-agent society, and production-grade
 observability — while explicitly staying on SQLite/single-writer (no
@@ -23,13 +23,13 @@ describing guarantees the code did not provide."* So, said plainly:
 - §4's *"Fan-out is not a headline... the discipline of the design is the
   interesting part, not the agent count"* is superseded for the same reason.
 - §2 rule 1's *"Public-domain or locally-held material only"* is
-  **clarified, not relaxed**. MEEP's confirmed development corpus is CBETA
+  **clarified, not relaxed**. COHORT's confirmed development corpus is CBETA
   (`CBETA_電子佛典_xml_v061_20210710.zip`) — locally-held, but licensed
   CC BY-NC-SA-equivalent (non-commercial, attribution, share-alike, version,
   intact-header requirements), not public domain. Read disjunctively:
   locally-held material qualifies on its own, provided its real license
   terms are preserved through every derived artifact. This does not touch
-  rule 2 ("claim no governance") — MEEP still makes no retention or
+  rule 2 ("claim no governance") — COHORT still makes no retention or
   rights-aware claims; it accepts a real corpus under real restrictions and
   is disciplined about carrying them. Corpus bytes stay out of the
   repository; only a local path (`CBETA_ARCHIVE_PATH`) is configured.
@@ -63,7 +63,7 @@ Decisions already made:
 - The agent/LLM layer (stage 2's attestation worker, stage 3's conjecture
   generator) uses the **plain Anthropic Python SDK**, not the Agent SDK or a
   third-party framework.
-- MEEP's source interface is shaped like ATELIER's `search`/`fetch`
+- COHORT's source interface is shaped like ATELIER's `search`/`fetch`
   (`DESIGN.md` §2), and ATELIER's other conventions are the default for
   team consistency (same authors, same Sindia infrastructure track) —
   cited below as `atelier/...` paths.
@@ -126,8 +126,8 @@ the codebase.
 visible during stage 2+ when the temptation to add "just one" convenience
 shows up: consensus-seeking of any kind; confidence scores from edge counts;
 a knowledge graph of asserted facts; agent-to-agent conversation; an open
-node/edge vocabulary; reimplementing ATELIER's governance inside MEEP;
-claiming governance MEEP doesn't have; content-layer claims dressed as a
+node/edge vocabulary; reimplementing ATELIER's governance inside COHORT;
+claiming governance COHORT doesn't have; content-layer claims dressed as a
 demo; agent count as a headline number.
 
 ---
@@ -159,7 +159,7 @@ the design doc explicitly withholds something (no policy file → no
   surface (Principle 4), so a heavier framework would add machinery the
   design explicitly doesn't need.
 - **stage 2+ local reader**: stdlib SQLite FTS5, reimplementing (not
-  importing — MEEP stays standalone per §2) the character-unigram trick from
+  importing — COHORT stays standalone per §2) the character-unigram trick from
   `atelier/atelier/adapters/local_corpus_adapter.py`. FTS5's default
   tokenizer treats an unbroken CJK run as one token, so `MATCH "寂寞"`
   against a real sentence matches nothing; indexing space-separated
@@ -179,11 +179,11 @@ the design doc explicitly withholds something (no policy file → no
 ## Project structure
 
 ```
-meep/
+cohort/
 ├── pyproject.toml
 ├── README.md
 ├── ROADMAP.md                 # this document
-├── meep/
+├── cohort/
 │   ├── __init__.py
 │   ├── schemas.py              # closed vocabulary: nodes, edges, events, dating,
 │   │                            # verification/assurance, agent identity
@@ -347,7 +347,7 @@ social actions ("ask a question," "propose collaboration," "form/leave a
 research group") need some channel for agents to address each other, which
 is principle 3 verbatim ("no agent-to-agent messaging, no shared
 transcript") — a direct contradiction, not a stylistic mismatch. Most of the
-rest of their social-action vocabulary already has a MEEP-native equivalent
+rest of their social-action vocabulary already has a COHORT-native equivalent
 for free: `contradicts` edges are "challenge"; re-adding an existing edge
 already accumulates authorship via the convergence mechanism, which *is*
 "endorse"; `supersedes` already exists unused in the vocabulary and is the
@@ -395,8 +395,8 @@ sent instructions.
 
 | Stage | Deliverable | Status |
 |---|---|---|
-| 1 | Graph store, event log, vocabulary, ladder, rebuild | **Done** — `meep/{schemas,errors,eventlog,graph}.py`, 47 tests, `demo.py` |
-| 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done** against a fixture corpus (`examples/local_corpus`) — `meep/sources/`, `meep/tools/`, `meep/agents/attestation_worker.py`, 18 more tests. Real dev corpus still open (§14); worker's live API round-trip untested |
+| 1 | Graph store, event log, vocabulary, ladder, rebuild | **Done** — `cohort/{schemas,errors,eventlog,graph}.py`, 47 tests, `demo.py` |
+| 2 | Thin `search`/`fetch` source interface + local FTS5 reader; named tool layer; `find_attestations` worker | **Done** against a fixture corpus (`examples/local_corpus`) — `cohort/sources/`, `cohort/tools/`, `cohort/agents/attestation_worker.py`, 18 more tests. Real dev corpus still open (§14); worker's live API round-trip untested |
 | 3 | Conjecture generation behind the falsifiability gate; persistent rejection in a live loop | **Done**, modulo a live API run. `Graph.rejected()` + `AttestationWorker._rejected_context()` make rejection hold for `claim`/`conjecture` even though they have no content-derived identity to block on mechanically (principle 5) — the worker now prepends prior rejections + reasons to its own instructions. What remains: an actual run against a live key to see this drive real model behavior, not just the mocked-client proof that the context gets sent |
 | 4 | `parallel_of`/`descends_from` from existing markup; contradiction surfacing; `independent_support` over real witnesses | Not started; open decision — does the corpus carry parallel markup already? (§14) |
 | 5 | Real concurrency fan-out; researcher UI (graph view, accept/reject, provenance on click) | Not started; UI tech stack decided — FastAPI JSON API + separate JS/React frontend, optional, no Postgres/queue (see "Decisions already made") |

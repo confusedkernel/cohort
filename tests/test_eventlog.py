@@ -1,7 +1,7 @@
 """Append-only JSONL log semantics (design doc §5 principle 1, §11)."""
 from __future__ import annotations
 
-from meep.eventlog import EventLog, read_events, summarize_model_calls
+from cohort.eventlog import EventLog, read_events, summarize_model_calls
 
 
 def test_append_is_flushed_and_readable_immediately(tmp_path):

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from meep.schemas import (
+from cohort.schemas import (
     ClaimPayload,
     Dating,
     DatingRoute,
@@ -17,10 +17,10 @@ from meep.schemas import (
     VerificationResult,
     WitnessPayload,
 )
-from meep.sources.base import SourceRecord
-from meep.sources.local_reader import LocalReader
-from meep.tools.find_attestations import FindAttestationsInput, find_attestations
-from meep.tools.verify_exact_span import verify_exact_span
+from cohort.sources.base import SourceRecord
+from cohort.sources.local_reader import LocalReader
+from cohort.tools.find_attestations import FindAttestationsInput, find_attestations
+from cohort.tools.verify_exact_span import verify_exact_span
 
 AGENT = "agent:worker-1"
 FIXTURE = Path(__file__).parent.parent / "examples" / "local_corpus"

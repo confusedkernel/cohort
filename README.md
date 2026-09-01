@@ -1,9 +1,8 @@
-# MEEP\* (Tentative)
+# cohort
 
-What do I even name this repository?
-
-A supervised evidence graph for
-multi-agent textual research. See `ROADMAP.md` for structure, tech stack, and build order.
+Evidential pluralism made auditable — a supervised evidence graph for
+multi-agent textual research. See `DESIGN.md` for the design and
+`ROADMAP.md` for structure, tech stack, and build order.
 
 ## Quickstart
 

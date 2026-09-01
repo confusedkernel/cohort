@@ -2,9 +2,9 @@
 "Scope revision", OpenRouter workstream).
 
 Deliberately stdlib-only: `urllib.request` for the one HTTP call this needs,
-not `httpx`. MEEP has zero HTTP dependencies today; adding a client library
+not `httpx`. COHORT has zero HTTP dependencies today; adding a client library
 to replace an SDK would be a lateral dependency swap, not the reduction it
-looks like, and MEEP already hand-rolls narrow, well-understood surfaces
+looks like, and COHORT already hand-rolls narrow, well-understood surfaces
 elsewhere (the FTS5 CJK-unigram trick, the write boundary itself instead of
 an ORM) rather than reaching for a library. One endpoint with a well-defined
 shape doesn't need one either.
@@ -94,7 +94,7 @@ def complete(
     timeout: float = 30.0, transport=default_transport,
 ) -> OpenRouterResponse:
     """Validated at the boundary before anything touches domain logic — the
-    same discipline MEEP already applies to tool inputs, applied here to a
+    same discipline COHORT already applies to tool inputs, applied here to a
     network response. `transport` is the test seam: pass a fake callable in
     tests, no HTTP-mocking dependency needed."""
     body = json.dumps({"model": model, "messages": messages, "tools": tools}).encode("utf-8")
@@ -112,7 +112,7 @@ def complete(
 
 
 def _load_dotenv(path: Path = Path(".env")) -> None:
-    """A small hand-rolled loader, not `python-dotenv`: MEEP's `.env` only
+    """A small hand-rolled loader, not `python-dotenv`: COHORT's `.env` only
     ever needs flat `KEY=value` pairs, optionally wrapped in one matching
     pair of quotes (a common `.env` convention) — no multiline or `export`
     prefix support needed, so this is sufficient and honest about its

@@ -1,10 +1,10 @@
-"""Shared fixtures for the MEEP test suite."""
+"""Shared fixtures for the COHORT test suite."""
 from __future__ import annotations
 
 import pytest
 
-from meep.eventlog import EventLog
-from meep.graph import Graph
+from cohort.eventlog import EventLog
+from cohort.graph import Graph
 
 AGENT = "agent:worker-1"
 AGENT_2 = "agent:worker-2"

@@ -4,7 +4,7 @@ world is read graph -> call a tool -> write back; no agent-to-agent
 messaging, no shared transcript, no framework beyond the transport itself).
 
 Replaces the Anthropic SDK entirely (ROADMAP.md "Scope revision", OpenRouter
-workstream) — see `meep/agents/openrouter.py` for the transport and why it's
+workstream) — see `cohort/agents/openrouter.py` for the transport and why it's
 stdlib-only rather than a client library.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ from .openrouter import complete, default_transport, load_openrouter_config
 PROMPT_VERSION = "attestation_worker/v2-openrouter"
 
 SYSTEM_PROMPT = (
-    "You are an attestation worker in MEEP, an evidence graph for textual "
+    "You are an attestation worker in COHORT, an evidence graph for textual "
     "research. You have exactly two tools, both of which write to the graph "
     "through its own enforced rules — you cannot write structure any other "
     "way, and a call that violates a rule is refused and reported back to "
@@ -192,7 +192,7 @@ class AttestationWorker:
         return log
 
     def _dispatch(self, name: str, args: dict, model_call_id: int | None = None) -> tuple[bool, Any]:
-        """Returns (is_error, result). A MeepError (a refused write) is
+        """Returns (is_error, result). A CohortError (a refused write) is
         reported back to the model as a tool error, not raised — the worker
         should see refusals and adjust, the same way the audit log does."""
         try:

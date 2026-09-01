@@ -3,9 +3,9 @@
 Uses SQLite's own `PRAGMA user_version` (an integer stored in the database
 file's header) rather than a hand-built tracking table — SQLite already
 provides exactly the primitive this needs. No checksums, no advisory locks:
-those solve a problem MEEP doesn't have (many independently-deployed
+those solve a problem COHORT doesn't have (many independently-deployed
 instances verifying they're applying identically-named migrations
-consistently). MEEP is one local tool, one writer at a time — `Graph`'s
+consistently). COHORT is one local tool, one writer at a time — `Graph`'s
 `fcntl.flock` (acquired before this ever runs) already serializes schema
 changes, and migrations are reviewed the ordinary way through git, not
 independently re-verified at runtime.

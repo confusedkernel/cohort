@@ -1,4 +1,4 @@
-"""CBETA archive reader — MEEP's confirmed development corpus (ROADMAP.md
+"""CBETA archive reader — COHORT's confirmed development corpus (ROADMAP.md
 "Scope revision"), locally-held but restrictively licensed (CC BY-NC-SA-
 equivalent: non-commercial, attribution, share-alike, version and
 intact-header requirements — not public domain).
@@ -66,7 +66,7 @@ def read_verified_entry(
     load-bearing here, not defensive theater), read it under a size cap,
     then re-hash the whole archive a second time and compare again before
     returning. Catches a file swapped mid-read — a real, not hypothetical,
-    concern for a large archive a researcher might re-download while a MEEP
+    concern for a large archive a researcher might re-download while a COHORT
     process has it open; the check is cheap (once per fetch, not a hot
     path)."""
     verify_archive_hash(path, expected_sha256)

@@ -11,7 +11,7 @@ from io import BytesIO
 
 import pytest
 
-from meep.sources.cbeta_reader import (
+from cohort.sources.cbeta_reader import (
     CBETA_ENTRY_PREFIX,
     CbetaArchiveError,
     CbetaReader,
