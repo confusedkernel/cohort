@@ -49,7 +49,7 @@ from ..errors import (
     RebuildMismatch,
     SingleWriterViolation,
 )
-from ..eventlog import read_refusals
+from ..eventlog import read_refusals, summarize_refusals
 from ..graph import Graph
 from ..schemas import RESEARCHER, EdgeType, NodeType
 from ..sources.base import Source
@@ -220,9 +220,16 @@ def create_app(
 
         A missing log is not an error: an in-memory or freshly copied
         projection can legitimately have none, and reporting `available:
-        false` says that honestly instead of implying zero refusals."""
+        false` says that honestly instead of implying zero refusals.
+
+        `census` summarises the **whole** log even when `refusals` is a
+        truncated tail — a census of the tail would report a smaller total
+        than the log holds while looking authoritative. See `RefusalCensus`."""
         if not log_path.is_file():
-            return {"available": False, "log_path": str(log_path), "refusals": [], "total": 0}
+            return {
+                "available": False, "log_path": str(log_path), "refusals": [],
+                "total": 0, "census": None,
+            }
         all_refusals = read_refusals(log_path)
         shown = all_refusals[-limit:]
         return {
@@ -231,6 +238,7 @@ def create_app(
             "total": len(all_refusals),
             "truncated": len(shown) < len(all_refusals),
             "refusals": [r.model_dump(mode="json") for r in shown],
+            "census": summarize_refusals(log_path).model_dump(mode="json"),
         }
 
     @app.get("/api/integrity")

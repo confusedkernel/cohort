@@ -46,6 +46,15 @@
 
   /* recessed surfaces: a well in dark, a tint in light */
   --track: rgba(0, 0, 0, 0.28);
+  /* The 1px ring around a recessed track. It cannot be `--line`, even though
+     that is what every bordered control beside it uses, because the ring is
+     painted *over* the well: `--line` over `--track` lands 19/255 darker than
+     the same `--line` over a button's `--fill-2`, so the tab bar read as
+     outlined more heavily than the gear and the stats disclosure beside it.
+     The alpha is solved for, not picked — it is what puts the ring on the
+     luminance a button's border actually renders at (measured: 61/255 in this
+     scheme, 208/255 in light). Re-derive it if `--track` or `--fill-2` move. */
+  --track-ring: rgba(255, 255, 255, 0.178);
   --input-bg: rgba(0, 0, 0, 0.30);
   --input-bg-focus: rgba(0, 0, 0, 0.45);
   --code-bg: rgba(0, 0, 0, 0.32);
@@ -89,6 +98,15 @@
      999px pill, which read as three unrelated widgets in one row. */
   --radius-control: 9px;
   --radius-control-inner: 7px;
+  /* The gutter between a segmented track's ring and the segment inside it.
+     3px, not 2px: the ring is an inset shadow, so it is drawn *within* the
+     padding and eats the first pixel of it — at 2px only 1px of well showed,
+     and on the first and last segments, where there is no neighbour to look
+     at, the thumb read as jammed into the track's corner. The segments'
+     corner radius is derived from it (`--radius-control` minus the gutter) so
+     the two curves stay concentric whatever this becomes. */
+  --track-pad: 3px;
+  --radius-seg: calc(var(--radius-control) - var(--track-pad));
   /* One height for every top-bar control and one for every form control.
      Set explicitly rather than left to padding + line-height: the gear,
      the stats disclosure, the refusals pill and the tab track all carry
@@ -101,13 +119,19 @@
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --fast: 140ms var(--ease);
   --med: 220ms var(--ease);
-  /* A selection that travels reads better with a trace of overshoot than with
-     a purely decelerating curve — small enough that it never looks springy. */
-  --ease-thumb: cubic-bezier(0.34, 1.26, 0.64, 1);
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.35);
   --shadow-panel: 0 18px 50px rgba(0, 0, 0, 0.55);
+
+  /* The 1px line along a raised control's top edge. It has to be a *token*,
+     not `--fill-3`: the fill ladder is white-over-dark and black-over-light,
+     so the same declaration that reads as a highlight here painted a dark
+     line on the white tab thumb in light mode — softening its top edge into
+     the track while the drop shadow kept the bottom crisp, which read as the
+     thumb sitting low in its track. A white pill on a grey track needs no
+     sheen at all, so in light mode this is nothing. */
+  --sheen: rgba(255, 255, 255, 0.085);
 }
 
 /* Light. The semantic hues are darkened rather than reused: systemOrange and
@@ -138,6 +162,7 @@
     --text-faint: #717177;
 
     --track: rgba(0, 0, 0, 0.07);
+    --track-ring: rgba(0, 0, 0, 0.10);
     --input-bg: #ffffff;
     --input-bg-focus: #ffffff;
     --code-bg: rgba(0, 0, 0, 0.04);
@@ -169,6 +194,7 @@
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.07);
     --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.10);
     --shadow-panel: 0 18px 50px rgba(0, 0, 0, 0.18);
+  --sheen: transparent;
   }
 }
 
@@ -199,6 +225,7 @@
   --text-faint: #717177;
 
   --track: rgba(0, 0, 0, 0.07);
+  --track-ring: rgba(0, 0, 0, 0.10);
   --input-bg: #ffffff;
   --input-bg-focus: #ffffff;
   --code-bg: rgba(0, 0, 0, 0.04);
@@ -230,6 +257,7 @@
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.07);
   --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.10);
   --shadow-panel: 0 18px 50px rgba(0, 0, 0, 0.18);
+  --sheen: transparent;
 }
 
 * { box-sizing: border-box; }
@@ -306,21 +334,20 @@ code { font-family: var(--mono); font-size: .9em; }
    active — a selection that switches off in one place and on in another is
    the one thing this control does not do anywhere else in the system.
 
-   The outer ring is `--line` at 1px, the same outline every other control in
-   the top bar carries as a border — the gear, the stats disclosure, the
-   refusals pill. It was `--fill-2` (half that weight) and, sitting in a
-   recessed `--track` well beside three bordered controls, the track's edge
-   read as unfinished rather than quiet. Drawn as an inset shadow rather than
-   a border so the 2px inner gutter stays 2px and the segments keep the full
-   `--control-h`; visually it is the same 1px line at the same radius. */
+   The outer ring is 1px of `--track-ring`, tuned to *render* as the same line
+   every other control in the top bar carries as a border — the gear, the stats
+   disclosure, the refusals pill. It cannot be `--line` itself; see that token
+   for why an identical colour over a recessed well does not come out
+   identical. Drawn as an inset shadow rather than a border so the 2px inner
+   gutter stays 2px and the segments keep the full `--control-h`. */
 .tabs {
   display: flex; gap: 2px; flex: none;
   align-items: stretch;
   height: var(--control-h);
-  padding: 2px;
+  padding: var(--track-pad);
   background: var(--track);
   border-radius: var(--radius-control);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--track-ring);
   /* the thumb's offset parent */
   position: relative;
 }
@@ -335,11 +362,11 @@ code { font-family: var(--mono); font-size: .9em; }
   color: var(--text-dim);
   background: transparent;
   border: none;
-  border-radius: var(--radius-control-inner);
+  border-radius: var(--radius-seg);
   cursor: pointer;
   white-space: nowrap;
   max-width: none;
-  transition: color var(--fast), background var(--fast), transform var(--fast);
+  transition: color var(--fast), background var(--fast), opacity var(--fast);
 }
 /* Hover moves the label, not the surface. A tinted box on an inactive segment
    competes with the thumb for the same job, and it makes the slide look worse
@@ -353,7 +380,21 @@ code { font-family: var(--mono); font-size: .9em; }
    reason, active included; the active one's hover feedback is the thumb
    lifting instead (see `.seg-thumb`). */
 .tab:hover { color: var(--text); background: transparent; border: none; }
-.tab:active { transform: scale(0.97); }
+/* Press feedback here must not be geometric. motion.js measures this element
+   to place the thumb, and a `transform` on it is invisible to ResizeObserver:
+   a measurement taken in the frame where the segment was still `:active`
+   stuck at 0.97, leaving the thumb 2px narrower and 1px right of its own
+   segment. On a middle segment that is hard to see; on the first or last it
+   reads as the pill not filling its place in the track. Opacity is safe, and
+   the real feedback for a press here is the thumb setting off.
+
+   `transform: none` is the operative half: the generic `button:active` rule
+   further down sets `scale(0.975)`, and it applies to these too — a bare
+   `opacity` here would not displace it. Worse, `.tab` transitions `transform`,
+   so the segment was caught *part way* into the scale and the error varied
+   from click to click (measured: 0.2px to 1.3px, worst on the widest
+   segment). */
+.tab:active, .seg-item:active { opacity: .6; transform: none; }
 .tab.on { color: var(--text); }
 
 /* The travelling segment, shared by the tab bar and the theme picker.
@@ -363,17 +404,27 @@ code { font-family: var(--mono); font-size: .9em; }
    arrives with its position) so it can never flash at the track's left edge. */
 .seg-thumb {
   position: absolute;
-  top: 2px; bottom: 2px; left: 0;
+  top: var(--track-pad); bottom: var(--track-pad); left: 0;
   width: 0; opacity: 0;
-  border-radius: var(--radius-control-inner);
+  border-radius: var(--radius-seg);
   background: var(--bg-elevated);
-  box-shadow: var(--shadow-1), inset 0 1px 0 var(--fill-3);
+  box-shadow: var(--shadow-1), inset 0 1px 0 var(--sheen);
   pointer-events: none;
 }
 /* Set one frame after the first measurement (motion.js), so the first paint
-   is a placement and every later one is a move. */
+   is a placement and every later one is a move.
+
+   The curve must not overshoot, however good a bounce feels on a thumb with
+   room to bounce into. This one has 2px of gutter: an overshooting curve sent
+   it 1.3px past the track's left edge coming back to the first segment and
+   3.4px past the right edge going out to the last, and since the thumb's
+   corner radius is cut to sit *inside* the track's, poking out reads as the
+   pill no longer fitting its track. Travelling between two middle segments
+   hid it — there is a neighbouring segment to overshoot into. So: `--ease`,
+   the same decelerating curve as everything else here, over a slightly longer
+   280ms because this is a longer journey than a hover. */
 .seg-thumb[data-animate] {
-  transition: transform 300ms var(--ease-thumb), width 300ms var(--ease-thumb),
+  transition: transform 280ms var(--ease), width 280ms var(--ease),
               opacity var(--fast), box-shadow var(--fast);
 }
 /* Hovering the active segment lifts the thumb. A shadow rather than the
@@ -381,7 +432,7 @@ code { font-family: var(--mono); font-size: .9em; }
    light mode, where brightening it does nothing at all. */
 .tabs:has(.tab.on:hover) .seg-thumb,
 .seg:has(.seg-item.on:hover) .seg-thumb {
-  box-shadow: var(--shadow-2), inset 0 1px 0 var(--fill-3);
+  box-shadow: var(--shadow-2), inset 0 1px 0 var(--sheen);
 }
 
 /* Refusals + stats describe the graph, so they ride together and only on the
@@ -634,13 +685,15 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: h
   z-index: 1;
   width: 24px; height: 24px; padding: 0;
   display: grid; place-items: center;
-  font-family: inherit; font-size: 17px; line-height: 1;
   color: var(--text-dim);
   background: var(--fill-3);
   border: 1px solid var(--line);
   border-radius: 999px;
   max-width: none;
 }
+/* Sized as a fraction of the button, so the icon follows it up to 32px on a
+   coarse pointer without a second declaration. */
+.panel-close svg { width: 46%; height: 46%; }
 .panel-close:hover { color: var(--text); background: var(--fill-4); }
 
 /* Room for the close button on the first row of content. */
@@ -926,6 +979,60 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   border-radius: 999px;
 }
 .rule-chip strong { color: var(--text); }
+/* The census. Categories answer "which of these should I read?", so they are
+   given more room than the rule chips, which only say what fired. Colour
+   follows meaning, not severity: `expression` borrows --discounts because it
+   is the bucket that may indict our own tools, and that is a finding rather
+   than a fault. */
+.refusal-cats { display: grid; gap: 6px; margin: 12px 0 14px; padding: 0; list-style: none; }
+.refusal-cat {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  background: var(--fill-1);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.refusal-cat .cat-n {
+  min-width: 2.2em; text-align: right;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 14px; font-weight: 700; color: var(--text);
+}
+.refusal-cat .cat-name { font-family: var(--mono); color: var(--text); }
+.refusal-cat .cat-note { color: var(--text-dim); }
+.cat-evidence { border-left-color: var(--supports); }
+.cat-standing { border-left-color: var(--accepted); }
+.cat-expression { border-left-color: var(--discounts); }
+.cat-operational { border-left-color: var(--structural); }
+.cat-unclassified { border-left-color: var(--text-faint); }
+
+.streaks { margin: 16px 0 4px; padding: 12px 13px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); background: var(--fill-1); }
+.streaks h3 {
+  display: flex; align-items: baseline; gap: 9px;
+  margin: 0; font-size: 13px; font-weight: 600;
+}
+.streak-share {
+  font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+.streaks .hint { margin: 7px 0 0; }
+.streak-list { margin: 11px 0 0; padding: 0; list-style: none; }
+.streak-item { padding: 9px 0; border-top: 1px solid var(--line-soft); }
+.streak-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; font-size: 12px; }
+.streak-count {
+  font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--discounts);
+}
+.cat-tag {
+  padding: 1px 7px; border-radius: 999px;
+  font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+  border: 1px solid var(--line); border-left-width: 2px;
+}
+.streak-ids { margin: 6px 0 0; font-size: 11px; color: var(--text-faint); }
+.streak-ids code { margin-right: 7px; word-break: break-all; }
+
 .refusal-list { margin: 0; padding: 0; list-style: none; }
 .refusal-item { padding: 12px 0; border-top: 1px solid var(--line-soft); }
 .refusal-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px; font-size: 12px; }
@@ -1177,7 +1284,7 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 @media (pointer: coarse) {
   :root { --control-h: 36px; --field-h: 44px; }
   .btn.tiny { height: 28px; padding: 0 12px; }
-  .panel-close { width: 32px; height: 32px; font-size: 20px; }
+  .panel-close { width: 32px; height: 32px; }
   .corpus-list > li { padding: 13px 0; }
   .setting-row { padding: 3px 0; }
 }
@@ -1292,12 +1399,12 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 /* Segmented control, matching the tab bar so the two read as one idiom —
    including the thumb, which slides here too. */
 .seg {
-  display: flex; gap: 2px; padding: 2px;
+  display: flex; gap: 2px; padding: var(--track-pad);
   align-items: stretch;
   height: var(--control-h);
   background: var(--track);
   border-radius: var(--radius-control);
-  box-shadow: inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--track-ring);
   position: relative;
 }
 .seg-item {
@@ -1308,12 +1415,11 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   font: inherit; font-family: inherit; font-size: 12.5px; font-weight: 500;
   text-align: center;
   color: var(--text-dim);
-  background: transparent; border: none; border-radius: var(--radius-control-inner);
+  background: transparent; border: none; border-radius: var(--radius-seg);
   cursor: pointer; max-width: none;
-  transition: color var(--fast), background var(--fast), transform var(--fast);
+  transition: color var(--fast), background var(--fast), opacity var(--fast);
 }
 .seg-item:hover { color: var(--text); background: transparent; border: none; }
-.seg-item:active { transform: scale(0.97); }
 .seg-item.on { color: var(--text); }
 
 .setting-row {

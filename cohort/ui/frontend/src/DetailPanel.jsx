@@ -240,8 +240,25 @@ function CloseButton({ onClose }) {
   return (
     <button className="panel-close" onClick={onClose} aria-label="Close inspector"
             title="Close (Esc)">
-      ×
+      <CloseIcon />
     </button>
+  )
+}
+
+function CloseIcon() {
+  // Two strokes, not a `×` character. `place-items: center` centres the *line
+  // box*, and the multiplication sign's ink sits low inside its em box — a
+  // measured 0.96px below the middle of a 24px button, which is plainly
+  // visible on a circle that small. It also varies by font, so the glyph is
+  // not something this button can centre reliably. Same reasoning as
+  // `GearIcon` above: geometry, symmetric about (6,6).
+  return (
+    <svg viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path
+        d="M3 3 L9 9 M9 3 L3 9"
+        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+      />
+    </svg>
   )
 }
 

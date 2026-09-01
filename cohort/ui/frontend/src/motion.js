@@ -50,30 +50,31 @@ export function usePresence(open, exitMs = 180) {
 
 // Drives an in-flow disclosure — a region that grows the layout open rather
 // than appearing at full size in one frame. See `.reveal` in styles.css and
-// Reveal.jsx; the three phases are what a CSS-only version cannot express:
+// Reveal.jsx.
 //
-//   mounted   the children are in the DOM. Ahead of `expanded` on the way in,
-//             behind it on the way out, so both directions have something to
-//             animate.
+//   mounted   the children are in the DOM. Ahead of `expanded` on the way in
+//             and behind it on the way out, so both directions have something
+//             to animate.
 //   expanded  the class that drives the height. Deliberately one frame late,
 //             because a transition needs a starting frame at zero.
-//   settled   the growth has finished, and the clip that made it possible can
-//             be dropped — an `overflow: hidden` box cuts the focus ring off
-//             the control inside it.
+//
+// When the growth *finishes* is not this hook's business: it cannot be timed
+// from here. `expanded` lands on the next animation frame, which on a busy
+// page can be 170ms after the click rather than 16 — measured, on the graph
+// tab with the inspector open — so a timer started at mount expires while the
+// transition is still running. Reveal.jsx waits for `transitionend` instead.
 export function useDisclosure(open, ms = 220) {
   const { mounted } = usePresence(open, ms)
   const [expanded, setExpanded] = useState(false)
-  const [settled, setSettled] = useState(false)
 
   useEffect(() => {
-    if (!open) { setExpanded(false); setSettled(false); return undefined }
-    if (prefersReducedMotion()) { setExpanded(true); setSettled(true); return undefined }
+    if (!open) { setExpanded(false); return undefined }
+    if (prefersReducedMotion()) { setExpanded(true); return undefined }
     const frame = requestAnimationFrame(() => setExpanded(true))
-    const done = setTimeout(() => setSettled(true), ms + 40)
-    return () => { cancelAnimationFrame(frame); clearTimeout(done) }
-  }, [open, ms])
+    return () => cancelAnimationFrame(frame)
+  }, [open])
 
-  return { mounted, expanded, settled }
+  return { mounted, expanded }
 }
 
 // Measures the active segment of a segmented control so a single thumb can
@@ -90,21 +91,36 @@ export function useSlidingIndicator(activeKey, segmentCount, rendered = true) {
   const [animate, setAnimate] = useState(false)
 
   const measure = useCallback(() => {
-    const on = trackRef.current?.querySelector('[data-seg-on="true"]')
+    const track = trackRef.current
+    const on = track?.querySelector('[data-seg-on="true"]')
     if (!on) return
-    // Offsets, not bounding rects: the track is the offset parent, so these
-    // are already thumb coordinates and survive a page zoom without the
-    // sub-pixel drift `getBoundingClientRect` introduces.
+    // Rects, not `offsetLeft`/`offsetWidth`: those round to whole pixels, and
+    // a segment whose real width is 66.73px gave a 67px thumb overhanging its
+    // own segment by 0.27px — enough to push the label off-centre inside it.
+    // Both boxes come from the same coordinate space, so the difference is the
+    // offset within the track whatever the page zoom.
+    const t = track.getBoundingClientRect()
+    const s = on.getBoundingClientRect()
     setBox((prev) => (
-      prev && prev.left === on.offsetLeft && prev.width === on.offsetWidth
+      prev && Math.abs(prev.left - (s.left - t.left)) < 0.01
+        && Math.abs(prev.width - s.width) < 0.01
         ? prev
-        : { left: on.offsetLeft, width: on.offsetWidth }
+        : { left: s.left - t.left, width: s.width }
     ))
   }, [])
 
-  // Layout effect, so the measurement lands in the same frame as the class
-  // change and the thumb is never painted at the outgoing segment.
-  useLayoutEffect(measure, [measure, activeKey, segmentCount, rendered])
+  // Twice: synchronously in a layout effect, so the measurement lands in the
+  // same frame as the class change and the thumb is never painted at the
+  // outgoing segment — and again on the next frame, because the synchronous
+  // pass runs inside the click and can catch the segment in a transient state
+  // the observers below will never report (a `:active` transform is the case
+  // that bit; a font swap would do it too). The second pass is free when it
+  // agrees, since `measure` only sets state on a real change.
+  useLayoutEffect(() => {
+    measure()
+    const frame = requestAnimationFrame(measure)
+    return () => cancelAnimationFrame(frame)
+  }, [measure, activeKey, segmentCount, rendered])
 
   // Geometry moves under us for reasons unrelated to the selection: the tab
   // bar goes full width below 760px, coarse pointers raise `--control-h`, and
@@ -142,7 +158,7 @@ export function useSlidingIndicator(activeKey, segmentCount, rendered = true) {
       'aria-hidden': true,
       'data-animate': animate || undefined,
       style: box
-        ? { width: `${box.width}px`, transform: `translateX(${box.left}px)`, opacity: 1 }
+        ? { width: `${box.width.toFixed(2)}px`, transform: `translateX(${box.left.toFixed(2)}px)`, opacity: 1 }
         : undefined,
     },
   }

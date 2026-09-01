@@ -10,6 +10,17 @@
 // Presented most-recent-first, because the useful question is almost always
 // "what did the run I just watched refuse to do?".
 
+// What each category asks the reader to go and look at. Mirrors
+// `RefusalCategory` in cohort/errors.py, which is where the taxonomy is
+// decided; this is only how it reads on screen.
+const CATEGORY_NOTE = {
+  evidence: 'the corpus did not support it',
+  standing: "who was writing, or the node's state, forbade it",
+  expression: 'the writer could not say what it meant',
+  operational: "the system's own preconditions",
+  unclassified: "a rule this version's taxonomy does not know",
+}
+
 const RULE_NOTE = {
   UnattestableClaim: 'A claim needs an attested passage behind it. Citation is the requirement, not a formality.',
   UnattestableConjecture: 'A conjecture needs a query that would refute it — the falsifiability gate.',
@@ -44,7 +55,12 @@ export default function RefusalsPanel({ refusals, closing }) {
   }
 
   const rows = [...refusals.refusals].reverse()
-  const byRule = rows.reduce((acc, r) => ({ ...acc, [r.rule]: (acc[r.rule] || 0) + 1 }), {})
+  // From the census, not from `rows`: the list is a truncated tail, and a
+  // tally computed over it would quietly understate every rule once a log
+  // grows past the limit.
+  const census = refusals.census
+  const byRule = census?.by_rule ?? {}
+  const streaks = census?.streaks ?? []
 
   return (
     <section className={cls}>
@@ -62,15 +78,69 @@ export default function RefusalsPanel({ refusals, closing }) {
         </p>
       ) : (
         <>
+          {census && (
+            <ul className="refusal-cats">
+              {Object.entries(census.by_category)
+                .filter(([, n]) => n > 0)
+                .map(([name, n]) => (
+                  <li key={name} className={`refusal-cat cat-${name}`}>
+                    <span className="cat-n">{n}</span>
+                    <span className="cat-name">{name}</span>
+                    <span className="cat-note">{CATEGORY_NOTE[name]}</span>
+                  </li>
+                ))}
+            </ul>
+          )}
+
           <div className="rule-tally">
-            {Object.entries(byRule)
-              .sort((a, b) => b[1] - a[1])
-              .map(([rule, n]) => (
-                <span className="rule-chip" key={rule}>
-                  {rule} <strong>{n}</strong>
-                </span>
-              ))}
+            {Object.entries(byRule).map(([rule, n]) => (
+              <span className="rule-chip" key={rule}>
+                {rule} <strong>{n}</strong>
+              </span>
+            ))}
           </div>
+
+          {streaks.length > 0 && (
+            <div className="streaks">
+              <h3>
+                {streaks.length} streak{streaks.length > 1 ? 's' : ''}
+                <span className="streak-share">
+                  {census.streaked_count} of {census.total} refusals
+                </span>
+              </h3>
+              <p className="hint small">
+                One agent refused repeatedly by one rule, with nothing else of
+                its own in between. A single refusal is usually a model slip; a
+                run of them is the shape of a gap in the tool layer &mdash; an
+                agent adapting, retrying, and being refused again because there
+                was no sanctioned way to say what it meant. Every run in this
+                project&apos;s history so far turned out to be exactly that.
+              </p>
+              <ul className="streak-list">
+                {streaks.map((s) => (
+                  <li key={`${s.authored_by}-${s.first_seq}`} className="streak-item">
+                    <div className="streak-head">
+                      <span className="streak-count">{s.count}&times;</span>
+                      <span className="refusal-rule">{s.rule}</span>
+                      <span className={`cat-tag cat-${s.category}`}>{s.category}</span>
+                      <span className="refusal-author">{s.authored_by}</span>
+                      <code className="refusal-attempted">{s.attempted.join(', ')}</code>
+                    </div>
+                    {s.node_ids.length > 0 && (
+                      <p className="streak-ids">
+                        tried {s.node_ids.length} id
+                        {s.node_ids.length > 1 ? 's' : ''}:{' '}
+                        {s.node_ids.slice(0, 3).map((id) => (
+                          <code key={id}>{id}</code>
+                        ))}
+                        {s.node_ids.length > 3 && ` +${s.node_ids.length - 3} more`}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {refusals.truncated && (
             <p className="hint small">
