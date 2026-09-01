@@ -59,8 +59,9 @@ def test_find_attestations_locates_and_attests_a_matching_passage(graph, source)
     assert passage.status == NodeStatus.ATTESTED  # mechanically attested by the tool
     assert graph.edges(edge_type=EdgeType.ATTESTS, src=passages[0], dst=claim_id)
 
-    # the claim is now attestable, because it has an attested-passage backer
-    graph.attest(claim_id, authored_by=AGENT)
+    # and the claim itself is advanced, because it now has an attested-passage
+    # backer. The tool used to stop short here, stranding the claim at
+    # `proposed` where the researcher could never accept it.
     assert graph.get_node(claim_id).status == NodeStatus.ATTESTED
 
 
@@ -243,13 +244,15 @@ def test_propose_claim_result_is_not_attestable_until_it_cites_something(graph, 
     )
     with pytest.raises(UnattestableClaim):
         graph.attest(claim_id, authored_by=AGENT)
+    assert graph.get_node(claim_id).status == NodeStatus.PROPOSED
 
+    # Real attests edges are what advance it, and the tool that writes them is
+    # what performs the mechanical check.
     find_attestations(
         graph, source,
         FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
         authored_by=AGENT,
     )
-    graph.attest(claim_id, authored_by=AGENT)
     assert graph.get_node(claim_id).status == NodeStatus.ATTESTED
 
 
@@ -334,7 +337,6 @@ def test_record_contradiction_refuses_audit_nodes(graph, source):
         FindAttestationsInput(claim_or_conjecture_id=claim_id, query="明月"),
         authored_by=AGENT,
     )
-    graph.attest(claim_id, authored_by=AGENT)
     decision_id = graph.accept(claim_id, authored_by=RESEARCHER)
 
     with pytest.raises(ValueError, match="audit records or retrievals"):
@@ -373,3 +375,68 @@ def test_edge_reason_survives_a_rebuild(graph, source):
     report = graph.rebuild()
     assert report.ok
     assert graph.edges(edge_type=EdgeType.CONTRADICTS, src=a)[0].reason == "incompatible datings"
+
+
+# --- find_attestations advances the node it just evidenced ------------------
+
+def test_find_attestations_attests_the_claim_it_backs(graph, source):
+    """The bug this guards: `find_attestations` used to attest each passage but
+    never the target, so an agent could gather ten passages across seven
+    witnesses and leave the claim at `proposed` — where accept is correctly
+    refused for skipping a rung, and no tool could advance it. A claim nobody
+    can ever accept, reached by doing everything right."""
+    claim_id = graph.propose_claim(ClaimPayload(text="the phrase recurs"), authored_by=AGENT)
+    assert graph.get_node(claim_id).status == NodeStatus.PROPOSED
+
+    report = find_attestations(
+        graph, source,
+        FindAttestationsInput(claim_or_conjecture_id=claim_id, query="空"),
+        authored_by=AGENT,
+    )
+    assert report.passages, "fixture must yield hits for this test to mean anything"
+    assert graph.get_node(claim_id).status == NodeStatus.ATTESTED
+
+
+def test_an_attested_claim_can_then_be_accepted(graph, source):
+    """The whole point of the middle rung: it is what makes acceptance reachable."""
+    claim_id = graph.propose_claim(ClaimPayload(text="the phrase recurs"), authored_by=AGENT)
+    find_attestations(
+        graph, source,
+        FindAttestationsInput(claim_or_conjecture_id=claim_id, query="空"),
+        authored_by=AGENT,
+    )
+    graph.accept(claim_id, authored_by=RESEARCHER)
+    assert graph.get_node(claim_id).status == NodeStatus.ACCEPTED
+    assert any(n.id == claim_id for n in graph.citable())
+
+
+def test_a_search_with_no_hits_advances_nothing(graph, source):
+    """No evidence, no rung. The claim stays where it was."""
+    claim_id = graph.propose_claim(ClaimPayload(text="unfindable"), authored_by=AGENT)
+    report = find_attestations(
+        graph, source,
+        FindAttestationsInput(claim_or_conjecture_id=claim_id, query="zzzznotinthecorpus"),
+        authored_by=AGENT,
+    )
+    assert report.passages == []
+    assert graph.get_node(claim_id).status == NodeStatus.PROPOSED
+
+
+def test_a_conjecture_without_a_tests_edge_is_still_refused(graph, source):
+    """The falsifiability gate outranks attestation. Finding evidence for a
+    conjecture must not smuggle it past the rule that it needs a query which
+    would refute it — and the refusal is recorded, not swallowed."""
+    conj_id = graph.propose_conjecture(
+        ConjecturePayload(
+            text="a hidden pattern",
+            derivation="d", corpus_boundary="b",
+            selection_risks="r", alternative_explanations="a",
+        ),
+        authored_by=AGENT,
+    )
+    find_attestations(
+        graph, source,
+        FindAttestationsInput(claim_or_conjecture_id=conj_id, query="空"),
+        authored_by=AGENT,
+    )
+    assert graph.get_node(conj_id).status == NodeStatus.PROPOSED

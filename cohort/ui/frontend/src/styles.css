@@ -1352,3 +1352,12 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 @media (max-width: 760px) {
   .findings-cols { grid-template-columns: 1fr; }
 }
+
+/* Attest is a mechanical check, not a verdict, so it reads as neutral —
+   distinct from the accept/reject pair, which are the researcher's authority. */
+.btn.attest {
+  color: var(--text);
+  background: var(--fill-3);
+  border-color: var(--line);
+}
+.btn.attest:hover:not(:disabled) { background: var(--fill-4); }

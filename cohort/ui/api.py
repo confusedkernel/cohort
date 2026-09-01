@@ -321,6 +321,38 @@ def create_app(
             finally:
                 graph.close()
 
+        @app.post("/api/attest")
+        def attest(
+            id: str = Query(..., min_length=1),
+            body: dict[str, Any] = Body(default={}),
+        ) -> dict[str, Any]:
+            """Run the mechanical check and record it if it passes.
+
+            Not a judgement, and not the researcher's signature: `attested`
+            means the citations resolve, which is why docs/design.md §8 lets
+            agents do it. The graph re-checks the precondition and refuses with
+            a stated rule if the node has nothing attesting it, so this button
+            cannot promote something unsupported.
+
+            It exists because a node can be left eligible but unadvanced — an
+            agent that gathers evidence and stops short strands its own claim
+            at `proposed`, where accept is correctly refused for skipping a
+            rung. Without this the researcher has no way out of that."""
+            graph = _write_graph()
+            try:
+                try:
+                    graph.attest(id, authored_by=RESEARCHER)
+                except NodeNotFound as e:
+                    raise HTTPException(status_code=404, detail=str(e)) from e
+                except CohortError as e:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"rule": type(e).__name__, "message": str(e)},
+                    ) from e
+                return {"node": _node_json(graph, graph.get_node(id)), "decision_node_id": None}
+            finally:
+                graph.close()
+
         @app.post("/api/accept")
         def accept(
             id: str = Query(..., min_length=1),

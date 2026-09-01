@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { acceptNode, getAgent, getNode, rejectNode, reopenNode } from './api'
+import { acceptNode, attestNode, getAgent, getNode, rejectNode, reopenNode } from './api'
 import { EDGE_STYLE, nodeTitle } from './graph-model'
 
 export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onChanged }) {
@@ -255,6 +255,10 @@ function Verdict({ node, onDone }) {
 
   const isRejected = node.status === 'rejected'
   const canAccept = node.status === 'attested'
+  // A proposed node is one rung short, not a refusal. Telling the researcher
+  // "only an attested node can be accepted" and stopping there was a dead end:
+  // attestation is a mechanical check, not a judgement, so offer to run it.
+  const canAttest = node.status === 'proposed'
 
   return (
     <section className="verdict">
@@ -263,7 +267,12 @@ function Verdict({ node, onDone }) {
         <p className="hint small">
           {canAccept
             ? 'Accepting makes this citable and usable as a premise by other agents.'
-            : `Only an attested node can be accepted — this one is ${node.status}.`}
+            : canAttest
+              ? 'The ladder runs proposed → attested → accepted, and no rung may be '
+                + 'skipped. Attesting is the mechanical check — do this node\u2019s '
+                + 'citations resolve? — not a judgement about whether it is right. '
+                + 'The graph refuses it if nothing attests this node.'
+              : `Only an attested node can be accepted — this one is ${node.status}.`}
         </p>
       )}
       <textarea
@@ -281,6 +290,13 @@ function Verdict({ node, onDone }) {
           >Reopen</button>
         ) : (
           <>
+            {canAttest && (
+              <button
+                className="btn attest" disabled={busy}
+                onClick={() => act(() => attestNode(node.id), false)}
+                title="Run the mechanical check: do this node's citations resolve?"
+              >Attest</button>
+            )}
             <button
               className="btn accept" disabled={busy || !canAccept}
               onClick={() => act(() => acceptNode(node.id), false)}

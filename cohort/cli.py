@@ -301,11 +301,18 @@ def _verdict(args, action: str) -> None:
         # Same answer the API gives as a 409, phrased for a terminal.
         raise SystemExit(f"the graph is locked by another writer (an agent run?): {e}")
     try:
-        method = {"accept": graph.accept, "reject": graph.reject, "reopen": graph.reopen}[action]
         kwargs: dict[str, Any] = {"authored_by": RESEARCHER}
         if action in ("reject", "reopen"):
             kwargs["reason"] = args.reason
-        decision_id = method(args.id, **kwargs)
+        if action == "attest":
+            # Not a verdict: the write boundary runs the mechanical check and
+            # refuses if the node has nothing attesting it. No decision node.
+            graph.attest(args.id, **kwargs)
+            decision_id = None
+        else:
+            method = {"accept": graph.accept, "reject": graph.reject,
+                      "reopen": graph.reopen}[action]
+            decision_id = method(args.id, **kwargs)
         payload = {"node": node_json(graph, graph.get_node(args.id)),
                    "decision_node_id": decision_id}
     except NodeNotFound as e:
@@ -319,6 +326,10 @@ def _verdict(args, action: str) -> None:
         graph.close()
 
     _emit(args, payload, lambda p: print(f"{p['node']['id']} -> {p['node']['status']}"))
+
+
+def cmd_attest(args) -> None:
+    _verdict(args, "attest")
 
 
 def cmd_accept(args) -> None:
@@ -478,6 +489,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", default=None, help="check one node instead of all")
 
     add("rebuild", cmd_rebuild, "replay the log and diff it against this projection")
+
+    p = add("attest", cmd_attest, "run the mechanical check: do this node's citations resolve?")
+    p.add_argument("id")
 
     p = add("accept", cmd_accept, "promote a node to accepted (as the researcher)")
     p.add_argument("id")

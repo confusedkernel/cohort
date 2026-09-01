@@ -5,8 +5,10 @@ Each hit becomes a `witness` (converging with any existing one for the same
 `witness_ref`), a `passage` located within it via `part_of`, and an
 `attests` edge to the target. The passage is attested immediately — "the
 passage exists, the citation resolves, the reference is well formed" is
-exactly the mechanical check an agent may perform (design doc §8) — which is
-what lets a claim become attestable once enough passages back it.
+exactly the mechanical check an agent may perform (design doc §8) — and so is
+the target, once at least one passage backs it. That second step was missing
+until 2026-09-02, which left every agent-authored claim stranded at `proposed`
+where the researcher could not accept it.
 
 The witness is proposed with `DatingRoute.UNKNOWN`, not left undated: this
 tool has no dating information from the corpus, and declining to date
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..errors import CohortError
 from ..graph import Graph
 from ..schemas import (
     Dating,
@@ -120,5 +123,29 @@ def find_attestations(
             model_call_id=model_call_id,
         )
         passage_ids.append(passage_id)
+
+    # Advance the target itself, not only the passages under it.
+    #
+    # Without this the middle rung is unreachable: an agent could propose a
+    # claim, gather ten attesting passages across seven witnesses, and leave it
+    # at `proposed` forever — where the researcher cannot accept it, because no
+    # rung may be skipped. A claim no one can ever accept is a dead end, and it
+    # was reached by doing everything right.
+    #
+    # This is the same mechanical check `attest` already means and that this
+    # tool has just performed for real: each citation was fetched and resolved.
+    # The write boundary re-checks the precondition anyway and refuses if the
+    # claim has nothing attesting it, so a zero-hit search advances nothing.
+    if passage_ids and graph.get_node(args.claim_or_conjecture_id).status == NodeStatus.PROPOSED:
+        try:
+            graph.attest(
+                args.claim_or_conjecture_id,
+                authored_by=authored_by, model_call_id=model_call_id,
+            )
+        except CohortError:
+            # A conjecture with no `tests` edge is the expected case: the
+            # falsifiability gate outranks attestation, and refusing here is
+            # the gate working. Already recorded to the log by `_refuse`.
+            pass
 
     return FindAttestationsReport(passages=passage_ids, witnesses=witness_ids)

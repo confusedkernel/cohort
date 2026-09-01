@@ -330,7 +330,9 @@ def test_worker_proposes_a_claim_then_attests_it_in_one_loop(graph, source):
     assert graph.get_node(claim_id).type == "claim"
     assert graph.edges(edge_type=EdgeType.ATTESTS, dst=claim_id)
 
-    graph.attest(claim_id, authored_by=AGENT)
+    # The loop closes completely: the worker's own two calls leave the claim
+    # attested, which is the rung the researcher needs before accepting. It
+    # used to stop at `proposed`, and nothing in the tool layer could advance it.
     assert graph.get_node(claim_id).status == "attested"
 
 

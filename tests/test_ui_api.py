@@ -398,3 +398,51 @@ def test_integrity_can_check_one_node(populated):
     claim = next(n for n in client.get("/api/graph").json()["nodes"] if n["type"] == "claim")
     body = client.get("/api/integrity", params={"id": claim["id"]}).json()
     assert body["checked"] == 1
+
+
+# --- attest: the rung between proposed and accepted -------------------------
+
+def test_attest_advances_a_proposed_claim_that_has_backing(tmp_path):
+    """The dead end this closes: a claim with real attesting passages sat at
+    `proposed`, accept refused it for skipping a rung, and the UI offered no
+    way forward."""
+    db_path = tmp_path / "g.sqlite"
+    g = Graph.open(db_path, tmp_path / "e.jsonl")
+    claim = g.propose_claim(ClaimPayload(text="c"), authored_by=AGENT)
+    w = g.propose_witness(
+        WitnessPayload(canonical_ref="T01n0001",
+                       dating=Dating(confidence=DatingRoute.UNKNOWN,
+                                     basis="no dating route was run for this test")),
+        authored_by=AGENT,
+    )
+    p = g.propose_passage(
+        PassagePayload(canonical_ref="T01n0001#x", locator="1", excerpt="空"),
+        witness_id=w, authored_by=AGENT,
+    )
+    g.attest(p, authored_by=AGENT)
+    g.add_edge(EdgeType.ATTESTS, p, claim, authored_by=AGENT)
+    g.close()
+
+    client = TestClient(create_app(db_path, tmp_path / "e.jsonl", allow_writes=True))
+    assert client.post("/api/attest", params={"id": claim}).json()["node"]["status"] == "attested"
+    assert client.post("/api/accept", params={"id": claim}).json()["node"]["status"] == "accepted"
+
+
+def test_attest_refuses_a_claim_with_nothing_attesting_it(tmp_path):
+    """The button cannot promote something unsupported: the graph re-checks."""
+    db_path = tmp_path / "g.sqlite"
+    g = Graph.open(db_path, tmp_path / "e.jsonl")
+    claim = g.propose_claim(ClaimPayload(text="ungrounded"), authored_by=AGENT)
+    g.close()
+
+    client = TestClient(create_app(db_path, tmp_path / "e.jsonl", allow_writes=True))
+    res = client.post("/api/attest", params={"id": claim})
+    assert res.status_code == 422
+    assert res.json()["detail"]["rule"] == "UnattestableClaim"
+
+
+def test_attest_is_not_mounted_without_allow_writes(populated):
+    db_path, claim_id = populated
+    assert TestClient(create_app(db_path)).post(
+        "/api/attest", params={"id": claim_id}
+    ).status_code == 404

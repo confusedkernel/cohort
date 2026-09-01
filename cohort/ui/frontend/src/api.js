@@ -38,6 +38,7 @@ const post = (path, id, body) =>
     body: JSON.stringify(body || {}),
   })
 
+export const attestNode = (id) => post('/api/attest', id)
 export const acceptNode = (id) => post('/api/accept', id)
 export const rejectNode = (id, reason) => post('/api/reject', id, { reason })
 export const reopenNode = (id, reason) => post('/api/reopen', id, { reason })

@@ -34,6 +34,7 @@ ROUTE_TO_COMMAND = {
     ("GET", "/api/refusals"): "refusals",
     ("GET", "/api/integrity"): "integrity",
     ("GET", "/api/rebuild"): "rebuild",
+    ("POST", "/api/attest"): "attest",
     ("POST", "/api/accept"): "accept",
     ("POST", "/api/reject"): "reject",
     ("POST", "/api/reopen"): "reopen",
