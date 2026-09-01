@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchCorpus, searchCorpus } from './api'
 
 // Browsing and searching the corpus, so the web UI can do what a script can.
@@ -15,6 +15,12 @@ import { fetchCorpus, searchCorpus } from './api'
 //   * It must not present an excerpt as a whole text. `fetch` truncates, and
 //     the response says how many characters exist; a reader who cannot see
 //     that would form conclusions about a witness from a fragment.
+//
+// Search runs as you type, debounced. Full-corpus search answers in ~65ms, so
+// waiting for a submit adds latency the index does not have. Every response is
+// tagged with the query that asked for it and a stale one is dropped, because
+// debouncing alone does not stop an earlier request from landing last and
+// showing results for a phrase the user has already moved on from.
 
 export default function CorpusPanel({ onCite }) {
   const [query, setQuery] = useState('')
@@ -24,23 +30,37 @@ export default function CorpusPanel({ onCite }) {
   const [openRef, setOpenRef] = useState(null)
   const [record, setRecord] = useState(null)
   const [stripMarkup, setStripMarkup] = useState(true)
+  const latest = useRef('')
 
-  const run = async (e) => {
-    e?.preventDefault()
-    if (!query.trim()) return
+  const run = async (raw) => {
+    const q = (raw ?? query).trim()
+    if (!q) { setResults(null); setError(null); return }
+    latest.current = q
     setBusy(true)
     setError(null)
     setRecord(null)
     setOpenRef(null)
     try {
-      setResults(await searchCorpus(query.trim(), 20))
+      const data = await searchCorpus(q, 20)
+      if (latest.current !== q) return   // a newer query is already in flight
+      setResults(data)
     } catch (err) {
+      if (latest.current !== q) return
       setError(err.message)
       setResults(null)
     } finally {
-      setBusy(false)
+      if (latest.current === q) setBusy(false)
     }
   }
+
+  // Debounce: 220ms is long enough that a fast typist sends one request per
+  // word rather than per keystroke, short enough to feel like no wait at all.
+  useEffect(() => {
+    const q = query.trim()
+    if (!q) { setResults(null); latest.current = ''; return undefined }
+    const t = setTimeout(() => run(q), 220)
+    return () => clearTimeout(t)
+  }, [query])
 
   const open = async (ref, strip = stripMarkup) => {
     if (openRef === ref && strip === stripMarkup) {
@@ -71,14 +91,14 @@ export default function CorpusPanel({ onCite }) {
   return (
     <section className="corpus">
       <h2>Corpus</h2>
-      <form className="corpus-form" onSubmit={run}>
+      <form className="corpus-form" onSubmit={(e) => { e.preventDefault(); run() }}>
         <input
           className="corpus-input"
           placeholder="exact phrase, e.g. 色即是空"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <button className="btn" type="submit" disabled={busy || !query.trim()}>
+        <button className="btn" type="submit" disabled={!query.trim()}>
           {busy ? 'Searching…' : 'Search'}
         </button>
       </form>

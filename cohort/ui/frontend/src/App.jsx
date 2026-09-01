@@ -5,6 +5,8 @@ import GraphView from './GraphView'
 import CorpusPanel from './CorpusPanel'
 import RefusalsPanel from './RefusalsPanel'
 import RunPanel from './RunPanel'
+import Settings, { applyTheme, loadTheme } from './Settings'
+import StatsBar from './StatsBar'
 import { EDGE_STYLE } from './graph-model'
 
 export default function App() {
@@ -16,6 +18,9 @@ export default function App() {
   const [showAudit, setShowAudit] = useState(false)
   const [showRefusals, setShowRefusals] = useState(false)
   const [tab, setTab] = useState('graph')
+  const [theme, setTheme] = useState(loadTheme)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const [agentSeed, setAgentSeed] = useState(null)
 
   const reload = useCallback(() => {
@@ -27,7 +32,17 @@ export default function App() {
     getRefusals().then(setRefusals).catch(() => setRefusals(null))
   }, [])
 
+  useEffect(() => { applyTheme(theme) }, [theme])
+
   useEffect(reload, [reload])
+
+  // Escape dismisses the floating inspector — the ordinary gesture for a panel
+  // that overlays content rather than sitting beside it.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') setSelectedId(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   if (error) {
     return (
@@ -53,10 +68,11 @@ export default function App() {
           </span>
         </div>
         <div className="counts">
-          {health && Object.entries(health.nodes).map(([type, n]) => (
-            <span key={type} className="count"><strong>{n}</strong> {type}</span>
-          ))}
-          <span className="count"><strong>{health?.edges}</strong> edges</span>
+          <StatsBar
+            health={health}
+            open={statsOpen}
+            onToggle={(v) => { setStatsOpen(v); if (v) setSettingsOpen(false) }}
+          />
         </div>
         <nav className="tabs">
           {[
@@ -73,14 +89,6 @@ export default function App() {
         </nav>
 
         <div className="topbar-controls">
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={showAudit}
-              onChange={(e) => setShowAudit(e.target.checked)}
-            />
-            show audit nodes
-          </label>
           {/* Refusals are an output of this system, not a debug view
               (DESIGN.md §15), so the count is always on screen — a zero is
               itself a fact worth showing. */}
@@ -99,6 +107,14 @@ export default function App() {
               {refusals?.available ? refusals.total : '—'}
             </span>
           </button>
+          <Settings
+            open={settingsOpen}
+            onToggle={(v) => { setSettingsOpen(v); if (v) setStatsOpen(false) }}
+            theme={theme}
+            onTheme={setTheme}
+            showAudit={showAudit}
+            onShowAudit={setShowAudit}
+          />
         </div>
       </header>
 
@@ -132,12 +148,18 @@ export default function App() {
           )}
           {showRefusals && <RefusalsPanel refusals={refusals} />}
         </main>
-        <DetailPanel
-          nodeId={selectedId}
-          onSelect={setSelectedId}
-          canWrite={!!health?.writes_enabled}
-          onChanged={reload}
-        />
+        {/* Floating inspector, and only over the graph: it is the graph's
+            detail view, so overlaying the corpus or run panels with it would
+            cover unrelated content. */}
+        {tab === 'graph' && (
+          <DetailPanel
+            nodeId={selectedId}
+            onSelect={setSelectedId}
+            onClose={() => setSelectedId(null)}
+            canWrite={!!health?.writes_enabled}
+            onChanged={reload}
+          />
+        )}
       </div>
     </div>
   )

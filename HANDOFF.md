@@ -7,7 +7,7 @@ multi-agent textual research (`DESIGN.md` for the design, `ROADMAP.md` for
 architecture/tech-stack/build-order — read both before changing anything).
 It is not a prototype of an idea; it runs, live, against a real model.
 
-**What's actually been proven, not just written**: 249 tests pass
+**What's actually been proven, not just written**: 254 tests pass
 (`pytest -q`); `demo.py` runs end-to-end with no corpus or API key needed;
 `scripts/smoke_openrouter.py` has completed a real OpenRouter call;
 `scripts/run_swarm_demo.py` has completed two *concurrent* real agents
@@ -501,6 +501,180 @@ Files: `cohort/agents/budget.py`, `cohort/ui/runs.py`,
 **Still Python-only, deliberately**: building the FTS index, and
 `.env`/API-key management. Both are one-time setup, and a web form is the wrong
 place for a credential.
+
+
+**Update: UI restyled (Apple-style dark), plus real responsiveness.**
+`styles.css` was rewritten around Apple's dark system colours, which happen to
+map cleanly onto the semantics already in use — systemBlue for support,
+systemOrange for the discounting relations (a warning, not an error),
+systemRed for contradiction, systemPurple for the falsifiability edge.
+
+**DESIGN.md §10's three requirements were preserved, not restyled away**: status
+is still its own visual channel, discounting edges still differ from supporting
+ones in colour *and* dash pattern *and* weight (so none relies on hue alone),
+and `contradicts` is still as heavy as `attests`. The polish is applied around
+them.
+
+The three tabs are a macOS-style segmented control: one recessed track with the
+active segment raised out of it. (Traffic-light buttons were considered and
+rejected — the researcher asked for tabs.)
+
+**The detail panel floats** rather than docking: an inspector card overlaying
+the graph, anchored to `.body` so it stays below the top bar, with blur, a
+lifted shadow, a close button and Escape to dismiss. The point is not only the
+look — docking reserved 410px that sat empty whenever nothing was selected, so
+the graph now uses the full width. Three consequences handled deliberately:
+
+- **Nothing selected** renders a small, quiet hint card instead of a
+  full-height empty column, and it is `pointer-events: none` so it can never
+  swallow a click meant for the graph beneath it.
+- **It only renders on the Graph tab.** It is the graph's detail view, so
+  overlaying the corpus browser or run launcher with it would cover unrelated
+  content.
+- **Narrow screens** turn it into a bottom sheet (≤820px), not a stacked
+  column and never a removal — it is where a claim's support independence is
+  shown, so a breakpoint that dropped it would drop the argument.
+
+Other changes: translucent blurred top bar, filled accent on the default
+action, press-scale feedback, `:focus-visible` rings (keyboard only), styled
+scrollbars, tabular numerals wherever figures change, a pulsing badge while a
+run is live, and slide-in on new tool calls. All motion is behind
+`prefers-reduced-motion` — it is decoration, and the information is in the
+colour and the text.
+
+**Responsiveness, both senses:**
+- Layout: three breakpoints (1180 / 900 / 620px). The detail panel becomes a
+  stacked section rather than disappearing — it is where a claim's support
+  independence is shown, so a breakpoint that dropped it would drop the
+  argument.
+- Interaction: corpus search now runs **as you type**, debounced 220ms. Search
+  answers in ~65ms, so waiting for a submit added latency the index does not
+  have. Every response is tagged with the query that asked for it and stale
+  ones are dropped — debouncing alone does not stop an earlier request landing
+  last and showing results for a phrase already moved on from.
+
+**Two pre-existing gaps closed while in there**: `.badge.assurance` and
+`.badge.t-*` were always rendered and never styled, so both fell back to a
+neutral badge. Node type now carries a quiet tint (never as saturated as a
+status colour — type is not a judgement), and assurance is monospaced and
+neutral *except* `A0_UNCHECKED`, which is tinted because "nothing has been
+verified" is the one value a reader should not skim past. Assurance
+deliberately does not reuse the status palette: the two are orthogonal.
+
+Nothing was dropped in the rewrite — verified by diffing defined selectors
+against the old sheet, and by checking every class the JSX uses still resolves.
+
+
+**Update: settings popover + a real light theme.** A gear in the top bar opens
+a floating settings panel (outside-click and Escape to dismiss, capture-phase
+so Escape closes the popover without also deselecting the graph node). "Show
+audit nodes" moved out of the top bar into it, and gained the one-line
+explanation of what those nodes are — a reader who thinks the graph is complete
+would overestimate how checked it is.
+
+**Theme has three states, not a two-way switch**: `system` stamps no attribute
+and lets `prefers-color-scheme` decide (and keeps following it); `light`/`dark`
+stamp `data-theme` on `<html>` and win over the OS. The choice persists in
+`localStorage`, every access wrapped in try/catch — a private window throws on
+storage, and a theme toggle must never be what white-screens the app — and it
+is applied in `main.jsx` **before** the first paint, since applying it in an
+effect shows one frame of the wrong scheme.
+
+Light mode was real work, not a flag. The sheet had **30 hardcoded
+`rgba(255,255,255,…)` overlays** that would have rendered white-on-white, and
+**52 hardcoded semantic tints** derived from dark-mode hues. Both are gone:
+overlays now come from one `--fill-1…5` ladder (white over dark, black over
+light), and the tints are `color-mix(in srgb, var(--token) N%, transparent)`,
+so they follow whichever palette is live.
+
+**Contrast was measured, not eyeballed** — necessary, since these changes were
+made without being able to see the page. Every light-mode pair clears WCAG AA
+(4.5:1) on white: text 15.05, supports 5.59, discounts 4.80, contradicts 5.38,
+accepted 5.08, tests 7.33, and white-on-accent 5.08. Apple's own light
+secondary grey (`#8e8e93`) measured **3.26:1** and failed for the small
+metadata it is actually used on, so `--text-dim`/`--text-faint` were darkened
+to `#5a5a61`/`#717177` (6.84 / 4.85) rather than shipped as-is.
+
+**The light palette is written twice** — once in the media query for "system",
+once under `:root[data-theme="light"]` for an explicit choice — because CSS
+cannot share a declaration list between the two and a preprocessor would be a
+build step this project does not need. `tests/test_ui_theme.py` (5 tests) is
+what keeps that honest: it asserts the two palettes have not drifted (39 tokens
+each, compared name by name and value by value), that every light token has a
+dark default on `:root` (a token defined only for light would resolve to
+nothing in dark), that no hardcoded white overlay has crept back into the sheet
+body, that all three theme states are reachable, and — DESIGN.md §10 — that
+discounting edges still differ from supporting ones in dash pattern *and*
+weight and that `contradicts` keeps its weight, in the graph *and* in the
+legend. A restyle must not quietly reduce those to a colour difference.
+
+
+**Update: UI defect pass + responsive design.** Seven reported problems, all
+fixed; three were the same class of bug — a colour hardcoded for dark mode.
+
+**Light-mode breakage (the theme pass missed these).** `.tab.on` set
+`color: #fff` over `--bg-elevated`, which is `#ffffff` in light: the active
+tab's label was white on white. The selected graph node hardcoded
+`fill: #22262e`, turning the box dark and its text invisible; hover reused
+`--bg-elevated`, which equals the node's own base fill in light, so hover did
+nothing. Node surfaces are now three tokens (`--node-fill`, `-hover`,
+`-selected`) defined per scheme.
+
+**Graph: same-column edges were drawn straight through the node boxes.**
+`edgePath` had no same-column case, so those fell through to the backward
+branch and rendered as a horizontal line from the source's left edge to the
+target's right edge — through both nodes and everything between them. This was
+not cosmetic: `parallel_of`, `descends_from` and `contradicts` all connect
+nodes *within* one column, so the three edge types that carry the design's
+actual argument were exactly the ones being drawn as lines through solid
+rectangles. They now bow out into the column gap, further for a longer vertical
+span so several stay separable, and `COL_GAP` widened to 310 to make room.
+Verified by running the real layout: the path starts on the node's right edge,
+bows outward, and stays clear of the next column.
+
+**Graph: titles overflowed the node.** Truncation was by character count
+(`24`), but CJK is full-width — 24 Chinese characters at 13px is ~312px in a
+164px slot, so most titles on this corpus spilled out. Replaced with
+`fitText()`, which budgets in pixels (full-width ≈ 1em, Latin ≈ 0.53em), plus a
+`clipPath` on every node as the hard guarantee behind the estimate. The Heart
+Sutra title now cuts at 12 characters instead of 24.
+
+**Controls: one radius and one height.** Buttons ranged from 7px to a 999px
+pill and stood at 28/31/31/34px in the same row, which read as four unrelated
+widgets. Now `--radius-control` / `--radius-control-inner` and `--control-h`
+(top bar) / `--field-h` (forms), set as explicit heights rather than left to
+padding plus line-height. Pills stay pills where a pill is the right shape
+(badges, chips, the round close button); `.btn.tiny` is the one documented
+height exception, since an inline row action must not be form-control tall.
+
+**Stats collapsed into a disclosure** (`StatsBar.jsx`): the two totals a reader
+tracks, with the per-type breakdown one click away. Ordered by the evidence
+chain rather than by count, so the list matches the graph's columns. Only one
+popover opens at a time — two overlapping panels in one corner reads as a bug.
+
+**The gear was off-centre**: the hand-traced path carried a
+`translate()/scale()` on the outer shape only, so the ring sat off the hub.
+Rebuilt from computed geometry, everything concentric on (8,8).
+
+**Responsive design, five stages, each driven by a specific failure** rather
+than by round numbers: 1180px (410px of inspector over a 1000px viewport hides
+the graph → narrower), 940px (overlaying beats stacking only while two node
+columns fit → bottom sheet; the tagline goes), 760px (the top bar needs ~740px
+for brand + 3 tabs + stats + refusals + gear → two rows, tabs full width),
+560px (reading columns stop being two-up; stats collapses to one figure, since
+dropping the words but keeping both would read as "37 43"), plus short-viewport
+rules for landscape phones. `@media (pointer: coarse)` raises control heights
+to 36/44px — keyed off the pointer, not the width, because a large tablet is
+still a thumb.
+
+The graph SVG is deliberately *not* responsive: its layout is deterministic and
+citable (graph-model.js), so it scrolls inside its pane rather than reflowing
+into a different picture at every width.
+
+**Contrast re-measured after every colour change.** The tinted selected-node
+fill dropped the small type/status labels to 2.66:1 (dark) and 4.17:1 (light);
+one step up the grey ramp restores 5.23 / 5.88 without letting them compete
+with the title.
 
 
 **Update: the researcher UI (stage 5) is built and serving — read-only.**

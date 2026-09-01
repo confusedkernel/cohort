@@ -41,12 +41,20 @@ export const EDGE_STYLE = {
   descends_from:{ klass: 'e-discount',     label: 'descends from' },
 }
 
-const NODE_W = 190
-const NODE_H = 54
-const COL_GAP = 250
-const ROW_GAP = 74
+export const NODE_W = 190
+export const NODE_H = 54
+//: wide enough for a same-column edge to bow out into the gap without
+//: reaching the next column (see `edgePath`), which is what the two most
+//: important edge types actually need — `parallel_of` links witnesses to
+//: witnesses and `contradicts` links a claim to a conjecture, and both
+//: endpoints therefore sit in one column.
+const COL_GAP = 310
+const ROW_GAP = 86
 const PAD_X = 40
 const PAD_Y = 56
+//: horizontal room inside a node for its title: the 14px left inset plus a
+//: 12px right gutter.
+export const TITLE_MAX_PX = NODE_W - 14 - 12
 
 export function layout(nodes, { showAudit }) {
   const visible = nodes.filter((n) => showAudit || !AUDIT_TYPES.has(n.type))
@@ -79,10 +87,25 @@ export function layout(nodes, { showAudit }) {
 // A curve rather than a straight line: with columns, many edges share
 // endpoints, and straight segments overlap into an unreadable bundle.
 export function edgePath(from, to) {
-  const x1 = from.x + from.w
   const y1 = from.y + from.h / 2
-  const x2 = to.x
   const y2 = to.y + to.h / 2
+
+  // Same column. This case used to fall through to the backward branch, which
+  // drew a horizontal line from the source's left edge to the target's right
+  // edge — straight through both node boxes, and through every node between
+  // them. It was not a cosmetic problem: `parallel_of`, `descends_from` and
+  // `contradicts` all connect nodes within one column, so the three edge types
+  // carrying the design's actual argument were the ones being drawn as lines
+  // through solid rectangles. They now bow out into the column gap, further
+  // for a longer vertical span so several of them stay separable.
+  if (from.x === to.x) {
+    const x = from.x + from.w
+    const bulge = Math.min(96, 34 + Math.abs(y2 - y1) * 0.30)
+    return `M ${x} ${y1} C ${x + bulge} ${y1}, ${x + bulge} ${y2}, ${x} ${y2}`
+  }
+
+  const x1 = from.x + from.w
+  const x2 = to.x
   if (x2 < x1) {
     // a backward edge (e.g. passage -> witness): leave from the left side
     const bx1 = from.x
@@ -92,6 +115,34 @@ export function edgePath(from, to) {
   }
   const mid = (x1 + x2) / 2
   return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`
+}
+
+//: CJK and other full-width characters occupy roughly a full em, Latin about
+//: half. Truncating by character count therefore overflowed badly on this
+//: corpus: 24 Chinese characters at 13px is ~312px in a 164px slot.
+const FULLWIDTH_RE = /[\u1100-\u115f\u2e80-\u9fff\ua960-\ua97f\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/
+
+//: Fit `text` to `maxPx` at `fontPx`, appending an ellipsis when it is cut.
+//: An estimate, not a measurement — measuring would need a canvas or a DOM
+//: round-trip per node — but it is a *conservative* estimate, and the node's
+//: clip path in `GraphView` is the hard guarantee behind it.
+export function fitText(text, maxPx = TITLE_MAX_PX, fontPx = 13) {
+  const s = String(text ?? '')
+  const charW = (ch) => (FULLWIDTH_RE.test(ch) ? fontPx : fontPx * 0.53)
+  let total = 0
+  for (const ch of s) total += charW(ch)
+  if (total <= maxPx) return s
+
+  const budget = maxPx - fontPx * 0.53   // room for the ellipsis
+  let acc = 0
+  let out = ''
+  for (const ch of s) {
+    const w = charW(ch)
+    if (acc + w > budget) break
+    out += ch
+    acc += w
+  }
+  return `${out.trimEnd()}…`
 }
 
 export function nodeTitle(node) {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { acceptNode, getNode, rejectNode, reopenNode } from './api'
 import { EDGE_STYLE, nodeTitle } from './graph-model'
 
-export default function DetailPanel({ nodeId, onSelect, canWrite, onChanged }) {
+export default function DetailPanel({ nodeId, onSelect, onClose, canWrite, onChanged }) {
   const [node, setNode] = useState(null)
   const [error, setError] = useState(null)
 
@@ -26,17 +26,34 @@ export default function DetailPanel({ nodeId, onSelect, canWrite, onChanged }) {
       </aside>
     )
   }
-  if (error) return <aside className="panel"><p className="error">{error}</p></aside>
-  if (!node) return <aside className="panel"><p className="hint">Loading…</p></aside>
+  if (error) {
+    return (
+      <aside className="panel">
+        <CloseButton onClose={onClose} />
+        <p className="error">{error}</p>
+      </aside>
+    )
+  }
+  if (!node) {
+    return (
+      <aside className="panel">
+        <CloseButton onClose={onClose} />
+        <p className="hint">Loading…</p>
+      </aside>
+    )
+  }
 
   const support = node.independent_support
 
   return (
     <aside className="panel">
+      <CloseButton onClose={onClose} />
       <header className="panel-head">
         <div className={`badge t-${node.type}`}>{node.type}</div>
         <div className={`badge s-${node.status}`}>{node.status}</div>
-        <div className="badge assurance">{node.assurance}</div>
+        {/* the level travels as a class too, so CSS can single out A0 —
+            "nothing has been verified" is the one value not to skim past */}
+        <div className={`badge assurance lvl-${node.assurance}`}>{node.assurance}</div>
       </header>
 
       <h2>{nodeTitle(node)}</h2>
@@ -104,7 +121,9 @@ export default function DetailPanel({ nodeId, onSelect, canWrite, onChanged }) {
               <div className="v-head">
                 <strong>{v.payload.method}</strong>
                 <span className={`badge r-${v.payload.result}`}>{v.payload.result}</span>
-                <span className="badge assurance">{v.payload.assurance_level}</span>
+                <span className={`badge assurance lvl-${v.payload.assurance_level}`}>
+                  {v.payload.assurance_level}
+                </span>
               </div>
               <p>{v.payload.detail}</p>
               {v.payload.limitations && (
@@ -130,6 +149,16 @@ export default function DetailPanel({ nodeId, onSelect, canWrite, onChanged }) {
         </ul>
       </Section>
     </aside>
+  )
+}
+
+function CloseButton({ onClose }) {
+  if (!onClose) return null
+  return (
+    <button className="panel-close" onClick={onClose} aria-label="Close inspector"
+            title="Close (Esc)">
+      ×
+    </button>
   )
 }
 
