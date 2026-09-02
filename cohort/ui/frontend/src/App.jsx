@@ -8,7 +8,7 @@ import RefusalsPanel from './RefusalsPanel'
 import RunPanel from './RunPanel'
 import Settings, { applyTheme, loadTheme } from './Settings'
 import StatsBar from './StatsBar'
-import { EDGE_STYLE } from './graph-model'
+import { EDGE_STYLE, legendFor } from './graph-model'
 import { usePresence, useSlidingIndicator } from './motion'
 
 export default function App() {
@@ -57,7 +57,7 @@ export default function App() {
     ['graph', 'Graph'],
     ['findings', 'Findings'],
     health?.corpus_enabled && ['corpus', 'Corpus'],
-    health?.runs_enabled && ['run', 'Agent run'],
+    health?.runs_enabled && ['run', 'Inquiry'],
   ].filter(Boolean)
 
   const { trackRef: tabTrackRef, thumbProps: tabThumbProps } =
@@ -170,7 +170,7 @@ export default function App() {
           <div className="tab-panel" key={tab} data-dir={tabDir}>
             {tab === 'graph' && (
               <>
-                <Legend />
+                <Legend data={data} showAudit={showAudit} />
                 <GraphView
                   data={data}
                   selectedId={selectedId}
@@ -214,22 +214,37 @@ export default function App() {
   )
 }
 
-function Legend() {
-  // The discounting edges are called out in words, not only by colour: that
-  // agreement between related witnesses is *weaker* evidence is the system's
-  // central argument, and a legend that leaves it to be inferred from a dash
-  // pattern is doing the reader no favours.
+function Legend({ data, showAudit }) {
+  // Describes *this* graph, not the vocabulary: `legendFor` keeps only the
+  // entries whose edges are actually drawn. See graph-model.js for why that is
+  // safe to shrink, and why the discounting entry says "discounts" in words
+  // rather than leaving it to a dash pattern.
+  const { edges, statuses } = legendFor(data.nodes, data.edges, { showAudit })
+  if (!edges.length && !statuses.length) return null
+
   return (
     <div className="legend">
-      <span className="li"><i className="swatch e-attests" /> attests — adds support</span>
-      <span className="li"><i className="swatch e-discount" /> parallel of / descends from — <b>discounts</b> support</span>
-      <span className="li"><i className="swatch e-contradicts" /> contradicts</span>
-      <span className="li"><i className="swatch e-structural" /> structural</span>
-      <span className="li"><i className="swatch e-addresses" /> addresses — what an assertion answers</span>
-      <span className="sep" />
-      {['proposed', 'attested', 'accepted', 'rejected'].map((s) => (
+      {edges.map((e) => (
+        <span className="li" key={e.key}>
+          <i className={`swatch ${e.klass}`} /> {emphasise(e.text, e.strong)}
+        </span>
+      ))}
+      {!!edges.length && !!statuses.length && <span className="sep" />}
+      {statuses.map((s) => (
         <span className="li" key={s}><i className={`dot s-${s}`} /> {s}</span>
       ))}
     </div>
+  )
+}
+
+//: bolds one word inside a legend line without putting markup in the data.
+function emphasise(text, word) {
+  if (!word) return text
+  const at = text.indexOf(word)
+  if (at < 0) return text
+  return (
+    <>
+      {text.slice(0, at)}<b>{word}</b>{text.slice(at + word.length)}
+    </>
   )
 }

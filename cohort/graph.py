@@ -262,7 +262,7 @@ class Graph:
 
     def log_run_started(
         self, run_id: str, *, authored_by: str, agents: list[dict],
-        budget_usd: float | None = None,
+        budget_usd: float | None = None, question_id: str | None = None,
     ) -> Event:
         """A non-mutating marker opening a run, like `log_model_call`.
 
@@ -270,10 +270,18 @@ class Graph:
         run was *for*. The roster — each agent's id, role, model and declared
         scope — is the thing a reader needs to interpret the writes that
         follow, and declared scope per agent is the condition under which this
-        design permits more than one agent at all."""
+        design permits more than one agent at all.
+
+        `question_id` is what the run was *asked*, as opposed to what its
+        agents were told. The two differ — the instructions are templated from
+        the question and carry a stance — and only the question is stable
+        enough to group runs by, which is what makes a second run on the same
+        question legible as another pass at it rather than an unrelated run."""
+        detail: dict = {"run_id": run_id, "agents": agents, "budget_usd": budget_usd}
+        if question_id:
+            detail["question_id"] = question_id
         ev = self.event_log_or_raise().append(
-            "run_started", authored_by=authored_by,
-            detail={"run_id": run_id, "agents": agents, "budget_usd": budget_usd},
+            "run_started", authored_by=authored_by, detail=detail,
         )
         self._apply(ev)
         return ev

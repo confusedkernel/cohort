@@ -69,7 +69,8 @@ from ..eventlog import read_refusals, read_runs
 from ..graph import Graph
 from ..agents.review_worker import ReviewWorker, pending_review_context
 from ..agents.roster import RosterNotIndependent, check_distinct_model_families
-from ..schemas import AgentKind, AgentProfile
+from ..families import model_family
+from ..schemas import AgentKind, AgentProfile, NodeType
 from ..sources.base import Source
 
 #: What a run may cost unless the operator raises it. Low on purpose: the
@@ -134,14 +135,146 @@ class AgentSpec:
         }
 
 
+
+# --- auto-planned inquiries ---------------------------------------------------
+#
+# "Ask a question and let it decide" has to decide two different kinds of thing,
+# and they are not equally safe to automate.
+#
+# The *machinery* — how many agents, which models, which roles — carries no
+# epistemic weight beyond one hard constraint (a roster sharing a model family
+# is refused at the write boundary), so deciding it here is a convenience.
+#
+# The *agenda* does carry weight. `ask_question` is researcher-only because
+# setting the agenda is the supervision (tests/test_question.py), so this
+# planner never asks a model what to investigate: it templates the researcher's
+# own question into the instructions verbatim, along with the `answerable_by`
+# they wrote. No model call happens before the run, and nothing paraphrases the
+# question into a task on the researcher's behalf. An auto mode that asked a
+# model "what should we look into here?" would be the bottom-up
+# question-generation this project has not agreed to.
+
+#: The stance each auto worker takes. Fixed, not chosen per run: two agents
+#: handed the same question and the same instructions run the same searches and
+#: return the same passages, and two identical answers look like corroboration
+#: while being one result counted twice — the exact confusion
+#: `independent_support()` exists to prevent. So the second worker's job is to
+#: look for what would *break* an answer. `record_contradiction` has never once
+#: been called in a live run, which is some evidence that nothing in the current
+#: setup asks anyone to try.
+INQUIRY_STANCES = (
+    (
+        "direct attestation",
+        "Search the corpus for passages that would attest an answer to this "
+        "question, and propose the claims or conjectures those passages support. "
+        "Cite what you find; propose nothing you cannot cite.",
+    ),
+    (
+        "disconfirmation",
+        "Your job is the other side: search for passages that would make an "
+        "answer to this question wrong, or that an answer would have to explain "
+        "away. Where two passages genuinely conflict, record the contradiction "
+        "rather than choosing between them. A question that survives this is "
+        "worth more than one nobody tried to break.",
+    ),
+)
+
+REVIEW_STANCE = (
+    "review",
+    "Check the claims the other agents proposed against the passages they "
+    "cite. Attest what holds. Where a citation does not resolve, say so and "
+    "leave it unattested — withholding is a result.",
+)
+
+
+def plan_inquiry(
+    question: str, *, answerable_by: str = "", models: list[str] | None = None,
+    max_agents: int = 4,
+) -> list[AgentSpec]:
+    """A roster for one question, without asking anyone what to look into.
+
+    Returns workers first and the reviewer last, which is also the order
+    `_execute` runs them in — a reviewer alongside the workers would have
+    nothing proposed yet to review.
+    """
+    question = (question or "").strip()
+    if not question:
+        raise RunRejected("an inquiry needs a question")
+
+    pool = [m for m in (models or []) if m.strip()]
+    families = list(dict.fromkeys(model_family(m) for m in pool))
+    # One model per family, in pool order: `check_distinct_model_families`
+    # refuses a roster that reuses one, so planning a roster the write boundary
+    # would reject is not an option worth offering.
+    by_family: dict[str, str] = {}
+    for m in pool:
+        by_family.setdefault(model_family(m), m)
+    usable = [by_family[f] for f in families]
+
+    # A reviewer is reserved before workers are allocated, not added if some
+    # budget happens to be left. An agent may not attest what it authored, so a
+    # run with no second family cannot promote anything it proposes: every
+    # claim stays at `proposed` and the run's output is a pile of assertions
+    # nobody checked. Trading the second worker for a reviewer is the whole
+    # reason to plan a roster rather than let someone press Start with one
+    # agent — the count that gets you a *checked* answer is 2, not 1.
+    seats = max(1, min(max_agents, len(usable) or 1))
+    reviewing = seats >= 2
+    worker_seats = min(seats - (1 if reviewing else 0), len(INQUIRY_STANCES))
+
+    specs: list[AgentSpec] = []
+    for i in range(worker_seats):
+        label, stance = INQUIRY_STANCES[i]
+        specs.append(
+            AgentSpec(
+                agent_id=f"agent:inquiry-{i + 1}",
+                instructions=_inquiry_task(question, answerable_by, stance),
+                method_label=label,
+                model=usable[i] if i < len(usable) else "",
+                role=ROLE_WORKER,
+            )
+        )
+    if reviewing:
+        label, stance = REVIEW_STANCE
+        specs.append(
+            AgentSpec(
+                agent_id="agent:inquiry-reviewer",
+                instructions=_inquiry_task(question, answerable_by, stance),
+                method_label=label,
+                model=usable[len(specs)] if len(specs) < len(usable) else "",
+                role=ROLE_REVIEWER,
+            )
+        )
+    return specs
+
+
+def _inquiry_task(question: str, answerable_by: str, stance: str) -> str:
+    """The question reaches the agent as the researcher wrote it.
+
+    `answerable_by` travels with it because it is the useful half: it is the
+    researcher saying what retrieval over this corpus can and cannot settle,
+    which is the fence an agent otherwise walks straight through — answering a
+    dating question from a corpus that cannot date anything.
+    """
+    parts = [f"The researcher's question, verbatim: {question}"]
+    if answerable_by.strip():
+        parts.append(
+            "What the researcher says would answer it: "
+            f"{answerable_by.strip()}. Anything beyond that is outside what "
+            "this corpus can settle — say so rather than answering anyway."
+        )
+    parts.append(stance)
+    return "\n\n".join(parts)
+
 class Run:
     """One run's observable state — one agent or several. Written by the worker
     thread, read by request threads, so every mutation happens under `_lock`."""
 
     def __init__(self, run_id: str, specs: list[AgentSpec], budget_usd: float,
-                 max_turns: int, model: str) -> None:
+                 max_turns: int, model: str, question_id: str | None = None) -> None:
         self.id = run_id
         self.specs = specs
+        self.question_id = question_id
         #: per-agent tool calls, keyed by agent id, so a live view can say
         #: *which* agent made a call rather than only that one happened
         self.per_agent: dict[str, list[dict[str, Any]]] = {s.agent_id: [] for s in specs}
@@ -175,6 +308,7 @@ class Run:
             return {
                 "id": self.id,
                 "state": self.state,
+                "question_id": self.question_id,
                 "agent_id": self.agent_id,
                 "model": self.model,
                 "instructions": self.instructions,
@@ -256,6 +390,23 @@ class RunManager:
             "default_budget_usd": min(0.25, self.max_budget_usd),
             "max_turns": self.max_turns,
             "max_agents": self.max_agents,
+            # The roster auto mode would build, minus the instructions, which
+            # are the only part that depends on the question. Reported rather
+            # than left for the browser to work out: the shape depends on how
+            # many *families* the pool has, not how many models, so a client
+            # computing it would have to reimplement `model_family` and would
+            # drift from what the server actually does. A launcher that
+            # promises three agents and starts two is worse than one that
+            # promises nothing.
+            "plan": [
+                {
+                    "agent_id": spec.agent_id, "role": spec.role,
+                    "method_label": spec.method_label, "model": spec.model,
+                }
+                for spec in plan_inquiry(
+                    "preview", models=load_model_pool(), max_agents=self.max_agents,
+                )
+            ],
         }
 
     def current(self) -> dict[str, Any] | None:
@@ -295,7 +446,7 @@ class RunManager:
 
     def start(
         self, agents: list[AgentSpec], *, budget_usd: float,
-        max_turns: int | None = None,
+        max_turns: int | None = None, question_id: str | None = None,
     ) -> dict[str, Any]:
         """Start one run of one or more agents. Every refusal raises
         `RunRejected` with a reason meant to be read, not a status code."""
@@ -337,6 +488,18 @@ class RunManager:
                 f"${self.max_budget_usd:.2f}. The ceiling is set when the server "
                 "starts, not by the browser."
             )
+        if question_id:
+            # Checked before the run starts, not when the first claim tries to
+            # link itself. A wrong id here would otherwise surface as a run
+            # whose every proposal logged an edge refusal — a confusing way to
+            # report a typo, and one that costs money to find out about.
+            with Graph.open_read_only(self.db_path) as g:
+                node = g.get_node(question_id)
+                if node.type != NodeType.QUESTION:
+                    raise RunRejected(
+                        f"{question_id} is a {node.type}, not a question. An "
+                        "inquiry runs against a question node; ask one first."
+                    )
         turns = min(max_turns or self.max_turns, self.max_turns)
 
         try:
@@ -362,7 +525,8 @@ class RunManager:
                     "duration (docs/design.md §5 principle 7). Several agents inside one "
                     "run are fine — they share the process and the lock."
                 )
-            run = Run(uuid.uuid4().hex[:12], agents, budget_usd, turns, model)
+            run = Run(uuid.uuid4().hex[:12], agents, budget_usd, turns, model,
+                      question_id=question_id)
             self._current = run
             self._history.append(run)
 
@@ -398,7 +562,7 @@ class RunManager:
             graph.log_run_started(
                 run.id, authored_by=f"run:{run.id}",
                 agents=[spec.as_json() for spec in run.specs],
-                budget_usd=run.budget_usd,
+                budget_usd=run.budget_usd, question_id=run.question_id,
             )
 
             def on_call(call: dict) -> None:
@@ -428,6 +592,7 @@ class RunManager:
                 return cls(
                     graph, source=self.source, authored_by=spec.agent_id,
                     profile=profile, transport=transport, model=spec.model,
+                    question_id=run.question_id,
                 ), spec.instructions
 
             workers = [s for s in run.specs if not s.is_reviewer]

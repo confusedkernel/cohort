@@ -27,7 +27,7 @@ import time
 from typing import Any
 
 from ..graph import Graph
-from ..schemas import AgentProfile, NodeType
+from ..schemas import AgentProfile, EdgeType, NodeType
 from ..sources.base import Source
 from ..tools.find_attestations import DESCRIPTION as FIND_ATTESTATIONS_DESCRIPTION
 from ..tools.find_attestations import NAME as FIND_ATTESTATIONS_NAME
@@ -214,6 +214,7 @@ class AttestationWorker:
         transport=None,
         profile: AgentProfile | None = None,
         max_output_tokens: int | None = DEFAULT_MAX_OUTPUT_TOKENS,
+        question_id: str | None = None,
     ) -> None:
         if model is None or api_key is None:
             config_key, config_model = load_openrouter_config()
@@ -227,6 +228,15 @@ class AttestationWorker:
         self.api_key = api_key
         self.transport = transport or default_transport
         self.profile = profile
+
+        #: the question this worker was asked, if any. Every claim or
+        #: conjecture it proposes gets an `addresses` edge to it — recording
+        #: that the assertion was put forward *as an answer to this*, which is
+        #: a fact about how the work happened and not an inference about
+        #: whether it succeeded. Without it an auto-planned run answers a
+        #: question and leaves nothing in the graph connecting the two, so the
+        #: question reads as unaddressed and the claims read as unprompted.
+        self.question_id = question_id
 
     def run(self, instructions: str, *, max_turns: int = 6) -> list[dict[str, Any]]:
         """Sync convenience wrapper around `run_async()`, for single-worker
@@ -325,6 +335,34 @@ class AttestationWorker:
 
         return log
 
+    def _address(self, node_id: str, model_call_id: int | None) -> str:
+        """Links a fresh assertion to the question this worker was asked.
+
+        Done here rather than as a tool argument, because an agent that had to
+        remember to pass the question id would sometimes not, and a question
+        whose answers are only *sometimes* attached to it is worse than one
+        with none — it reads as a tally.
+
+        A failure here is swallowed on purpose. The assertion is already
+        written and its id is already going back to the model; raising would
+        turn a successful proposal into a tool error and invite the model to
+        propose it again. The refusal is logged, so a missing edge is
+        answerable from the log rather than being silently absent.
+        """
+        if not self.question_id:
+            return node_id
+        try:
+            self.graph.add_edge(
+                EdgeType.ADDRESSES, node_id, self.question_id,
+                authored_by=self.authored_by, model_call_id=model_call_id,
+            )
+        except Exception as e:  # noqa: BLE001 — see docstring
+            self.graph.log_refusal(
+                "address_question", self.authored_by, e,
+                node_id=node_id, model_call_id=model_call_id,
+            )
+        return node_id
+
     def _dispatch(self, name: str, args: dict, model_call_id: int | None = None) -> tuple[bool, Any]:
         """Returns (is_error, result). A CohortError (a refused write) is
         reported back to the model as a tool error, not raised — the worker
@@ -342,10 +380,10 @@ class AttestationWorker:
         try:
             if name == PROPOSE_CLAIM_NAME:
                 parsed = ProposeClaimInput.model_validate(args)
-                return False, propose_claim(
+                return False, self._address(propose_claim(
                     self.graph, self.source, parsed, authored_by=self.authored_by,
                     model_call_id=model_call_id,
-                )
+                ), model_call_id)
             if name == FIND_ATTESTATIONS_NAME:
                 parsed = FindAttestationsInput.model_validate(args)
                 return False, find_attestations(
@@ -354,10 +392,10 @@ class AttestationWorker:
                 ).model_dump(mode="json")
             if name == PROPOSE_CONJECTURE_NAME:
                 parsed = ProposeConjectureInput.model_validate(args)
-                return False, propose_conjecture(
+                return False, self._address(propose_conjecture(
                     self.graph, self.source, parsed, authored_by=self.authored_by,
                     model_call_id=model_call_id,
-                )
+                ), model_call_id)
             if name == LINK_PARALLELS_NAME:
                 parsed = LinkParallelsInput.model_validate(args)
                 return False, link_parallels(

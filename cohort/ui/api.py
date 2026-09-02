@@ -66,7 +66,7 @@ from ..views import (
 )
 from ..views import edge_json as _edge_json
 from ..views import node_json as _node_json
-from .runs import ROLE_WORKER, AgentSpec, RunManager, RunRejected
+from .runs import ROLE_WORKER, AgentSpec, RunManager, RunRejected, plan_inquiry
 
 FRONTEND_DIR = Path(__file__).resolve().parent / "static"
 
@@ -713,8 +713,56 @@ def create_app(
             400: "a run is already in progress", "that budget exceeds the
             server's ceiling", "no corpus is configured" are all states the
             researcher can act on, and flattening them to a validation error
-            would throw away the only useful part."""
+            would throw away the only useful part.
+
+            `{question_id, auto: true}` plans the roster instead of taking
+            one — see `plan_inquiry`. The planning is server-side so the
+            terminal gets the same rosters as the browser (`cohort run
+            --question ID`), and because the browser does not know the model
+            pool's families and so cannot tell which rosters the write
+            boundary would refuse."""
+            question_id = str(body.get("question_id") or "").strip() or None
             raw = body.get("agents")
+
+            if body.get("auto"):
+                if not question_id:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="an auto inquiry needs `question_id`: the "
+                               "question is the agenda, and nothing here "
+                               "invents one.",
+                    )
+                try:
+                    with Graph.open_read_only(run_manager.db_path) as g:
+                        node = g.get_node(question_id)
+                    # Checked here as well as in `start`, and before planning
+                    # rather than after: a claim payload also has a `text`, so
+                    # planning first would build a whole roster around a claim's
+                    # own words and only then be refused for the node's type.
+                    if node.type != NodeType.QUESTION:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"{question_id} is a {node.type}, not a "
+                                   "question. An inquiry runs against a question "
+                                   "node; ask one first.",
+                        )
+                    payload = node.payload or {}
+                    specs = plan_inquiry(
+                        str(payload.get("text") or ""),
+                        answerable_by=str(payload.get("answerable_by") or ""),
+                        models=run_manager.config()["models"],
+                        max_agents=run_manager.max_agents,
+                    )
+                except CohortError as e:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"no node {e}. An inquiry runs against a "
+                               "question node; ask one first.",
+                    ) from e
+                except RunRejected as e:
+                    raise HTTPException(status_code=409, detail=str(e)) from e
+                return _start(specs, body, question_id)
+
             if raw is None:
                 # single-agent shape, kept working: one agent is the common case
                 # and callers (including the earlier UI) should not have to wrap
@@ -745,11 +793,15 @@ def create_app(
                 raise HTTPException(
                     status_code=422, detail="each agent must be an object"
                 ) from e
+            return _start(specs, body, question_id)
+
+        def _start(specs, body: dict[str, Any], question_id: str | None) -> dict[str, Any]:
             try:
                 return run_manager.start(
                     specs,
                     budget_usd=float(body.get("budget_usd") or 0.0),
                     max_turns=int(body["max_turns"]) if body.get("max_turns") else None,
+                    question_id=question_id,
                 )
             except RunRejected as e:
                 raise HTTPException(status_code=409, detail=str(e)) from e

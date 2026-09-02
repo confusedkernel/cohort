@@ -728,8 +728,35 @@ def cmd_run(args) -> None:
     source = _corpus(args)
     workers = args.agent or []
     reviewers = args.reviewer or []
-    if not workers and not reviewers:
-        raise SystemExit("give at least one --agent or --reviewer.")
+
+    # `--question` with no roster plans one. Same function the browser's auto
+    # mode calls, deliberately: the parity this project promises is not that
+    # both front ends can start a run, it is that a run started either way is
+    # the same run.
+    if args.question and not workers and not reviewers:
+        from .ui.runs import plan_inquiry
+        from .agents.openrouter import load_model_pool
+        from .graph import Graph
+
+        with Graph.open_read_only(Path(args.db)) as g:
+            payload = g.get_node(args.question).payload or {}
+        specs = plan_inquiry(
+            str(payload.get("text") or ""),
+            answerable_by=str(payload.get("answerable_by") or ""),
+            models=load_model_pool(), max_agents=args.max_agents,
+        )
+        print(f"planned {len(specs)} agent(s) for {args.question}:")
+        for spec in specs:
+            print(f"  {spec.agent_id}  {spec.role}  {spec.method_label}  "
+                  f"{spec.model or '(default model)'}")
+        print()
+    elif not workers and not reviewers:
+        raise SystemExit(
+            "give at least one --agent or --reviewer, or --question ID to have "
+            "the roster planned."
+        )
+    else:
+        specs = None
 
     def paired(instructions: list[str], models: list[str], flag: str) -> list[str]:
         """One model per instruction, or none at all. A partial list is
@@ -775,28 +802,30 @@ def cmd_run(args) -> None:
     scopes = declared(args.scope, "--scope")
     methods = declared(args.method, "--method")
 
-    specs = [
-        AgentSpec(agent_id=f"agent:cli-{i + 1}", instructions=text,
-                  corpus_scope=scopes[i], method_label=methods[i],
-                  model=worker_models[i])
-        for i, text in enumerate(workers)
-    ]
-    # Reviewers come after the workers in the roster because that is the order
-    # they run in: a reviewer starting alongside the workers would have nothing
-    # proposed yet to review (see `RunManager._execute`).
-    specs += [
-        AgentSpec(agent_id=f"agent:cli-reviewer-{i + 1}", instructions=text,
-                  corpus_scope=scopes[len(workers) + i],
-                  method_label=methods[len(workers) + i],
-                  model=reviewer_models[i], role=ROLE_REVIEWER)
-        for i, text in enumerate(reviewers)
-    ]
+    if specs is None:
+        specs = [
+            AgentSpec(agent_id=f"agent:cli-{i + 1}", instructions=text,
+                      corpus_scope=scopes[i], method_label=methods[i],
+                      model=worker_models[i])
+            for i, text in enumerate(workers)
+        ]
+        # Reviewers come after the workers in the roster because that is the
+        # order they run in: a reviewer starting alongside the workers would
+        # have nothing proposed yet to review (`RunManager._execute`).
+        specs += [
+            AgentSpec(agent_id=f"agent:cli-reviewer-{i + 1}", instructions=text,
+                      corpus_scope=scopes[len(workers) + i],
+                      method_label=methods[len(workers) + i],
+                      model=reviewer_models[i], role=ROLE_REVIEWER)
+            for i, text in enumerate(reviewers)
+        ]
     manager = RunManager(
         Path(args.db), _log_path(args), source,
         max_budget_usd=args.budget, max_turns=args.max_turns,
     )
     try:
-        manager.start(specs, budget_usd=args.budget, max_turns=args.max_turns)
+        manager.start(specs, budget_usd=args.budget, max_turns=args.max_turns,
+                      question_id=args.question)
     except RunRejected as e:
         raise SystemExit(f"refused: {e}")
 
@@ -997,8 +1026,17 @@ def build_parser() -> argparse.ArgumentParser:
                         "or one for all of them")
     p.add_argument("--method", action="append", metavar="METHOD",
                    help="declared method, paired like --scope")
+    p.add_argument("--question", metavar="ID",
+                   help="the question node this run is answering. On its own, "
+                        "with no --agent/--reviewer, the roster is planned for "
+                        "it; alongside an explicit roster it just records what "
+                        "the run was asked. Every claim or conjecture the run "
+                        "proposes gets an `addresses` edge to it")
     p.add_argument("--budget", type=float, default=0.25, help="hard USD cap for the run")
     p.add_argument("--max-turns", type=int, default=8)
+    p.add_argument("--max-agents", type=int, default=4,
+                   help="ceiling on a planned roster (--question). An explicit "
+                        "roster is bounded by what you pass, not by this")
     p.add_argument("--history", action="store_true",
                    help="list past runs from the event log instead of starting one. "
                         "Spends nothing and needs no corpus or key")

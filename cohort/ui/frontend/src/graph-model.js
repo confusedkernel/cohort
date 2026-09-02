@@ -18,11 +18,15 @@ export const COLUMNS = [
   { key: 'witness', label: 'Witnesses', types: ['witness'] },
   { key: 'passage', label: 'Passages', types: ['passage'] },
   { key: 'assertion', label: 'Claims & conjectures', types: ['claim', 'conjecture'] },
-  // The chain terminates in what it was for. `addresses` points from the
-  // assertion to the question, so the question sits to the right of the
-  // claims that answer it and the arrows keep reading left to right.
-  { key: 'question', label: 'Research questions', types: ['question'] },
   { key: 'audit', label: 'Queries & audit', types: ['query', 'verification', 'decision'] },
+  // Rightmost, because the last column reads as where the chain arrives, and
+  // what it arrives at is the thing the work was for. Audit sits before it:
+  // a query and a verification are how an assertion was reached, not where it
+  // was heading, so ending the chain on them would make bookkeeping the
+  // conclusion. The cost is that `addresses` now spans the audit column, and
+  // that is the cheaper cost — two edges bowing over a column of queries,
+  // against a layout that puts the research question behind the paperwork.
+  { key: 'question', label: 'Research questions', types: ['question'] },
 ]
 
 // Audit bookkeeping, not evidence (docs/design.md §5 principle 6). Hidden by
@@ -50,6 +54,73 @@ export const EDGE_STYLE = {
   descends_from:{ klass: 'e-discount',     label: 'descends from' },
 }
 
+// What the legend offers to explain, in reading order: the three edge kinds
+// that carry the argument first, then the two that say what an assertion was
+// for and what would refute it, then bookkeeping last.
+//
+// `strong` is the word rendered bold. That agreement between related
+// witnesses *discounts* support is the system's central claim, so the legend
+// says it in words; a reader left to infer it from a dash pattern is being
+// handed a code, not a key.
+export const LEGEND_EDGES = [
+  { key: 'attests', types: ['attests'], klass: 'e-attests', text: 'attests — adds support' },
+  {
+    key: 'discount',
+    types: ['parallel_of', 'descends_from'],
+    klass: 'e-discount',
+    text: 'parallel of / descends from — discounts support',
+    strong: 'discounts',
+  },
+  { key: 'contradicts', types: ['contradicts'], klass: 'e-contradicts', text: 'contradicts' },
+  {
+    key: 'tests',
+    types: ['tests'],
+    klass: 'e-tests',
+    text: 'tests — the query that would refute this, predicted before the evidence was in',
+  },
+  { key: 'addresses', types: ['addresses'], klass: 'e-addresses', text: 'addresses — what an assertion answers' },
+  {
+    key: 'structural',
+    types: ['part_of', 'verifies', 'searched_for', 'supersedes', 'quotes'],
+    klass: 'e-structural',
+    text: 'structural — where a record sits',
+  },
+]
+
+//: One rule for what the reader can see, used by both `layout` and
+//: `legendFor`. Two copies of this test is how `question` nodes came to be
+//: absent from the graph while present in every other view: a node type
+//: missing from `COLUMNS` is invisible, and nothing said so.
+const COLUMN_TYPES = new Set(COLUMNS.flatMap((c) => c.types))
+
+export function isVisible(node, showAudit) {
+  return COLUMN_TYPES.has(node.type) && (showAudit || !AUDIT_TYPES.has(node.type))
+}
+
+// A legend listing every edge type the vocabulary has explains, on most
+// graphs, mostly things that are not on the screen — and a key with six
+// entries for a picture using two teaches the reader to stop reading it. So
+// it describes this graph: the entries whose edges are actually drawn, in the
+// fixed order above, plus the statuses actually present.
+//
+// Safe to shrink *because* it is derived from the drawn edges: an entry can
+// only vanish when there is nothing left for it to mislabel. It shrinks for
+// the audit toggle too, which is the point — turning bookkeeping off should
+// take its key with it.
+export function legendFor(nodes, edges, { showAudit }) {
+  const visible = new Set(nodes.filter((n) => isVisible(n, showAudit)).map((n) => n.id))
+  const drawn = new Set(
+    edges.filter((e) => visible.has(e.src) && visible.has(e.dst)).map((e) => e.type),
+  )
+  const statuses = new Set(
+    nodes.filter((n) => visible.has(n.id)).map((n) => n.status),
+  )
+  return {
+    edges: LEGEND_EDGES.filter((entry) => entry.types.some((t) => drawn.has(t))),
+    statuses: STATUS_ORDER.filter((s) => statuses.has(s)),
+  }
+}
+
 export const NODE_W = 190
 export const NODE_H = 54
 //: wide enough for a same-column edge to bow out into the gap without
@@ -66,7 +137,7 @@ const PAD_Y = 56
 export const TITLE_MAX_PX = NODE_W - 14 - 12
 
 export function layout(nodes, { showAudit }) {
-  const visible = nodes.filter((n) => showAudit || !AUDIT_TYPES.has(n.type))
+  const visible = nodes.filter((n) => isVisible(n, showAudit))
   const columns = COLUMNS.map((col) => ({
     ...col,
     nodes: visible

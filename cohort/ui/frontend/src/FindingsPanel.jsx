@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  askQuestion,
   getCitable,
   getDossier,
   getFindings,
   getIntegrity,
-  getQuestions,
   getRebuild,
   getRejected,
 } from './api'
@@ -46,7 +44,6 @@ export default function FindingsPanel({ onSelect }) {
 
   return (
     <section className="findings">
-      <Questions />
 
       <Hypotheses findings={findings} onSelect={onSelect} />
 
@@ -93,94 +90,6 @@ export default function FindingsPanel({ onSelect }) {
 // What it shows is a tally, never a verdict. Three hypotheses under a question
 // is not a question answered, which is also why the `addresses` edge points
 // from the answer to the question rather than the other way round.
-function Questions() {
-  const [data, setData] = useState(null)
-  const [asking, setAsking] = useState(false)
-  const [text, setText] = useState('')
-  const [answerable, setAnswerable] = useState('')
-  const [error, setError] = useState(null)
-
-  const load = useCallback(() => {
-    getQuestions().then(setData).catch((e) => setError(e.message))
-  }, [])
-  useEffect(load, [load])
-
-  const submit = async (e) => {
-    e.preventDefault()
-    setError(null)
-    try {
-      await askQuestion({ text, answerable_by: answerable })
-      setText(''); setAnswerable(''); setAsking(false); load()
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  return (
-    <div className="questions">
-      <div className="questions-head">
-        <h2>Research questions</h2>
-        <button className="btn" onClick={() => setAsking(!asking)}>
-          {asking ? 'Cancel' : 'Ask a question'}
-        </button>
-      </div>
-      <p className="hint small">
-        What this inquiry is asking. Only the researcher may ask one &mdash;
-        setting the agenda is the supervision.
-      </p>
-
-      {asking && (
-        <form className="ask-form" onSubmit={submit}>
-          <label>
-            The question
-            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} required />
-          </label>
-          <label>
-            What would count as an answer
-            <textarea
-              value={answerable}
-              onChange={(e) => setAnswerable(e.target.value)}
-              rows={2}
-              required
-            />
-          </label>
-          <p className="hint small">
-            Stated before looking, so the question cannot be quietly reshaped
-            afterwards to fit whatever turned up. A question nobody can say how
-            to answer is not a research question.
-          </p>
-          <button className="btn accept" type="submit">Record it</button>
-        </form>
-      )}
-
-      {error && <p className="error">{error}</p>}
-
-      {data && data.count === 0 && (
-        <p className="hint small">
-          None recorded. The graph will still hold what was found; it just
-          won&apos;t say what was being asked.
-        </p>
-      )}
-
-      <ul className="question-list">
-        {data?.questions?.map((q) => (
-          <li key={q.id} className="question">
-            <p className="question-text">{q.question}</p>
-            <p className="question-answerable">
-              <span>Answerable by</span> {q.answerable_by}
-            </p>
-            <p className="hint small">
-              {q.addressed_by === 0
-                ? 'Nothing has been put forward as an answer yet.'
-                : `${q.addressed_by} hypothes${q.addressed_by === 1 ? 'is' : 'es'} address it — a tally, not a verdict.`}
-            </p>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 // Claims and conjectures as hypotheses rather than as node ids.
 //
 // All of this was already in the graph and reachable only by walking edges by

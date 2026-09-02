@@ -244,7 +244,7 @@ def test_run_builds_one_spec_per_agent_and_passes_the_budget(seeded, monkeypatch
             seen["ceiling"] = max_budget_usd
             seen["max_turns"] = max_turns
 
-        def start(self, specs, *, budget_usd, max_turns=None):
+        def start(self, specs, *, budget_usd, max_turns=None, question_id=None):
             seen["specs"] = specs
             seen["budget"] = budget_usd
 
@@ -294,7 +294,7 @@ def test_run_builds_reviewers_after_workers_with_their_own_models(seeded, monkey
         def __init__(self, db, log, source, **kw):
             pass
 
-        def start(self, specs, *, budget_usd, max_turns=None):
+        def start(self, specs, *, budget_usd, max_turns=None, question_id=None):
             seen["specs"] = specs
 
         def current(self):
@@ -343,7 +343,7 @@ def test_run_declares_a_different_scope_for_each_agent(seeded, monkeypatch, caps
         def __init__(self, db, log, source, **kw):
             pass
 
-        def start(self, specs, *, budget_usd, max_turns=None):
+        def start(self, specs, *, budget_usd, max_turns=None, question_id=None):
             seen["specs"] = specs
 
         def current(self):

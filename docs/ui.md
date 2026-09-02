@@ -21,7 +21,7 @@ a finding is a scholarly act, and starting an agent run spends money.
 | *(none)* | read-only graph, provenance, refusal log |
 | `--corpus` | corpus browse and search |
 | `--allow-writes` | accept / reject / reopen |
-| `--allow-runs` | the agent-run launcher (`--max-budget` caps each run) |
+| `--allow-runs` | the Inquiry launcher (`--max-budget` caps each run) |
 
 Without a flag the routes are **not mounted at all** — a disabled capability
 returns 404 rather than a 403, because the server simply doesn't have it.
@@ -54,22 +54,53 @@ So, enforced (and covered by `tests/test_ui_theme.py`):
   the legend. The API also flags them `discounts: true` so a frontend cannot
   drop the distinction by accident;
 - **contradiction edges are as visible as agreement edges**;
+- **`tests` is drawn as neither** — dotted and violet, because the
+  falsifiability edge is the only relation in the picture that is still open: a
+  prediction recorded before the evidence was in, which the corpus may not yet
+  have been asked. Its solid grey neighbour `searched_for` is the opposite
+  tense — the prior-art retrieval that *was* run before proposing — and the two
+  must not read alike;
+- **`addresses` gets its own channel**, not the structural one. `part_of` and
+  `verifies` say where a record sits; `addresses` says what the work was *for*;
 - **clicking any node reaches its provenance** — authorship, verifications with
   their `limitations`, edges both ways, and the `independent_support` block.
 
 Layout is a deterministic evidence chain (witness → passage → claim), not a
 force simulation, which would place the same graph differently on every load —
-a poor property for something meant to be read and cited.
+a poor property for something meant to be read and cited. **Research questions
+are the terminal column**: the last column reads as where the chain arrives,
+and what it arrives at is the thing the work was for. Audit sits before it,
+because a query and a verification are how an assertion was reached, not where
+it was heading.
 
 Audit nodes (`verification`, `decision`) are hidden by default as bookkeeping
 rather than evidence, behind a toggle in settings.
+
+`tests/test_ui_vocabulary_coverage.py` asserts that **every** node type has a
+column and every edge type has both a style and a legend entry. The vocabulary
+is closed, so the frontend can enumerate it; nothing made it, and adding
+`question`/`addresses` to the graph without adding them here dropped question
+nodes from the view in silence while every other tab showed them.
+
+### The legend describes the graph, not the vocabulary
+
+It lists only the entries whose edges are actually drawn, and only the statuses
+actually present — including shrinking when the audit toggle goes off, which is
+the point: turning bookkeeping off should take its key with it. A fixed key
+with six entries beside a picture using two teaches the reader to stop reading
+the key.
+
+Safe to shrink *because* it is derived from the drawn edges: an entry can only
+disappear once there is nothing left on screen for it to label. The ordering is
+fixed rather than following the graph — the three edge kinds that carry the
+argument, then `tests` and `addresses`, then bookkeeping — so the key does not
+reshuffle itself as a graph grows.
 
 ## Tabs
 
 - **Graph** — the evidence graph, its legend, provenance on click. The refusal
   count and the node/edge stats live here, because both describe this graph.
-- **Findings** — the **research questions** first, then every claim and
-  conjecture as a **hypothesis**, then what the
+- **Findings** — every claim and conjecture as a **hypothesis**, then what the
   researcher has accepted (the only citable nodes) and what they rejected, with
   reasons, side by side; plus the two integrity checks. Rejections sit next to
   findings deliberately: showing conclusions without showing what was thrown out
@@ -90,7 +121,15 @@ rather than evidence, behind a toggle in settings.
   exists to break; where support does not survive the independence check the row
   says so, and the attesting count is left unchanged.
 - **Corpus** — browse and search, with `--corpus`.
-- **Agent run** — the launcher, with `--allow-runs`.
+- **Inquiry** — asking a question and running agents against it, with
+  `--allow-runs`. Named for the unit rather than the mechanism:
+  [vocabulary.md](vocabulary.md) already defines a `question` as "what an
+  inquiry is asking", and the tab opens on a question rather than on a roster.
+
+  The **question lives here, not in Findings**. A question is where work
+  starts, not something that was found — and asking it in one tab to run
+  against it in another made the connection between them something the
+  researcher had to remember rather than something the tool did.
 
 Clicking an author in a node's provenance opens that agent's contribution
 counts. Counts, never a score: a reputation number would reward volume, so an
@@ -182,8 +221,52 @@ Search returns 503 if the reader has no index, naming the reason.
 | `GET /api/run/config` | model, ceilings, whether a corpus is present |
 | `GET /api/run` | current run + history |
 | `GET /api/run/{run_id}` | one run |
-| `POST /api/run` | start; accepts a single agent or `agents: [...]`, each with an optional `role` |
+| `POST /api/run` | start; `{question_id, auto: true}` plans the roster, or pass a single agent or `agents: [...]`, each with an optional `role`. `question_id` alone records what an explicit roster was asked |
 | `POST /api/run/stop` | stop after the current turn |
+
+### Auto is the default, and what it may decide
+
+`{question_id, auto: true}` plans the roster instead of taking one. The split
+is deliberate and narrow:
+
+- it decides the **machinery** — how many agents, which models, which roles —
+  which carries no epistemic weight beyond one hard constraint, that a roster
+  sharing a model family is refused at the write boundary;
+- it never decides the **agenda**. No model call happens before the run.
+  The researcher's question reaches each agent *verbatim*, along with the
+  `answerable_by` they wrote, which is the fence an agent otherwise walks
+  straight through. `ask_question` is researcher-only because setting the
+  agenda is the supervision, and a planner that paraphrased the question into
+  a task would be relocating that decision, not automating it.
+
+Two things it does that a person pressing Start usually does not:
+
+- **it spends the second seat on a reviewer, not a second worker.** No agent
+  may attest what it authored, so a single-family roster can propose but never
+  promote: every claim stops at `proposed`. The count that gets a *checked*
+  answer is two, not one.
+- **it gives the workers different stances** — one looking for attestation,
+  one for what would make an answer wrong. Two agents told the same thing run
+  the same searches and return the same passages, and two identical answers
+  read as corroboration while being one result counted twice.
+
+The stances are fixed rather than generated per run, so two runs on one
+question are comparable. `GET /api/run/config` reports the roster auto would
+build (`plan`), so the launcher can name what it is about to spend money on;
+the shape depends on how many model *families* the pool has, which a browser
+computing it itself would have to reimplement and would drift from.
+
+Every claim or conjecture a run proposes gets an `addresses` edge to the
+question, added by the worker rather than by the researcher afterwards. A
+question whose answers are only sometimes attached to it reads as a tally.
+
+The equivalent in the terminal is `cohort run --question ID`, which calls the
+same planner — the parity promise is not that both front ends can start a run,
+it is that a run started either way is the same run.
+
+**Customize** opens the explicit roster: per-agent task, model, corpus scope,
+method and role, exactly as before. It changes nothing about what a run may do
+— the ceilings are the server's either way.
 
 Each agent takes `role: "worker"` (the default) or `"reviewer"`. **+ Add
 reviewer** sits beside **+ Add agent** in the panel. A reviewer checks claims

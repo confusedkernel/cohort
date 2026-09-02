@@ -615,6 +615,10 @@ class RunRecord(_Model):
 
     run_id: str
     started_at: str
+    #: the question this run was asked, when it was asked one. Optional
+    #: because a run started from free-text instructions answers to nothing in
+    #: the graph, and older logs have none.
+    question_id: str | None = None
     finished_at: str | None = None
     #: as reported by the run itself when it closed: "finished", "stopped",
     #: "error". None while it is still open.

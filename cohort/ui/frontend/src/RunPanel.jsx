@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getRunConfig, getRuns, startRun, stopRun } from './api'
+import { askQuestion, getQuestions, getRunConfig, getRuns, startRun, stopRun } from './api'
 
 // Starting an agent run from the browser.
 //
@@ -40,6 +40,15 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
   const [config, setConfig] = useState(null)
   const [runs, setRuns] = useState(null)
   const [agents, setAgents] = useState([blankAgent(0)])
+  // Auto by default. A launcher whose first screen is an empty task box asks
+  // the researcher to write agent instructions before they have written the
+  // question, and what comes out is a task with no recorded question behind
+  // it — which is how every run so far ended up unattached to anything the
+  // graph could group it under. Customize is one click away and changes
+  // nothing about what the run may do; the ceilings are the server's either
+  // way.
+  const [mode, setMode] = useState('auto')
+  const [questionId, setQuestionId] = useState(null)
   const [budget, setBudget] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -108,8 +117,13 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
     setBusy(true)
     setError(null)
     try {
-      await startRun({
+      await startRun(mode === 'auto' ? {
         budget_usd: Number(budget),
+        auto: true,
+        question_id: questionId,
+      } : {
+        budget_usd: Number(budget),
+        question_id: questionId,
         agents: agents.map((a) => ({
           agent_id: a.agent_id,
           instructions: a.instructions,
@@ -135,7 +149,7 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
 
   return (
     <section className="runs">
-      <h2>Agent run</h2>
+      <h2>Inquiry</h2>
 
       {blocked && (
         <p className="warn">
@@ -145,8 +159,12 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
         </p>
       )}
 
+      <Questions selected={questionId} onSelect={setQuestionId} />
+
       <form className="run-form" onSubmit={submit}>
-        {agents.map((a, i) => (
+        {mode === 'auto' ? (
+          <AutoPlan config={config} question={questionId} />
+        ) : agents.map((a, i) => (
           <div className="agent-card" key={a.key}>
             <div className="agent-head">
               <span className="agent-n">
@@ -226,6 +244,12 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
           </div>
         ))}
 
+        {mode === 'auto' ? (
+          <button type="button" className="btn customize-open"
+                  onClick={() => setMode('custom')}>
+            Customize the roster…
+          </button>
+        ) : (
         <div className="agent-add">
           <button
             type="button" className="btn"
@@ -254,7 +278,12 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
               <> Set <code>OPENROUTER_MODELS</code> to add more.</>
             )}
           </span>
+          <button type="button" className="btn tiny"
+                  onClick={() => setMode('auto')}>
+            back to auto
+          </button>
         </div>
+        )}
 
         <div className="field-row">
           <label className="field">
@@ -273,9 +302,18 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
         <div className="run-actions">
           <button
             className="btn accept" type="submit"
-            disabled={busy || active || blocked || agents.some((a) => !a.instructions.trim())}
+            disabled={
+              busy || active || blocked
+              || (mode === 'auto'
+                ? !questionId
+                : agents.some((a) => !a.instructions.trim()))
+            }
           >
-            {active ? 'Run in progress…' : `Start run (${agents.length} agent${agents.length === 1 ? '' : 's'})`}
+            {active
+              ? 'Run in progress…'
+              : mode === 'auto'
+                ? `Inquire (${(config.plan || []).length} agent${(config.plan || []).length === 1 ? '' : 's'})`
+                : `Start run (${agents.length} agent${agents.length === 1 ? '' : 's'})`}
           </button>
           {active && (
             <button className="btn reject" type="button" onClick={() => stopRun().then(poll)}>
@@ -343,6 +381,167 @@ function RunHistory({ runs }) {
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+// The question, and asking one. Moved here from Findings: a question is where
+// work starts, not something that was found, and asking it in one tab to run
+// against it in another made the connection between them a thing the
+// researcher had to remember rather than a thing the tool did.
+//
+// Only the researcher may ask — setting the agenda is the supervision, so the
+// form is absent rather than disabled on a read-only server (the route is not
+// mounted either).
+function Questions({ selected, onSelect }) {
+  const [data, setData] = useState(null)
+  const [asking, setAsking] = useState(false)
+  const [text, setText] = useState('')
+  const [answerable, setAnswerable] = useState('')
+  const [error, setError] = useState(null)
+
+  const load = useCallback(() => {
+    getQuestions().then(setData).catch((e) => setError(e.message))
+  }, [])
+  useEffect(load, [load])
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setError(null)
+    try {
+      const asked = await askQuestion({ text, answerable_by: answerable })
+      setText(''); setAnswerable(''); setAsking(false)
+      const fresh = await getQuestions()
+      setData(fresh)
+      // Selected on being asked. The researcher wrote it in order to inquire
+      // into it; making them then pick it out of a list is a step that exists
+      // only because the form and the list are different components.
+      if (asked?.id) onSelect(asked.id)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  return (
+    <div className="questions">
+      <div className="questions-head">
+        <h3>What is being asked</h3>
+        <button className="btn" type="button" onClick={() => setAsking(!asking)}>
+          {asking ? 'Cancel' : 'Ask a question'}
+        </button>
+      </div>
+
+      {asking && (
+        <form className="ask-form" onSubmit={submit}>
+          <label>
+            The question
+            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} required />
+          </label>
+          <label>
+            What would count as an answer
+            <textarea
+              value={answerable}
+              onChange={(e) => setAnswerable(e.target.value)}
+              rows={2}
+              required
+            />
+          </label>
+          <p className="hint small">
+            Stated before looking, so the question cannot be quietly reshaped
+            afterwards to fit whatever turned up. It is also the fence the
+            agents are given: what you say retrieval cannot settle here, they
+            are told not to answer anyway.
+          </p>
+          <button className="btn accept" type="submit">Record it</button>
+        </form>
+      )}
+
+      {error && <p className="error">{error}</p>}
+
+      {data && data.count === 0 && !asking && (
+        <p className="hint small">
+          None yet. An inquiry runs against a question, so ask one first &mdash;
+          or use <em>Customize</em> below to run agents on free-text tasks, which
+          leaves nothing in the graph saying what was being asked.
+        </p>
+      )}
+
+      <ul className="question-list">
+        {data?.questions?.map((q) => (
+          <li
+            key={q.id}
+            className={`question pick${selected === q.id ? ' on' : ''}`}
+            onClick={() => onSelect(selected === q.id ? null : q.id)}
+          >
+            <p className="question-text">{q.question}</p>
+            <p className="question-answerable">
+              <span>Answerable by</span> {q.answerable_by}
+            </p>
+            <p className="hint small">
+              {q.addressed_by === 0
+                ? 'Nothing has been put forward as an answer yet.'
+                : `${q.addressed_by} hypothes${q.addressed_by === 1 ? 'is' : 'es'} address it — a tally, not a verdict.`}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// What auto mode will actually do, named before it is paid for.
+//
+// The roster comes from the server (`/api/run/config`), not from a guess made
+// here: its shape depends on how many model *families* the pool has rather
+// than how many models, and a panel that promised three agents and started two
+// would be worse than one that promised nothing.
+function AutoPlan({ config, question }) {
+  const plan = config.plan || []
+  const reviewing = plan.some((a) => a.role === 'reviewer')
+
+  return (
+    <div className="auto-plan">
+      {!question && (
+        <p className="hint small">
+          Pick a question above, or ask one. Nothing here invents a question:
+          the agenda is the researcher's, so auto mode decides the machinery
+          and never the subject.
+        </p>
+      )}
+
+      <ul className="plan-list">
+        {plan.map((a) => (
+          <li key={a.agent_id} className={`plan-row r-${a.role}`}>
+            <span className="plan-role">{a.role}</span>
+            <span className="plan-method">{a.method_label}</span>
+            <span className="plan-model">{a.model || config.model || 'server default'}</span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="hint small">
+        Each agent gets your question verbatim, and what you said would answer
+        it. They differ in <em>stance</em>, not in subject: the second one's
+        job is to look for what would make an answer wrong, because two agents
+        told the same thing run the same searches and return the same passages
+        &mdash; and two identical answers read as corroboration while being one
+        result counted twice.
+      </p>
+      {reviewing ? (
+        <p className="hint small">
+          The last seat is a reviewer rather than a third worker. No agent may
+          attest a claim it wrote, so without one on another provider every
+          claim this run proposes stops at <em>proposed</em> &mdash; a pile of
+          assertions with nothing having checked them.
+        </p>
+      ) : (
+        <p className="warn small">
+          One model family is configured, so there is no reviewer to be had and
+          this run's claims will stop at <em>proposed</em>. Set
+          <code>OPENROUTER_MODELS</code> to a second provider, or check them
+          yourself afterwards.
+        </p>
+      )}
     </div>
   )
 }

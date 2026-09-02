@@ -318,6 +318,7 @@ def read_runs(path: str | Path, *, limit: int | None = None) -> list[RunRecord]:
                 started_at=ev.at,
                 agents=ev.detail.get("agents", []),
                 budget_usd=ev.detail.get("budget_usd"),
+                question_id=ev.detail.get("question_id"),
             )
         elif ev.event == "run_finished":
             record = runs.get(ev.run_id or ev.detail.get("run_id", ""))

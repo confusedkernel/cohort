@@ -503,6 +503,9 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: h
 .swatch.e-discount { border-color: var(--discounts); border-top-style: dashed; border-top-width: 3px; }
 .swatch.e-contradicts { border-color: var(--contradicts); border-top-width: 3px; }
 .swatch.e-structural { border-color: var(--structural); }
+/* dashed, because the graph edge is: a solid key beside a dotted line reads as
+   two different relations. */
+.swatch.e-tests { border-color: var(--tests); border-top-style: dotted; border-top-width: 3px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.s-proposed { background: var(--proposed); }
 .dot.s-attested { background: var(--attested); }
@@ -1811,3 +1814,35 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 .swatch.e-addresses { border-color: var(--addresses); }
 .badge.t-question { color: var(--addresses); border-color: var(--addresses); }
 .stats-dot.t-question { background: var(--addresses); }
+
+
+/* --- Inquiry: picking a question, and the roster it plans ---------------- */
+
+/* Selectable, so the question reads as the thing the run is aimed at rather
+   than as a heading above it. The selected state is a border and a ground, not
+   a colour alone: a single-hue selection is invisible to a reader who cannot
+   separate the hues. */
+.question.pick { cursor: pointer; border: 1px solid var(--line); border-radius: 8px;
+                 padding: 10px 12px; transition: background 120ms, border-color 120ms; }
+.question.pick:hover { border-color: color-mix(in srgb, var(--addresses) 45%, var(--line)); }
+.question.pick.on { border-color: var(--addresses);
+                    background: color-mix(in srgb, var(--addresses) 10%, transparent); }
+.question.pick.on .question-text { font-weight: 600; }
+
+.auto-plan { display: flex; flex-direction: column; gap: 10px; }
+.plan-list { list-style: none; margin: 0; padding: 0; display: flex;
+             flex-direction: column; gap: 6px; }
+.plan-row { display: grid; grid-template-columns: 5.5rem 1fr auto; gap: 10px;
+            align-items: baseline; padding: 8px 12px; border-radius: 8px;
+            border: 1px solid var(--line); }
+/* The reviewer looks different from the workers because it *is* different: it
+   cannot propose, and it is the only seat that can promote anything. */
+.plan-row.r-reviewer { border-color: color-mix(in srgb, var(--supports) 40%, var(--line));
+                       background: color-mix(in srgb, var(--supports) 7%, transparent); }
+.plan-role { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+             color: var(--text-dim); }
+.plan-method { font-weight: 600; }
+.plan-model { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+              font-size: 12px; color: var(--text-dim); }
+
+.btn.customize-open { align-self: flex-start; }
