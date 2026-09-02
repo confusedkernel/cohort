@@ -523,9 +523,36 @@ def cmd_run(args) -> None:
     worker_models = paired(workers, args.model or [], "--agent")
     reviewer_models = paired(reviewers, args.reviewer_model or [], "--reviewer")
 
+    def declared(values: list[str] | None, flag: str) -> list[str]:
+        """One declared commitment per agent, in roster order (--agent first,
+        then --reviewer), or one shared by all of them.
+
+        Distinct declared scope per agent is the design's own condition for
+        allowing more than one agent at all (docs/roadmap.md "Scope revision"),
+        and `POST /api/run` has always taken these per agent — a terminal that
+        could only set them for the whole roster could not say what the web
+        launcher could. A single shared value stays legal: two agents may
+        divide one corpus by method rather than by scope."""
+        values = values or []
+        total = len(workers) + len(reviewers)
+        if not values:
+            return [""] * total
+        if len(values) == 1:
+            return list(values) * total
+        if len(values) != total:
+            raise SystemExit(
+                f"{total} agent(s) but {len(values)} {flag}: give one per agent "
+                "in roster order (--agent first, then --reviewer), one for all "
+                "of them, or none at all."
+            )
+        return list(values)
+
+    scopes = declared(args.scope, "--scope")
+    methods = declared(args.method, "--method")
+
     specs = [
         AgentSpec(agent_id=f"agent:cli-{i + 1}", instructions=text,
-                  corpus_scope=args.scope or "", method_label=args.method or "",
+                  corpus_scope=scopes[i], method_label=methods[i],
                   model=worker_models[i])
         for i, text in enumerate(workers)
     ]
@@ -534,7 +561,8 @@ def cmd_run(args) -> None:
     # proposed yet to review (see `RunManager._execute`).
     specs += [
         AgentSpec(agent_id=f"agent:cli-reviewer-{i + 1}", instructions=text,
-                  corpus_scope=args.scope or "", method_label=args.method or "",
+                  corpus_scope=scopes[len(workers) + i],
+                  method_label=methods[len(workers) + i],
                   model=reviewer_models[i], role=ROLE_REVIEWER)
         for i, text in enumerate(reviewers)
     ]
@@ -685,8 +713,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reviewer-model", action="append", metavar="MODEL",
                    help="one per --reviewer; must be a different provider from the "
                         "workers it reviews, or the write is refused")
-    p.add_argument("--scope", default=None, help="declared corpus scope")
-    p.add_argument("--method", default=None, help="declared method")
+    p.add_argument("--scope", action="append", metavar="SCOPE",
+                   help="declared corpus scope: one per agent in roster order, "
+                        "or one for all of them")
+    p.add_argument("--method", action="append", metavar="METHOD",
+                   help="declared method, paired like --scope")
     p.add_argument("--budget", type=float, default=0.25, help="hard USD cap for the run")
     p.add_argument("--max-turns", type=int, default=8)
 

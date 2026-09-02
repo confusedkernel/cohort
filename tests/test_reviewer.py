@@ -198,7 +198,7 @@ def test_attest_conflict_reports_the_reason_without_writing(graph, source):
     certain refusal."""
     claim_id = _backed_claim(graph, source)
 
-    assert "may not attest it" in graph.attest_conflict(claim_id, AUTHOR)
+    assert "may not attest it" in str(graph.attest_conflict(claim_id, AUTHOR))
     assert graph.attest_conflict(claim_id, REVIEWER) is None
     assert [e for e in read_events(graph.event_log.path) if e.event == "refused"] == []
 
@@ -293,7 +293,7 @@ def test_a_reviewer_is_refused_its_own_claim_before_spending_a_fetch(graph, sour
     already re-fetched every citation has learnt the rule too late to act on
     it."""
     claim_id = _backed_claim(graph, source)
-    with pytest.raises(ValueError, match="may not attest it"):
+    with pytest.raises(SelfAttestation, match="may not attest it"):
         review_claim(
             graph, source,
             ReviewClaimInput(claim_id=claim_id, verdict="sound", detail="mine, surely"),
@@ -395,6 +395,21 @@ def test_pending_review_context_skips_what_this_reviewer_authored(graph, source)
     context = pending_review_context(graph, REVIEWER)
     assert theirs in context
     assert mine not in context
+
+
+def test_pending_review_context_quotes_the_id_it_wants_copied(graph, source):
+    """`- claim:abc… [claim] '…'` reads as a field label followed by a value,
+    and in the first censused multi-model run all three models read it that
+    way: every review was refused `NodeNotFound` on a prefix-stripped id.
+    Quoting the id and saying the prefix is inside it is the fix on the
+    prompt side; `Graph._unfound_detail` is the fix on the boundary side."""
+    from cohort.agents.review_worker import pending_review_context
+
+    theirs = _backed_claim(graph, source, author=AUTHOR, text="theirs")
+    context = pending_review_context(graph, REVIEWER)
+
+    assert f'"{theirs}"' in context
+    assert "not a label on it" in context
 
 
 def test_pending_review_context_is_none_when_there_is_nothing(graph, source):

@@ -13,6 +13,7 @@ from cohort.errors import (
     EdgeSelfLoop,
     MissingRejectionReason,
     NoEventLog,
+    NodeNotFound,
     NotResearcher,
     PersistentRejection,
     RebuildMismatch,
@@ -522,3 +523,49 @@ def test_rebuild_matches_live_with_model_call_events_present(tmp_path):
     report = g.rebuild()
     assert report.ok is True
     g.close()
+
+
+# --- what a missing node's refusal says --------------------------------------
+
+def test_an_id_without_its_prefix_is_refused_but_names_the_near_miss(graph):
+    """Every refusal in the first censused multi-model run was this: three
+    agents on three model families each dropped the `claim:` prefix, reading it
+    as a label rather than as part of the id. The write is still refused — the
+    prefix is what makes an id say what it names — but the refusal is output,
+    so it says what to do differently."""
+    claim_id = graph.propose_claim(ClaimPayload(text="a claim"), authored_by=AGENT)
+    bare = claim_id.split(":", 1)[1]
+
+    with pytest.raises(NodeNotFound) as e:
+        graph.get_node(bare)
+    assert claim_id in str(e.value)
+    assert "part of the id" in str(e.value)
+
+
+def test_a_genuinely_unknown_id_gets_no_invented_suggestion(graph):
+    """The hint is only ever a real node. An invented id must stay a dead end,
+    or the refusal starts guessing on the agent's behalf."""
+    graph.propose_claim(ClaimPayload(text="a claim"), authored_by=AGENT)
+    with pytest.raises(NodeNotFound) as e:
+        graph.get_node("nothing-like-this")
+    assert "did you mean" not in str(e.value)
+
+
+def test_an_ambiguous_suffix_lists_the_candidates_rather_than_choosing(graph):
+    """Two node types can share a suffix. Picking one would be the endpoint
+    minting this system refuses everywhere else, in a smaller costume."""
+    claim_id = graph.propose_claim(ClaimPayload(text="a claim"), authored_by=AGENT)
+    suffix = claim_id.split(":", 1)[1]
+    # Written straight into the projection: ids are uuid-derived, so a
+    # collision cannot be produced through the write boundary on purpose.
+    graph.conn.execute(
+        "INSERT INTO nodes (id, type, status, payload, created_seq, updated_seq, payload_hash) "
+        "SELECT ?, 'query', status, payload, created_seq, updated_seq, payload_hash "
+        "FROM nodes WHERE id=?",
+        (f"query:{suffix}", claim_id),
+    )
+
+    with pytest.raises(NodeNotFound) as e:
+        graph.get_node(suffix)
+    assert "more than one node" in str(e.value)
+    assert claim_id in str(e.value) and f"query:{suffix}" in str(e.value)

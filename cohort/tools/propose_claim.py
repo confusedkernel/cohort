@@ -46,6 +46,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..errors import UngroundedClaim
 from ..graph import Graph
 from ..schemas import ClaimPayload, EdgeType, QueryPayload
 from ..sources.base import Source
@@ -87,7 +88,7 @@ def propose_claim(
 ) -> str:
     hits = source.search(args.grounding_query, max_results=GROUNDING_MAX_RESULTS)
     if not hits:
-        raise ValueError(
+        raise UngroundedClaim(
             f"grounding query {args.grounding_query!r} returned no hits in this "
             "corpus, so this claim has no passages to cite and could never be "
             "attested. Either ground it with a query that does hit, or — if the "

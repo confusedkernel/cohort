@@ -24,10 +24,22 @@ is not severity; it is **what to go and look at**.
 | `operational` | the system's own preconditions | rarely reaches the log; most are raised before a write is attempted. |
 | `unclassified` | a rule this version's taxonomy does not know | reported, never dropped — a census that silently ignored what it could not classify would understate the thing it counts. |
 
-The taxonomy cannot rot: `tests/test_refusal_census.py` fails if a
-`CohortError` subclass has no category, and fails again if a category names a
-rule that no longer exists. Adding a rule means deciding what it indicts, the
-same discipline `tests/test_parity.py` applies to the two front ends.
+The taxonomy cannot rot. `tests/test_refusal_census.py` fails if a
+`CohortError` subclass has no category, fails again if a category names a rule
+that no longer exists, and fails a third time if any tool raises something the
+census cannot name. Adding a rule means deciding what it indicts, the same
+discipline `tests/test_parity.py` applies to the two front ends.
+
+That third guard exists because the first two missed something. The first live
+multi-model run to be censused (2026-09-02) returned one refusal and it came
+back `unclassified`: `propose_claim` refused an ungrounded claim — the design's
+flagship evidence refusal — as a bare `ValueError`. Nine such raises were
+spread across the tool layer, so a reviewer barred from a claim, a mistyped id
+and a claim the corpus would not support all arrived under one meaningless rule
+name. They are now `UngroundedClaim`, `WrongNodeType`, `SourceRefMissing` and
+`InvalidVerdict`, and `review_claim` re-raises the reviewer conflict *as
+itself* rather than wrapping it, so `SelfAttestation` and
+`ReviewerNotIndependent` keep the names the census counts by.
 
 ## Streaks — the signal worth acting on
 
@@ -61,6 +73,42 @@ defect: `find_attestations` returned only *passage* ids while the stage-4 tools
 take a *witness* id, so two agents guessed and were correctly refused until one
 stumbled onto the right shape. The census finds it mechanically, from the log,
 with no annotation.
+
+## The first live census, in three runs
+
+The census was built and tested against the demo log before it had ever seen a
+fresh run. On 2026-09-02 it saw three, each two workers and a reviewer on three
+distinct model families (`z-ai`, `deepseek`, `qwen`), roughly $0.003 apiece.
+
+**Run 1 — one refusal, `unclassified`.** `propose_claim` refused an ungrounded
+claim as a bare `ValueError`. That is the finding above: the tool layer raised
+nine unnamed rules, and the census reads rule *names*.
+
+**Run 2 — 12 refusals, and a streak of five.** With the rules named, the
+picture resolved: 5 `UngroundedClaim` (`evidence`) and 7 `NodeNotFound`
+(`expression`), the largest streak being **all five of the reviewer's reviews,
+refused in a row**. Every one had dropped the `claim:` prefix from the id it
+was handed. So had the second worker, twice, on ids `propose_claim` had just
+returned it. Three models on three families making the same mistake is not
+three coincidences — it is the streak metric's premise, and here it held across
+families rather than within one agent.
+
+The cause was ours. `pending_review_context` listed each claim as
+`- claim:abc… [claim] '…'`, in which `claim:` reads as a field label and the
+uuid as its value. The prefix is now quoted and named as part of the id, and
+`Graph._unfound_detail` makes the refusal teach: an id with no prefix that
+matches exactly one node comes back *"did you mean `claim:abc…`? An id carries
+its type prefix"*. The malformed id is still refused — repairing it silently
+would teach that the type is decoration — but the dead end became a correction.
+
+**Run 3 — zero refusals**, both claims reviewed, 95 events replaying to 40
+nodes and 45 edges with 0 mismatched payload hashes. A zero is a fact: this one
+says the two fixes landed.
+
+> Run 2's event log was overwritten by run 3 and is gone. The counts above come
+> from its console transcript, and the defect itself is now pinned by tests
+> rather than by that log. Keep the `.jsonl` of a live run before starting the
+> next one.
 
 ## What the census does not do
 

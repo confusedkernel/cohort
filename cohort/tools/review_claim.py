@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..errors import CohortError
+from ..errors import CohortError, InvalidVerdict, WrongNodeType
 from ..graph import Graph
 from ..schemas import (
     AssuranceLevel,
@@ -108,11 +108,12 @@ def review_claim(
     model_call_id: int | None = None,
 ) -> ReviewClaimReport:
     if args.verdict not in VERDICTS:
-        raise ValueError(f"verdict must be one of {VERDICTS}, got {args.verdict!r}")
+        raise InvalidVerdict(f"verdict must be one of {VERDICTS}, got {args.verdict!r}")
 
     node = graph.get_node(args.claim_id)
     if node.type not in (NodeType.CLAIM, NodeType.CONJECTURE):
-        raise ValueError(f"{args.claim_id} is a {node.type}; only a claim or conjecture is reviewable")
+        raise WrongNodeType(
+            f"{args.claim_id} is a {node.type}; only a claim or conjecture is reviewable")
 
     # Refuse the review itself rather than doing the work and discarding it.
     # `attest()` would refuse at the end anyway, but a reviewer that spends
@@ -120,7 +121,10 @@ def review_claim(
     # rule too late to act on it.
     conflict = graph.attest_conflict(args.claim_id, authored_by)
     if conflict is not None:
-        raise ValueError(conflict)
+        # Re-raised as itself, not wrapped: the census reads the rule name, and
+        # `SelfAttestation` and `ReviewerNotIndependent` are the two rules a
+        # researcher most needs to see holding.
+        raise conflict
 
     passages = [e.src for e in graph.edges(edge_type=EdgeType.ATTESTS, dst=args.claim_id)]
     matched = 0

@@ -1052,3 +1052,80 @@ every rule once a log grew past the limit.
 
 **17 new tests** (383 total). Not yet run against a fresh multi-agent run —
 that needs API calls and is the piece the paper still wants.
+
+---
+
+## The census meets a live run, and the run wins twice
+
+**2026-09-02.** The entry above ends "not yet run against a fresh multi-agent
+run — that needs API calls and is the piece the paper still wants." This is
+that run. It took three of them, roughly $0.003 each, two workers and a
+reviewer on three distinct model families (`z-ai/glm-5.3-flash`,
+`deepseek/deepseek-v4-flash`, `qwen/qwen3.5-flash-02-23`), and both of the
+first two found a defect in the thing that was supposed to be doing the
+finding.
+
+**Run 1: one refusal, `unclassified`.** `propose_claim` refused an ungrounded
+claim — the design's flagship evidence refusal, the one that sends a would-be
+claim to `propose_conjecture` because an absence is settled by a retrieval —
+and it arrived in the census under the rule name `ValueError`. Nine bare
+`ValueError` raises were spread across the tool layer, so a reviewer barred
+from a claim (`standing`), a mistyped node id (`expression`) and a claim the
+corpus would not support (`evidence`) all landed in one bucket under one
+meaningless name.
+
+The two taxonomy guards did not catch this because both only see `CohortError`
+subclasses, and none of these were. They are now `UngroundedClaim`,
+`WrongNodeType`, `SourceRefMissing` and `InvalidVerdict`, each categorised;
+`Graph.attest_conflict()` returns the *error* rather than its message so
+`review_claim` can re-raise `SelfAttestation` and `ReviewerNotIndependent` by
+name instead of wrapping them; and a third guard reads the tool layer's own
+AST, failing if any tool raises something `REFUSAL_CATEGORIES` cannot name.
+
+**Run 2: 12 refusals, and the reviewer got nowhere.** 5 `UngroundedClaim`
+(`evidence`), 7 `NodeNotFound` (`expression`) — and the largest streak was all
+five of the reviewer's reviews, refused in a row, each on an id with the
+`claim:` prefix stripped off. The second worker did it twice more, on ids
+`propose_claim` had just handed it. Three models on three families making one
+mistake is not three coincidences, which is the streak metric's whole premise;
+here it showed up *across* families rather than within one agent, which is
+stronger evidence than a streak.
+
+Ours to fix, and in the same shape as every previous streak in this project:
+`pending_review_context` listed claims as `- claim:abc… [claim] '…'`, where
+`claim:` reads as a field label and the uuid as its value. The id is now quoted
+and the prefix named as part of it. `Graph._unfound_detail` makes the refusal
+teach as well: a prefix-less id matching exactly one node comes back *"did you
+mean `claim:abc…`? An id carries its type prefix, which is part of the id and
+not a label on it"*, and an ambiguous suffix lists the candidates rather than
+choosing. The malformed id is still refused — silently repairing it would teach
+that the type is decoration, against principle 5 — but a dead end became a
+correction.
+
+**Run 3: zero refusals, and the veto asymmetry held live.** Both claims were
+reviewed. One was promoted. The other — *"色即是空 is attested in both extant
+Chinese translations"* — had **all ten of its cited passages re-fetch and match
+byte for byte**, and stayed at `proposed` anyway, because the reviewer returned
+`unsound`: the phrase is in Xuanzang's T 251 and not in Kumārajīva's T 250. The
+verification records `result=pass` at `A2` for the spans, with the reviewer's
+reading in `limitations` and the machine's in `detail`, exactly as
+[tools.md](tools.md) claims. A model verdict withheld promotion it could never
+have supplied. Whether the reviewer is right about T 250 is not the system's
+business: the disagreement is now in the record instead of being resolved into
+one answer.
+
+95 events replayed to 40 nodes / 45 edges, 0 mismatched payload hashes.
+
+**Also:** `cohort run --scope/--method` are now one per agent in roster order,
+or one for the whole roster. `POST /api/run` has always taken them per agent,
+and distinct declared scope per agent is the condition under which
+[roadmap.md](roadmap.md) permits more than one agent at all — so a terminal
+that could only set them roster-wide could not say what the browser could.
+
+**7 new tests** (390 total). Run 2's event log was overwritten by run 3 before
+it was archived; its counts here come from the console transcript, and the
+defect itself is pinned by tests rather than by that log. Keep the `.jsonl` of
+a live run before starting the next.
+
+**Still not called by a live model: `record_contradiction`.** The reviewer was
+told to record one if two claims disagreed. None did.

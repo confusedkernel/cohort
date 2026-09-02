@@ -1100,8 +1100,46 @@ class Graph:
     def _require_node(self, node_id: str) -> Node:
         row = self._get_row(node_id)
         if row is None:
-            raise NodeNotFound(node_id)
+            raise NodeNotFound(self._unfound_detail(node_id))
         return self._row_to_node(row)
+
+    def _unfound_detail(self, node_id: str) -> str:
+        """`NodeNotFound`'s message, naming the near miss when there is one.
+
+        A refusal is output, not telemetry (design.md §15), so it should say
+        what to do differently. The first live multi-model run to be censused
+        (2026-09-02) produced eight of these and every one was the same near
+        miss: three agents on three different model families each dropped the
+        `claim:` prefix, reading it as a label on the id rather than as part
+        of it. Agreement across families is not three coincidences.
+
+        Naming the node it nearly matched turns a dead end into a correction
+        **without accepting the malformed id**. The prefix is what makes an id
+        say what kind of thing it names (principle 5), and a boundary that
+        quietly repaired it would be teaching that the type is decoration.
+
+        The suffix search is unindexed, so it scans; it runs only on the
+        failure path, where a scan is cheaper than a wasted turn.
+        """
+        if ":" in node_id:
+            return node_id
+        near = [
+            r["id"] for r in self.conn.execute(
+                "SELECT id FROM nodes WHERE id LIKE ? ORDER BY id LIMIT 3",
+                (f"%:{node_id}",),
+            )
+        ]
+        if len(near) == 1:
+            return (
+                f"{node_id} — did you mean {near[0]}? An id carries its type "
+                "prefix, which is part of the id and not a label on it"
+            )
+        if near:
+            return (
+                f"{node_id} — more than one node ends with it "
+                f"({', '.join(near)}); pass the whole id, prefix included"
+            )
+        return node_id
 
     def _get_row(self, node_id: str):
         return self.conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
@@ -1125,8 +1163,8 @@ class Graph:
     #: could ever record having checked.
     REVIEWABLE_TYPES = (NodeType.CLAIM, NodeType.CONJECTURE)
 
-    def attest_conflict(self, node_id: str, authored_by: str) -> str | None:
-        """Why `attest(node_id, authored_by=...)` would be refused as a
+    def attest_conflict(self, node_id: str, authored_by: str) -> CohortError | None:
+        """The error `attest(node_id, authored_by=...)` would refuse with as a
         self-review, or None if it would not.
 
         A public read so a caller can decline to try rather than generate a
@@ -1134,10 +1172,14 @@ class Graph:
         refusal on every single call for the claim it just authored, and the
         UI uses it to explain why an attest button is unavailable. Asking is
         not a substitute for the boundary check — `attest()` re-checks
-        regardless of whether anyone asked."""
+        regardless of whether anyone asked.
+
+        It hands back the error rather than its message so a caller that does
+        decide to refuse can raise *this* rule by name. A tool that wrapped it
+        in a generic error would cost the refusal census the two rule names it
+        most wants to count."""
         node = self._require_node(node_id)
-        conflict = self._reviewer_conflict(node, authored_by)
-        return str(conflict) if conflict is not None else None
+        return self._reviewer_conflict(node, authored_by)
 
     def _reviewer_conflict(self, node: Node, authored_by: str) -> CohortError | None:
         """The author≠reviewer rule (compare.md §10; design doc §5 principle 3).

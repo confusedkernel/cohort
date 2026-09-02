@@ -127,7 +127,7 @@ preconditions hold", and the party with an interest in that answer is the
 worst party to give it.
 
     graph.attest(claim_id, authored_by=author)    # SelfAttestation
-    graph.attest_conflict(claim_id, author)       # the reason, without writing
+    graph.attest_conflict(claim_id, author)       # the error, without writing
 
 | Case | Refused? | Why |
 |---|---|---|
@@ -142,7 +142,10 @@ worst party to give it.
 `attest_conflict()` is the public read that lets a caller decline rather than
 provoke a certain refusal — `find_attestations` uses it so an author gathering
 its own evidence doesn't write a predictable refusal on every call and bury the
-ones worth reading.
+ones worth reading. It hands back the *error*, not its message, so a caller
+that does decide to refuse raises this rule by name: wrapping it in a generic
+error would cost the refusal census the two rule names it most wants to count
+([refusals.md](refusals.md)).
 
 Only `accepted` nodes are citable by output or usable as premises by other
 agents. An agent cannot build on a finding the researcher has not signed.

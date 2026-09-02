@@ -56,6 +56,21 @@ leaves its claims at `proposed` — no agent may attest what it authored — so
 either add a `--reviewer` on another provider, or check them yourself with
 `cohort node` and `cohort accept`.
 
+`--scope` and `--method` are each **one per agent**, in roster order (every
+`--agent`, then every `--reviewer`), or one for the whole roster:
+
+    cohort run --agent "…" --model z-ai/glm-5.3-flash \
+                 --scope "Prajñāpāramitā sūtras" --method "phrase distribution" \
+               --agent "…" --model deepseek/deepseek-v4-flash \
+                 --scope "Heart Sutra apparatus" --method "cross-edition collation" \
+               --budget 0.05
+
+Distinct declared scope per agent is the design's own condition for allowing
+more than one agent at all ([roadmap.md](roadmap.md), "Scope revision"), and
+`POST /api/run` has always taken these per agent — a terminal that could only
+set them for the whole roster could not say what the browser could. A count
+that is neither 1 nor the number of agents is refused rather than padded.
+
 ## Scripts
 
 Everything below is a demo, a corpus builder or the server — not part of the

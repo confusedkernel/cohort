@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..errors import CohortError
+from ..errors import CohortError, WrongNodeType
 from ..graph import Graph
 from ..schemas import (
     Dating,
@@ -80,7 +80,7 @@ def find_attestations(
 ) -> FindAttestationsReport:
     target = graph.get_node(args.claim_or_conjecture_id)
     if target.type not in (NodeType.CLAIM, NodeType.CONJECTURE):
-        raise ValueError(
+        raise WrongNodeType(
             f"{args.claim_or_conjecture_id} is a {target.type}, not a claim or conjecture"
         )
 

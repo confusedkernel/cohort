@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..errors import NodeNotFound
+from ..errors import NodeNotFound, SourceRefMissing, WrongNodeType
 from ..graph import Graph
 from ..schemas import EdgeType, NodeType
 from ..sources.base import Source
@@ -82,11 +82,11 @@ def link_parallels(
 ) -> LinkParallelsReport:
     witness = graph.get_node(args.witness_id)
     if witness.type != NodeType.WITNESS:
-        raise ValueError(f"{args.witness_id} is a {witness.type}, not a witness")
+        raise WrongNodeType(f"{args.witness_id} is a {witness.type}, not a witness")
 
     source_ref = source_ref_for_witness(graph, args.witness_id)
     if source_ref is None:
-        raise ValueError(
+        raise SourceRefMissing(
             f"{args.witness_id} has no passage carrying a source_ref, so its "
             "document cannot be re-fetched; nothing to parse"
         )

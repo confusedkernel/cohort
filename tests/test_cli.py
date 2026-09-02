@@ -329,6 +329,66 @@ def test_run_builds_reviewers_after_workers_with_their_own_models(seeded, monkey
     assert specs[1].agent_id == "agent:cli-reviewer-1"
 
 
+def test_run_declares_a_different_scope_for_each_agent(seeded, monkeypatch, capsys):
+    """Distinct declared scope per agent is the design's condition for allowing
+    more than one agent (roadmap.md "Scope revision"), and `POST /api/run` has
+    always taken these per agent. A terminal that could only set one for the
+    whole roster could not say what the browser could, so the flags repeat and
+    pair in roster order — workers first, then reviewers."""
+    import cohort.ui.runs as runs_mod
+
+    seen = {}
+
+    class FakeManager:
+        def __init__(self, db, log, source, **kw):
+            pass
+
+        def start(self, specs, *, budget_usd, max_turns=None):
+            seen["specs"] = specs
+
+        def current(self):
+            return None
+
+        def history(self, limit=10):
+            return [{"state": "finished", "elapsed_s": 1,
+                     "spend": {"spent_usd": 0.0, "budget_usd": 0.05, "calls": 0},
+                     "agents": []}]
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(runs_mod, "RunManager", FakeManager)
+    monkeypatch.setattr("cohort.cli._corpus", lambda args: object())
+
+    main([
+        "--db", seeded["db"], "run",
+        "--agent", "a", "--agent", "b", "--reviewer", "c",
+        "--model", "z-ai/glm-5.3", "--model", "deepseek/deepseek-v4-flash",
+        "--reviewer-model", "qwen/qwen3.5-flash-02-23",
+        "--scope", "Heart Sutra", "--scope", "apparatus", "--scope", "whatever cites",
+        "--method", "phrase", "--method", "collation", "--method", "re-fetch",
+        "--budget", "0.05",
+    ])
+    capsys.readouterr()
+
+    specs = seen["specs"]
+    assert [s.corpus_scope for s in specs] == ["Heart Sutra", "apparatus", "whatever cites"]
+    assert [s.method_label for s in specs] == ["phrase", "collation", "re-fetch"]
+
+
+def test_run_refuses_a_scope_list_that_does_not_match_the_roster(seeded, monkeypatch):
+    """Two scopes for three agents has no reading that is not a guess: pad it
+    and one agent silently declares someone else's commitments."""
+    monkeypatch.setattr("cohort.cli._corpus", lambda args: object())
+    with pytest.raises(SystemExit, match="3 agent\\(s\\) but 2 --scope"):
+        main([
+            "--db", seeded["db"], "run",
+            "--agent", "a", "--agent", "b", "--reviewer", "c",
+            "--scope", "one", "--scope", "two",
+            "--budget", "0.05",
+        ])
+
+
 def test_run_refuses_a_partial_model_list(seeded, monkeypatch):
     """Padding the rest with the default is how two agents quietly end up on
     one family — refused here, with the count, rather than later with a

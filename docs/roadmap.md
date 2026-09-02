@@ -216,7 +216,7 @@ cohort/                          # repo root
 │   ├── agents/                  # openrouter.py, attestation_worker.py,
 │   │                            #   swarm.py, budget.py, roster.py
 │   └── ui/                      # api.py, runs.py, frontend/ (React+Vite), static/
-└── tests/                       # 23 modules, 362 tests
+└── tests/                       # 24 modules, 390 tests
 ```
 
 Built fresh, so the layout ATELIER already uses (package dir + sibling
@@ -447,7 +447,7 @@ the current concrete state and next steps.
 
 Stage 1's original check — `pytest -q` green, `demo.py` printing the
 `independent_support()` flip, and a manual rebuild diff — is done and has
-stayed green through every stage since (362 tests). `demo.py` still runs with
+stayed green through every stage since (390 tests). `demo.py` still runs with
 no corpus and no API key.
 
 What the live scripts have additionally proven, each run by hand and never
@@ -461,6 +461,13 @@ started from the browser (`$0.00236`, 4 calls) that used `propose_claim` and
 `find_attestations` with **zero** invented-node-id refusals — the five such
 refusals in the earlier conjecture run were the gap `propose_claim` closed.
 
+And, on 2026-09-02, a **three-model run with a reviewer** — two workers and a
+reviewer on `z-ai`, `deepseek` and `qwen`, $0.00402 — followed by a refusal
+census of it. One claim was promoted; the other was withheld at `proposed` with
+all ten of its citations re-fetching byte for byte, because the reviewer
+returned `unsound`. That is the veto asymmetry working live: a model verdict
+withheld a promotion it could never have supplied.
+
 Rebuild fidelity and payload integrity are re-checked after each live run, not
-assumed: the last one replayed 81 events to 37 nodes / 43 edges matching the
-live projection, with 0 mismatched payload hashes.
+assumed: that one replayed 95 events to 40 nodes / 45 edges matching the live
+projection, with 0 mismatched payload hashes.

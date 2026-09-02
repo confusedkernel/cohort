@@ -42,6 +42,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..errors import WrongNodeType
 from ..graph import Graph
 from ..schemas import EdgeType, NodeType
 
@@ -89,7 +90,7 @@ def record_contradiction(
     for node_id in (args.node_a_id, args.node_b_id):
         node = graph.get_node(node_id)  # raises NodeNotFound, reported to the caller
         if node.type not in CONTRADICTABLE_TYPES:
-            raise ValueError(
+            raise WrongNodeType(
                 f"{node_id} is a {node.type}; a contradicts edge is for evidence and "
                 f"assertions ({', '.join(sorted(CONTRADICTABLE_TYPES))}), not for "
                 "audit records or retrievals"

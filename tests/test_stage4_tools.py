@@ -13,6 +13,7 @@ from io import BytesIO
 
 import pytest
 
+from cohort.errors import SourceRefMissing, WrongNodeType
 from cohort.schemas import (
     AssuranceLevel,
     ClaimPayload,
@@ -165,7 +166,7 @@ def test_parallel_edge_flips_independent_support(graph, source):
 
 def test_refuses_a_non_witness_target(graph, source):
     _, passage_id = _add_witness(graph, source, ENTRY_251, "ALPHA")
-    with pytest.raises(ValueError, match="not a witness"):
+    with pytest.raises(WrongNodeType, match="not a witness"):
         link_parallels(
             graph, source, LinkParallelsInput(witness_id=passage_id), authored_by=AGENT
         )
@@ -179,7 +180,7 @@ def test_witness_without_a_source_ref_is_refused(graph, source):
         ),
         authored_by=AGENT,
     )
-    with pytest.raises(ValueError, match="no passage carrying a source_ref"):
+    with pytest.raises(SourceRefMissing, match="no passage carrying a source_ref"):
         link_parallels(
             graph, source, LinkParallelsInput(witness_id=witness_id), authored_by=AGENT
         )

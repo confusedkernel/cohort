@@ -19,9 +19,22 @@ event log by `Graph.log_refusal()`. This is not error handling; refusals are
 part of the output ([design.md](design.md) §15). Read them back with
 `read_refusals()`, or see them in the UI's refusal panel.
 
+Every rule a tool raises is a **named** `CohortError` — `UngroundedClaim`,
+`WrongNodeType`, `SourceRefMissing`, `InvalidVerdict` alongside the write
+boundary's own — because the refusal census reads the rule's *name*
+([refusals.md](refusals.md)). Until the first live run was censused these were
+bare `ValueError`s, and a claim the corpus would not support was indistinguishable
+in the record from a mistyped id. `tests/test_refusal_census.py` now fails if a
+tool raises anything the taxonomy cannot name.
+
 The most important refusal is an invented node id. Agents guess ids — a live
 run produced five such guesses — and every one is refused rather than minting a
-node, because edges never create their endpoints.
+node, because edges never create their endpoints. When the id is a *near* miss
+— the right uuid with its type prefix dropped, which three models on three
+model families all did in one run — the refusal names the node it nearly
+matched instead of stopping at "not found". It is still refused: the prefix is
+what makes an id say what kind of thing it names, and quietly repairing it
+would teach that the type is decoration.
 
 ## The six tools a worker may call
 

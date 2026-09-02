@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 
+from ..errors import WrongNodeType
 from ..graph import Graph
 from ..schemas import AssuranceLevel, VerificationMethod, VerificationResult
 from ..sources.base import Source
@@ -27,7 +28,7 @@ def verify_exact_span(
 ) -> str:
     passage = graph.get_node(passage_id)
     if passage.type != "passage":
-        raise ValueError(f"{passage_id} is a {passage.type}, not a passage")
+        raise WrongNodeType(f"{passage_id} is a {passage.type}, not a passage")
 
     source_ref = passage.payload.get("source_ref")
     excerpt = passage.payload.get("excerpt")

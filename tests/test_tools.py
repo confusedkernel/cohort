@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from cohort.errors import NodeNotFound, UnattestableClaim, UnattestableConjecture
+from cohort.errors import (
+    NodeNotFound,
+    UnattestableClaim,
+    UnattestableConjecture,
+    UngroundedClaim,
+    WrongNodeType,
+)
 from cohort.eventlog import read_events
 from cohort.schemas import (
     RESEARCHER,
@@ -99,7 +105,7 @@ def test_find_attestations_refuses_a_witness_target(graph, source):
         ),
         authored_by=AGENT,
     )
-    with pytest.raises(ValueError, match="not a claim or conjecture"):
+    with pytest.raises(WrongNodeType, match="not a claim or conjecture"):
         find_attestations(
             graph, source,
             FindAttestationsInput(claim_or_conjecture_id=witness_id, query="明月"),
@@ -216,7 +222,7 @@ def test_propose_claim_creates_a_claim_and_records_the_grounding_search(graph, s
 
 def test_propose_claim_refuses_an_ungrounded_claim_and_writes_nothing(graph, source):
     before = len(graph.nodes())
-    with pytest.raises(ValueError, match="no hits"):
+    with pytest.raises(UngroundedClaim, match="no hits"):
         propose_claim(
             graph, source,
             ProposeClaimInput(text="ungrounded", grounding_query="龍樹菩薩勸誡王頌"),
@@ -229,7 +235,7 @@ def test_propose_claim_refuses_an_ungrounded_claim_and_writes_nothing(graph, sou
 def test_propose_claim_points_an_absence_at_propose_conjecture(graph, source):
     """The one legitimate case the grounding guard turns away should say where
     it belongs, rather than leaving the agent to guess."""
-    with pytest.raises(ValueError, match="conjecture"):
+    with pytest.raises(UngroundedClaim, match="conjecture"):
         propose_claim(
             graph, source,
             ProposeClaimInput(
@@ -348,7 +354,7 @@ def test_record_contradiction_refuses_audit_nodes(graph, source):
     )
     decision_id = graph.accept(claim_id, authored_by=RESEARCHER)
 
-    with pytest.raises(ValueError, match="audit records or retrievals"):
+    with pytest.raises(WrongNodeType, match="audit records or retrievals"):
         record_contradiction(
             graph,
             RecordContradictionInput(

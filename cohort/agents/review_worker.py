@@ -170,12 +170,15 @@ def pending_review_context(graph: Graph, authored_by: str) -> str | None:
         return None
     lines = [
         "Proposed claims and conjectures awaiting review. You may review any "
-        "of these; each was authored by another agent, and each is listed with "
-        "the id you pass to review_claim:"
+        "of these; each was authored by another agent. Pass the quoted id "
+        "below as claim_id exactly as written, prefix included — the "
+        '"claim:" / "conjecture:" part is inside the id, not a label on it. '
+        "The first multi-model run to be censused lost every one of its "
+        "reviews to that mistake."
     ]
     for n in pending[:MAX_PENDING_LISTED]:
         text = n.payload.get("text") or n.payload.get("statement") or n.id
-        lines.append(f"- {n.id} [{n.type}] {text!r}")
+        lines.append(f'- "{n.id}" [{n.type}] {text!r}')
     if len(pending) > MAX_PENDING_LISTED:
         lines.append(
             f"...and {len(pending) - MAX_PENDING_LISTED} more not listed. Review the "

@@ -137,6 +137,38 @@ class NodeNotFound(CohortError):
     """No node with this id exists."""
 
 
+# --- the tool layer's own rules -----------------------------------------------
+#
+# Every one of these was a bare `ValueError` until a live multi-model run was
+# censused for the first time (2026-09-02) and its single refusal came back
+# `unclassified`. The census reads a refusal's *rule name*, so a tool raising
+# `ValueError` told a researcher nothing: a claim the corpus would not support,
+# a reviewer barred from the claim it was handed, and a mistyped node id all
+# arrived under one label and in one bucket. These are rules the design claims,
+# so they are named here with the rest of them.
+
+
+class WrongNodeType(CohortError):
+    """A tool was handed a node of a type it cannot act on."""
+
+
+class UngroundedClaim(CohortError):
+    """A claim's grounding query returned no hits, so it could never be cited.
+
+    Refused on the evidence, not on form — which is why it is the one tool
+    rule in the `EVIDENCE` bucket. The refusal names the alternative: an
+    absence is settled by a retrieval, so it belongs in a conjecture.
+    """
+
+
+class SourceRefMissing(CohortError):
+    """No passage under this witness carries a source_ref to re-fetch."""
+
+
+class InvalidVerdict(CohortError):
+    """A review verdict outside the closed set."""
+
+
 # --- single writer (design doc §5 principle 7) --------------------------------
 
 class SingleWriterViolation(CohortError):
@@ -211,11 +243,16 @@ REFUSAL_CATEGORIES: dict[str, RefusalCategory] = {
     EdgeSelfLoop.__name__: RefusalCategory.EXPRESSION,
     EdgeDomainViolation.__name__: RefusalCategory.EXPRESSION,
     MissingRejectionReason.__name__: RefusalCategory.EXPRESSION,
+    WrongNodeType.__name__: RefusalCategory.EXPRESSION,
+    InvalidVerdict.__name__: RefusalCategory.EXPRESSION,
+    # the corpus did not support it, from the tool layer
+    UngroundedClaim.__name__: RefusalCategory.EVIDENCE,
     # the system's own preconditions
     NoEventLog.__name__: RefusalCategory.OPERATIONAL,
     RebuildMismatch.__name__: RefusalCategory.OPERATIONAL,
     SingleWriterViolation.__name__: RefusalCategory.OPERATIONAL,
     UnknownEventType.__name__: RefusalCategory.OPERATIONAL,
+    SourceRefMissing.__name__: RefusalCategory.OPERATIONAL,
     # Not a CohortError, but it reaches the log by class name like the rest:
     # `AttestationWorker._dispatch` logs whatever a tool raised, and pydantic
     # rejects a malformed tool argument before any rule in this module is

@@ -13,6 +13,8 @@ Neither concludes anything about a tool. The census counts; a human reads.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from cohort.errors import (
@@ -81,6 +83,43 @@ def test_no_category_is_a_guess():
     known = {c.__name__ for c in CohortError.__subclasses__()} | {"ValidationError"}
     stale = sorted(name for name in REFUSAL_CATEGORIES if name not in known)
     assert not stale, f"REFUSAL_CATEGORIES names rules that no longer exist: {stale}"
+
+
+def test_no_tool_refuses_with_a_rule_the_census_cannot_name():
+    """The first live multi-model run censused (2026-09-02) returned exactly one
+    refusal and it came back `unclassified`: `propose_claim` refused an
+    ungrounded claim — the design's flagship evidence refusal — as a bare
+    `ValueError`. Ten such raises were spread across the tool layer, so a
+    reviewer, a mistyped id and a claim the corpus would not support all
+    arrived under one meaningless rule name.
+
+    The taxonomy guards above only see `CohortError` subclasses, which is
+    precisely why they did not catch it. This one reads the tool layer itself.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted((Path(__file__).parent.parent / "cohort" / "tools").glob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            exc = node.exc
+            # `raise some_error` re-raises an object built elsewhere, whose
+            # rule name is whatever that object already is.
+            if not isinstance(exc, ast.Call):
+                continue
+            name = exc.func.attr if isinstance(exc.func, ast.Attribute) else getattr(exc.func, "id", "")
+            if name and name not in REFUSAL_CATEGORIES:
+                offenders.append(f"{path.name}:{node.lineno} raises {name}")
+
+    assert not offenders, (
+        "a tool refuses with a rule the census cannot categorise:\n  "
+        + "\n  ".join(offenders)
+        + "\nName it in cohort/errors.py and give it a category — the refusal "
+          "log records the rule's *name*, so an unnamed rule tells a researcher "
+          "nothing about what to go and look at."
+    )
 
 
 def test_an_unknown_rule_is_reported_not_dropped():

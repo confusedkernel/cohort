@@ -19,7 +19,7 @@ What is true as of **2026-09-02**. For how the system got here, see
 
 ## Verified state
 
-    .venv/bin/pytest -q      # 362 passed
+    .venv/bin/pytest -q      # 390 passed
     .venv/bin/python demo.py # no corpus, no API key, no network
 
 Proven by real runs rather than by assertion — every one manual, none
@@ -27,9 +27,13 @@ automated: a live OpenRouter call; two *concurrent* live agents writing to one
 graph; attestation against the hash-verified CBETA archive; the stage-4
 `parallel_of` flip on three real Heart Sutra translations; a conjecture through
 the falsifiability gate with a real prior-art search ($0.004); an agent run
-started from the browser ($0.00236); and a two-agent swarm started from the
-browser ($0.00336, 62.8s, 16 calls, interleaved). Rebuild fidelity and payload
-integrity are re-checked after each live run, not assumed.
+started from the browser ($0.00236); a two-agent swarm started from the browser
+($0.00336, 62.8s, 16 calls, interleaved); and a **three-model run with a
+reviewer, then censused** ($0.00402, 12 calls, `z-ai` + `deepseek` + `qwen`) in
+which one claim was promoted and one was withheld on the reviewer's reading
+with all ten of its citations re-fetching cleanly. Rebuild fidelity and payload
+integrity are re-checked after each live run, not assumed — that one replayed
+95 events to 40 nodes / 45 edges with 0 mismatched payload hashes.
 
 ## What exists
 
@@ -169,10 +173,14 @@ rather than reusing a copy from elsewhere.
    guess.
 3. **`record_contradiction` has never been called by a live model.** Every
    other registered tool has. One cheap run would close that gap.
-3b. **No run has been censused live.** The census tooling is built and tested
-   ([refusals.md](refusals.md)), and reproduces the historical tool-gap streaks
-   from the demo log. What it has never seen is a *fresh* multi-agent run with
-   a reviewer in it — which is the paper's evidence and needs API calls.
+3b. **Done, 2026-09-02.** Three live three-model runs with a reviewer, censused.
+   The first two each found a defect in the census's own reach — nine tool rules
+   raising bare `ValueError`, and an id listing whose `claim:` prefix all three
+   models read as a label — and the third came back clean. See
+   [refusals.md](refusals.md) and [changelog.md](changelog.md). What is still
+   missing is a *negative control*: nothing has yet shown the system catching a
+   citation that does not re-verify, only one whose reviewer disagreed with what
+   the citations were taken to show.
 4. **A measured scaling study.** Scaling still rests on one two-agent run;
    `epistemic-swarm` publishes a four-point table. Needs live API calls.
 5. **A self-hosting position.** OpenRouter is still the only model path — see
