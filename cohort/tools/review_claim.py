@@ -154,11 +154,17 @@ def review_claim(
     # reading is a limit on what that establishes, which is what this field is
     # for. Keeping them in separate fields is what stops a confident sentence
     # from reading later as a mechanical finding.
-    limitations = None if args.verdict == "sound" else (
-        f"reviewer verdict {args.verdict}: {args.detail}"
-    )
-    if args.verdict == "sound":
-        mechanical = f"{mechanical} Reviewer: {args.detail}"
+    #
+    # `sound` used to be the exception: its prose was appended to `detail` on
+    # the reasoning that a positive verdict is not a limitation. The negative
+    # control (2026-09-02, scripts/run_negative_control.py) showed what that
+    # cost. A reviewer handed a claim with one altered excerpt returned `sound`
+    # with "Re-fetched and re-verified the cited passages... confirming that
+    # the title indeed appears in the corpus" — and that sentence landed in
+    # `detail`, the machine's field, on a verification whose result was `fail`.
+    # A sound verdict over a failing check is not corroboration; it is the most
+    # important thing on the record to mark as *not* established.
+    limitations = f"reviewer verdict {args.verdict}: {args.detail}"
 
     # A2, and independence is deliberately not graded at all.
     #

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
@@ -24,6 +25,7 @@ from .schemas import (
     Refusal,
     RefusalCensus,
     RefusalStreak,
+    RunRecord,
 )
 
 
@@ -34,6 +36,26 @@ class EventLog:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.touch()
         self._next_seq = _next_seq_after(self.path)
+        #: Set for the duration of an agent run, so every event written while
+        #: it is open carries its id. One choke point rather than a parameter
+        #: on every write: which run is writing is a property of the session,
+        #: not something each call site should have to remember.
+        self.run_id: str | None = None
+
+    @contextmanager
+    def during_run(self, run_id: str):
+        """Stamp `run_id` on everything appended inside this block.
+
+        Restores whatever was set before rather than clearing, so a nested
+        block cannot silently un-stamp its caller's run, and restores on the
+        way out of an exception too — a run that crashed still wrote events,
+        and they still belong to it."""
+        previous = self.run_id
+        self.run_id = run_id
+        try:
+            yield self
+        finally:
+            self.run_id = previous
 
     def append(
         self,
@@ -60,6 +82,7 @@ class EventLog:
             seq=self._next_seq,
             event=event,
             authored_by=authored_by,
+            run_id=self.run_id,
             node_id=node_id,
             edge_id=edge_id,
             node_type=node_type,
@@ -106,7 +129,9 @@ def _next_seq_after(path: Path) -> int:
     return last + 1
 
 
-def summarize_model_calls(path: str | Path) -> ModelCallSummary:
+def summarize_model_calls(
+    path: str | Path, *, run_id: str | None = None
+) -> ModelCallSummary:
     """Plain arithmetic over the log's "model_call" events — counted, not
     asserted, matching the house habit (design doc §13). A pure log scan,
     not a Graph method: model_call events never touch the SQLite
@@ -116,6 +141,8 @@ def summarize_model_calls(path: str | Path) -> ModelCallSummary:
     total_cost = 0.0
     for ev in read_events(path):
         if ev.event != "model_call":
+            continue
+        if run_id is not None and ev.run_id != run_id:
             continue
         calls += 1
         total_input += ev.input_tokens or 0
@@ -138,7 +165,9 @@ def summarize_model_calls(path: str | Path) -> ModelCallSummary:
 MIN_STREAK = 2
 
 
-def summarize_refusals(path: str | Path) -> RefusalCensus:
+def summarize_refusals(
+    path: str | Path, *, run_id: str | None = None
+) -> RefusalCensus:
     """Arithmetic over a log's refused writes — see `RefusalCensus`.
 
     A pure log scan, like `summarize_model_calls`: a refused write changed no
@@ -148,7 +177,7 @@ def summarize_refusals(path: str | Path) -> RefusalCensus:
     the tail, and a census over the tail would report a smaller total than the
     log holds while looking authoritative.
     """
-    refusals = read_refusals(path)
+    refusals = read_refusals(path, run_id=run_id)
     census = RefusalCensus(
         total=len(refusals),
         by_category={c.value: 0 for c in RefusalCategory},
@@ -219,7 +248,9 @@ def _streaks(refusals: list[Refusal]) -> list[RefusalStreak]:
     return streaks
 
 
-def read_refusals(path: str | Path, *, limit: int | None = None) -> list[Refusal]:
+def read_refusals(
+    path: str | Path, *, limit: int | None = None, run_id: str | None = None
+) -> list[Refusal]:
     """Every refused write in the log, oldest first — a pure log scan, same
     pattern as `summarize_model_calls`.
 
@@ -233,6 +264,11 @@ def read_refusals(path: str | Path, *, limit: int | None = None) -> list[Refusal
     definition, changed no graph state, so there is nothing in the SQLite
     projection to read it from. `limit` keeps the *most recent* n (the tail),
     since that is what a reader actually wants when a log has grown long.
+
+    `run_id` narrows to one agent run. The log is cumulative across a graph's
+    whole life, so "what did the run I just watched refuse?" is a different
+    question from "what has this graph ever refused", and both are worth
+    asking.
     """
     refusals = [
         Refusal(
@@ -249,6 +285,53 @@ def read_refusals(path: str | Path, *, limit: int | None = None) -> list[Refusal
             model_call_id=ev.model_call_id,
         )
         for ev in read_events(path)
-        if ev.event == "refused"
+        if ev.event == "refused" and (run_id is None or ev.run_id == run_id)
     ]
     return refusals[-limit:] if limit is not None else refusals
+
+
+def read_runs(path: str | Path, *, limit: int | None = None) -> list[RunRecord]:
+    """Every agent run the log knows about, most recent first.
+
+    Runs used to live only in `RunManager`'s memory, which meant a server
+    restart erased every run ever launched from the browser. They are events
+    now, so this is a pure log scan like every other summary here, and a run
+    survives the process that started it.
+
+    A run with no `run_finished` event is reported open rather than repaired.
+    It may still be going, or it may have been killed mid-write — both are
+    facts about the session, and inventing an end for it would be exactly the
+    tidying this log refuses to do.
+    """
+    runs: dict[str, RunRecord] = {}
+    counts: Counter[str] = Counter()
+    refused: Counter[str] = Counter()
+
+    for ev in read_events(path):
+        if ev.run_id is not None:
+            counts[ev.run_id] += 1
+            if ev.event == "refused":
+                refused[ev.run_id] += 1
+        if ev.event == "run_started":
+            runs[ev.run_id or ev.detail.get("run_id", "")] = RunRecord(
+                run_id=ev.run_id or ev.detail.get("run_id", ""),
+                started_at=ev.at,
+                agents=ev.detail.get("agents", []),
+                budget_usd=ev.detail.get("budget_usd"),
+            )
+        elif ev.event == "run_finished":
+            record = runs.get(ev.run_id or ev.detail.get("run_id", ""))
+            if record is None:
+                continue
+            record.finished_at = ev.at
+            record.state = ev.detail.get("state")
+            record.spent_usd = ev.detail.get("spent_usd")
+            record.calls = ev.detail.get("calls", 0)
+            record.error = ev.detail.get("error")
+
+    for run_id, record in runs.items():
+        record.events = counts.get(run_id, 0)
+        record.refusals = refused.get(run_id, 0)
+
+    ordered = sorted(runs.values(), key=lambda r: r.started_at, reverse=True)
+    return ordered[:limit] if limit is not None else ordered

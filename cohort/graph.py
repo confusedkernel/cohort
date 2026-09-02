@@ -63,6 +63,7 @@ from .schemas import (
     NodeType,
     PassagePayload,
     QueryPayload,
+    QuestionPayload,
     RebuildReport,
     VerificationMethod,
     VerificationPayload,
@@ -88,6 +89,10 @@ EDGE_DOMAINS: dict[EdgeType, set[tuple[NodeType, NodeType]] | str] = {
     },
     EdgeType.QUOTES: {(NodeType.PASSAGE, NodeType.PASSAGE)},
     EdgeType.TESTS: {(NodeType.QUERY, NodeType.CONJECTURE)},
+    EdgeType.ADDRESSES: {
+        (NodeType.CLAIM, NodeType.QUESTION),
+        (NodeType.CONJECTURE, NodeType.QUESTION),
+    },
     EdgeType.SUPERSEDES: "same_type",
     EdgeType.PART_OF: {(NodeType.PASSAGE, NodeType.WITNESS)},
     EdgeType.VERIFIES: {
@@ -243,6 +248,46 @@ class Graph:
             "model_call", authored_by=authored_by, model=model, provider=provider,
             prompt_version=prompt_version, latency_ms=latency_ms,
             input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=cost_usd,
+        )
+        self._apply(ev)
+        return ev
+
+    def during_run(self, run_id: str):
+        """Stamp `run_id` on every event written inside this block.
+
+        Delegates to the log because that is where events are made. A caller
+        holding a `Graph` should not have to reach past it to say which run is
+        writing."""
+        return self.event_log_or_raise().during_run(run_id)
+
+    def log_run_started(
+        self, run_id: str, *, authored_by: str, agents: list[dict],
+        budget_usd: float | None = None,
+    ) -> Event:
+        """A non-mutating marker opening a run, like `log_model_call`.
+
+        `run_id` alone can say which events belong together but not what the
+        run was *for*. The roster — each agent's id, role, model and declared
+        scope — is the thing a reader needs to interpret the writes that
+        follow, and declared scope per agent is the condition under which this
+        design permits more than one agent at all."""
+        ev = self.event_log_or_raise().append(
+            "run_started", authored_by=authored_by,
+            detail={"run_id": run_id, "agents": agents, "budget_usd": budget_usd},
+        )
+        self._apply(ev)
+        return ev
+
+    def log_run_finished(
+        self, run_id: str, *, authored_by: str, state: str,
+        spent_usd: float | None = None, calls: int = 0, error: str | None = None,
+    ) -> Event:
+        """The closing marker. Absent for a run that was killed mid-write,
+        which `read_runs` reports as still open rather than repairing."""
+        ev = self.event_log_or_raise().append(
+            "run_finished", authored_by=authored_by,
+            detail={"run_id": run_id, "state": state, "spent_usd": spent_usd,
+                    "calls": calls, "error": error},
         )
         self._apply(ev)
         return ev
@@ -610,6 +655,45 @@ class Graph:
         self._apply(ev)
         return verification_id
 
+    def ask_question(
+        self, payload: QuestionPayload, *, authored_by: str,
+        model_call_id: int | None = None,
+    ) -> str:
+        """Record what an inquiry is asking.
+
+        **The researcher asks.** Agents propose claims and conjectures; setting
+        the agenda is the supervision, and an agent that could ask its own
+        question and then answer it would be doing unsupervised research with a
+        paper trail. Same reasoning as `accept`/`reject`/`reopen` (principle 6),
+        and easy to relax later if a reviewer's "someone should ask X" turns out
+        to be worth recording as a question rather than as prose.
+
+        Born `accepted`, bypassing the ladder like `decision` and
+        `verification`: there is no mechanical check that could promote a
+        question and no rung for it to climb. **`accepted` here means asked,
+        not answered** — nothing about this status says the question has been
+        settled, and `citable()` excludes questions so nothing can cite one as
+        a premise.
+        """
+        if authored_by != RESEARCHER:
+            self._refuse(
+                "ask", authored_by,
+                NotResearcher(
+                    f"{authored_by} may not ask a research question; only the "
+                    "researcher sets the agenda. Propose a claim or a "
+                    "conjecture instead"
+                ),
+                node_type=NodeType.QUESTION,
+            )
+        question_id = f"{NodeType.QUESTION}:{uuid.uuid4().hex}"
+        ev = self.event_log_or_raise().append(
+            "ask", authored_by=authored_by, node_id=question_id,
+            node_type=NodeType.QUESTION, model_call_id=model_call_id,
+            detail={"payload": payload.model_dump(mode="json")},
+        )
+        self._apply(ev)
+        return question_id
+
     def register_agent(
         self, profile: AgentProfile, *, authored_by: str, model_call_id: int | None = None
     ) -> str:
@@ -658,14 +742,17 @@ class Graph:
         return self._require_node(node_id)
 
     def citable(self) -> list[Node]:
-        """Only accepted, non-decision, non-verification nodes — the only
-        things usable as a premise or citable in output (design doc §5
-        principle 6). Decision and verification nodes are always
+        """Only accepted, non-decision, non-verification, non-question nodes —
+        the only things usable as a premise or citable in output (design doc
+        §5 principle 6). Decision and verification nodes are always
         status=accepted (they bypass the ladder) but are audit bookkeeping,
-        not evidence."""
+        not evidence. A question is accepted the moment it is asked and is
+        never evidence either: output cites what answers a question, never the
+        question."""
         rows = self.conn.execute(
-            "SELECT * FROM nodes WHERE status=? AND type NOT IN (?, ?)",
-            (NodeStatus.ACCEPTED, NodeType.DECISION, NodeType.VERIFICATION),
+            "SELECT * FROM nodes WHERE status=? AND type NOT IN (?, ?, ?)",
+            (NodeStatus.ACCEPTED, NodeType.DECISION, NodeType.VERIFICATION,
+             NodeType.QUESTION),
         ).fetchall()
         return [self._row_to_node(r) for r in rows]
 
@@ -828,6 +915,10 @@ class Graph:
             attesting_count=len(passages),
             distinct_witnesses=len(distinct_witnesses),
             independent=not flips,
+            # `independent` is vacuously true with nothing to discount. Said
+            # out loud rather than left for each reader to notice, because
+            # "independent" over an empty support set reads as a result.
+            vacuous=not passages,
             non_independent_pairs=flips,
         )
 
@@ -906,12 +997,16 @@ class Graph:
             self._apply_edge_retraction(ev, retracted=False)
         elif ev.event == "verify":
             self._apply_verify(ev)
+        elif ev.event == "ask":
+            self._apply_ask(ev)
         elif ev.event == "register_agent":
             self._apply_register_agent(ev)
         elif ev.event == "refused":
             pass  # an audit marker only; never mutates state
         elif ev.event == "model_call":
             pass  # an audit marker only; never mutates state
+        elif ev.event in ("run_started", "run_finished"):
+            pass  # a run beginning is not a change to the graph
         else:  # pragma: no cover — Event already validates against EVENT_TYPES
             raise CohortError(f"no _apply handler for event {ev.event!r}")
 
@@ -1018,6 +1113,14 @@ class Graph:
         self._add_authorship("node", ev.node_id, ev.authored_by, "proposed", ev.at, ev.seq)
         self._insert_edge_row(ev.edge_id, ev.edge_type, ev.node_id, detail["subject_node_id"], ev.seq)
         self._add_authorship("edge", ev.edge_id, ev.authored_by, "proposed", ev.at, ev.seq)
+        self.conn.commit()
+
+    def _apply_ask(self, ev: Event) -> None:
+        self._insert_node_row(
+            ev.node_id, NodeType.QUESTION, NodeStatus.ACCEPTED,
+            json.dumps(ev.detail["payload"]), None, ev.seq,
+        )
+        self._add_authorship("node", ev.node_id, ev.authored_by, "proposed", ev.at, ev.seq)
         self.conn.commit()
 
     def _apply_register_agent(self, ev: Event) -> None:

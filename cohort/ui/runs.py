@@ -65,7 +65,7 @@ from ..agents.openrouter import (
     load_openrouter_config,
 )
 from ..agents.swarm import run_swarm
-from ..eventlog import read_refusals
+from ..eventlog import read_refusals, read_runs
 from ..graph import Graph
 from ..agents.review_worker import ReviewWorker, pending_review_context
 from ..agents.roster import RosterNotIndependent, check_distinct_model_families
@@ -268,6 +268,14 @@ class RunManager:
             runs = list(self._history[-limit:])
         return [r.snapshot() for r in reversed(runs)]
 
+    def recorded(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Every run the *log* knows about, most recent first.
+
+        `history()` is this process's memory and dies with it — before runs
+        were events, a server restart erased every run ever launched from the
+        browser. This survives, and needs no run manager state at all."""
+        return [r.model_dump(mode="json") for r in read_runs(self.log_path, limit=limit)]
+
     def get(self, run_id: str) -> dict[str, Any] | None:
         with self._lock:
             for run in [self._current, *self._history]:
@@ -379,12 +387,19 @@ class RunManager:
         accumulate happen under one lock, so concurrent workers cannot both pass
         the check before either records its spend."""
         graph: Graph | None = None
-        refusals_before = 0
         try:
-            if self.log_path.is_file():
-                refusals_before = len(read_refusals(self.log_path))
-
             graph = Graph.open(self.db_path, self.log_path)
+            # Everything this run writes carries its id from here on, so the
+            # log can answer "what did that run do?" after the process that
+            # ran it is gone. Set directly rather than with `during_run`
+            # because the run's scope is this whole method including its
+            # `finally`, not a block inside it.
+            graph.event_log.run_id = run.id
+            graph.log_run_started(
+                run.id, authored_by=f"run:{run.id}",
+                agents=[spec.as_json() for spec in run.specs],
+                budget_usd=run.budget_usd,
+            )
 
             def on_call(call: dict) -> None:
                 with run._lock:
@@ -489,16 +504,32 @@ class RunManager:
                 run.state = "failed"
         finally:
             if graph is not None:
+                # The closing marker goes in before the lock is dropped, and
+                # its own failure is swallowed: a run that reached its end and
+                # then could not say so is still better recorded as open than
+                # replaced by an exception from the reporting path.
+                try:
+                    with run._lock:
+                        state, error, spend = run.state, run.error, dict(run.spend)
+                    graph.log_run_finished(
+                        run.id, authored_by=f"run:{run.id}", state=state,
+                        spent_usd=spend.get("spent_usd"),
+                        calls=spend.get("calls", 0), error=error,
+                    )
+                except Exception:  # noqa: BLE001, S110 — reporting, never fatal
+                    pass
                 try:
                     graph.close()
                 except Exception:  # noqa: BLE001, S110 — closing must not mask the real error
                     pass
-            # Refusals this run produced. Read after the lock is released so the
-            # log is complete, and diffed against the count from before so a
-            # pre-existing history is not attributed to this run.
+            # Refusals this run produced. Read after the lock is released so
+            # the log is complete, and selected by `run_id` rather than by
+            # diffing a count taken beforehand — the count was right only
+            # because nothing else may write while a run holds the lock, which
+            # is a guarantee this reporting path should not have to depend on.
             try:
                 if self.log_path.is_file():
-                    new = read_refusals(self.log_path)[refusals_before:]
+                    new = read_refusals(self.log_path, run_id=run.id)
                     with run._lock:
                         run.refusals = [r.model_dump(mode="json") for r in new]
             except Exception:  # noqa: BLE001, S110 — reporting extra, never fatal

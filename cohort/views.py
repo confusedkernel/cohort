@@ -76,3 +76,193 @@ def node_detail_json(graph: Graph, node_id: str) -> dict[str, Any]:
             mode="json"
         )
     return detail
+
+
+#: The dossier fields `ConjecturePayload` requires, in the order a reader needs
+#: them: what is claimed, how it was reached, what was searched, and then the
+#: two that make it a hypothesis rather than an assertion — what could have
+#: gone wrong in the selection, and what else could explain the same evidence.
+DOSSIER_FIELDS = (
+    "derivation", "corpus_boundary", "selection_risks", "alternative_explanations",
+)
+
+
+def _query_json(graph: Graph, node) -> dict[str, Any]:
+    p = node.payload
+    return {
+        "id": node.id,
+        "text": p.get("text"),
+        "expectation": p.get("expectation"),
+        "expected_hits": p.get("expected_hits"),
+    }
+
+
+def dossier_json(graph: Graph, node_id: str) -> dict[str, Any]:
+    """A claim or conjecture as a hypothesis record, not as a node.
+
+    Everything here is already in the graph and was, until this existed,
+    reachable only by walking edges by hand: the dossier fields, the prior-art
+    search that was actually run, the prospective query with the prediction
+    recorded when it was proposed, the evidence with its excerpts, the
+    independence discount, and the verifications with the machine's finding
+    and a reviewer's reading kept in separate fields.
+
+    Assembled here rather than in a panel because both front ends need the
+    same answer, and because a reader deciding what a hypothesis is worth
+    should not have to reconstruct it from a graph traversal — that is the
+    step at which the honest fields get skipped.
+    """
+    detail = node_detail_json(graph, node_id)
+    node = graph.get_node(node_id)
+    payload = node.payload
+
+    detail["assertion"] = payload.get("text")
+    detail["dossier"] = {f: payload.get(f) for f in DOSSIER_FIELDS if payload.get(f)}
+
+    # The two query nodes, resolved. `searched_for` records a prior-art search
+    # that was run before proposing; `tests` records what would settle it
+    # going forward. Kept apart because they answer opposite questions.
+    detail["prior_art"] = [
+        _query_json(graph, graph.get_node(e.src))
+        for e in graph.edges(edge_type=EdgeType.SEARCHED_FOR, dst=node_id)
+    ]
+    detail["prospective_queries"] = [
+        _query_json(graph, graph.get_node(e.src))
+        for e in graph.edges(edge_type=EdgeType.TESTS, dst=node_id)
+    ]
+
+    # The evidence, with enough of each passage to read. A list of passage ids
+    # is not evidence a person can weigh.
+    evidence = []
+    for e in graph.edges(edge_type=EdgeType.ATTESTS, dst=node_id):
+        passage = graph.get_node(e.src)
+        witness = next(
+            (w.dst for w in graph.edges(edge_type=EdgeType.PART_OF, src=passage.id)), None
+        )
+        evidence.append({
+            "passage_id": passage.id,
+            "status": passage.status,
+            "excerpt": passage.payload.get("excerpt"),
+            "locator": passage.payload.get("locator"),
+            "canonical_ref": passage.payload.get("canonical_ref"),
+            "witness_id": witness,
+            "assurance": graph.assurance_for(passage.id),
+        })
+    detail["evidence"] = evidence
+
+    # The latest verification per method, which is what `assurance_for` reads
+    # too — a stale pass must not outrank a later failure here either.
+    latest: dict[str, dict[str, Any]] = {}
+    for v in detail["verifications"]:
+        latest[v["payload"]["method"]] = v
+    detail["latest_verifications"] = list(latest.values())
+    detail["prospective_test"] = latest.get("prospective_test")
+
+    return detail
+
+
+def findings_json(graph: Graph, *, limit: int | None = None) -> dict[str, Any]:
+    """Every claim and conjecture, as a scannable list of hypotheses.
+
+    Ordered newest first and reported with the numbers a reader needs to decide
+    what to open: where it sits on the ladder, whether its support survives the
+    independence check, and whether its prospective query has been run.
+
+    Deliberately not scored or ranked by support count. A list sorted by
+    "most attested" would be a confidence ranking wearing a different hat, and
+    the whole argument is that counting agreement is the wrong move.
+    """
+    rows = []
+    for node_type in (NodeType.CONJECTURE, NodeType.CLAIM):
+        for node in graph.nodes(node_type=node_type):
+            support = graph.independent_support(node.id)
+            tests = [
+                graph.get_node(e.src)
+                for e in graph.edges(edge_type=EdgeType.TESTS, dst=node.id)
+            ]
+            prospective = next(
+                (v for v in reversed(graph.verifications(node.id))
+                 if v.payload["method"] == "prospective_test"),
+                None,
+            )
+            rows.append({
+                "id": node.id,
+                "type": node.type,
+                "status": node.status,
+                "assurance": graph.assurance_for(node.id),
+                "assertion": node.payload.get("text"),
+                "rejected_reason": node.rejected_reason,
+                "authors": sorted({a.author for a in node.authorship if a.action == "proposed"}),
+                "attesters": sorted({a.author for a in node.authorship if a.action == "attested"}),
+                "support": support.model_dump(mode="json"),
+                "has_dossier": any(node.payload.get(f) for f in DOSSIER_FIELDS),
+                "has_prospective_query": bool(tests),
+                "prospective_result": prospective.payload["result"] if prospective else None,
+                "created_seq": node.created_seq,
+            })
+    rows.sort(key=lambda r: -r["created_seq"])
+    return {"count": len(rows), "findings": rows[:limit] if limit else rows}
+
+
+def question_json(graph: Graph, question_id: str) -> dict[str, Any]:
+    """A question with what has been put forward as an answer to it.
+
+    Reported as a **tally, not a verdict**. It says how many hypotheses address
+    the question and where each one stands; it does not say whether the
+    question has been answered, because nothing mechanical could know that. A
+    question with nine claims under it is not a settled question — the same
+    reason `addresses` points from the answer to the question rather than the
+    other way round.
+    """
+    node = graph.get_node(question_id)
+    addressed = [
+        graph.get_node(e.src)
+        for e in graph.edges(edge_type=EdgeType.ADDRESSES, dst=question_id)
+    ]
+    hypotheses = []
+    for n in sorted(addressed, key=lambda n: -n.created_seq):
+        support = graph.independent_support(n.id)
+        hypotheses.append({
+            "id": n.id,
+            "type": n.type,
+            "status": n.status,
+            "assurance": graph.assurance_for(n.id),
+            "assertion": n.payload.get("text"),
+            "support": support.model_dump(mode="json"),
+        })
+
+    by_status: dict[str, int] = {}
+    for h in hypotheses:
+        by_status[h["status"]] = by_status.get(h["status"], 0) + 1
+
+    return {
+        **node_json(graph, node),
+        "question": node.payload.get("text"),
+        "answerable_by": node.payload.get("answerable_by"),
+        "hypotheses": hypotheses,
+        "by_status": by_status,
+        # Counted separately because it is the number that would be misread as
+        # a score if it sat beside the others without a name.
+        "unsupported": sum(1 for h in hypotheses if h["support"]["vacuous"]),
+        "discounted": sum(
+            1 for h in hypotheses
+            if not h["support"]["vacuous"] and not h["support"]["independent"]
+        ),
+    }
+
+
+def questions_json(graph: Graph) -> dict[str, Any]:
+    """Every research question, newest first, with how much addresses each."""
+    rows = []
+    for node in graph.nodes(node_type=NodeType.QUESTION):
+        addressing = graph.edges(edge_type=EdgeType.ADDRESSES, dst=node.id)
+        rows.append({
+            "id": node.id,
+            "question": node.payload.get("text"),
+            "answerable_by": node.payload.get("answerable_by"),
+            "asked_by": [a.author for a in node.authorship],
+            "addressed_by": len(addressing),
+            "created_seq": node.created_seq,
+        })
+    rows.sort(key=lambda r: -r["created_seq"])
+    return {"count": len(rows), "questions": rows}

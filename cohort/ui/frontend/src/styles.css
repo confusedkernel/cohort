@@ -1681,3 +1681,119 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   background: var(--fill-1);
   border: 1px solid var(--line); border-radius: var(--radius-control);
 }
+
+/* Recorded runs — the log-derived history, which outlives the server. */
+.run-history { margin-top: 1.25rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.run-history h3 { margin: 0 0 0.25rem; font-size: 0.95rem; }
+.run-history-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+.run-history-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.65rem;
+  background: var(--fill-1);
+}
+.run-history-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem;
+  font-size: 0.82rem;
+}
+.run-history-head .run-id { font-weight: 600; }
+.run-history-head time { color: var(--text-faint); font-size: 0.76rem; }
+.run-figures { color: var(--text-dim); margin-left: auto; }
+.run-state {
+  text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.68rem;
+  padding: 0.05rem 0.4rem; border-radius: 999px; border: 1px solid var(--line);
+}
+.state-finished { color: var(--accepted); border-color: var(--accepted); }
+.state-failed { color: var(--rejected); border-color: var(--rejected); }
+.state-stopped { color: var(--discounts); border-color: var(--discounts); }
+.state-open { color: var(--text-faint); }
+.run-history-agents { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem; }
+
+/* Hypotheses — claims and conjectures as dossiers, not as node ids. */
+.hypotheses { margin-bottom: 1.5rem; }
+.hyp-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.6rem; }
+.hyp {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.85rem;
+  background: var(--fill-1);
+}
+.hyp.open { background: var(--fill-2); border-color: var(--hairline); }
+.hyp-head {
+  display: flex; align-items: baseline; gap: 0.5rem; width: 100%;
+  background: none; border: 0; padding: 0; text-align: left; cursor: pointer;
+  color: var(--text); font: inherit;
+}
+.hyp-text { font-size: 0.95rem; line-height: 1.45; }
+.hyp-marks { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
+.chip.discounted { color: var(--discounts); border-color: var(--discounts); }
+.chip.r-pass { color: var(--accepted); border-color: var(--accepted); }
+.chip.r-fail { color: var(--rejected); border-color: var(--rejected); }
+.chip.r-indeterminate { color: var(--text-dim); }
+.discount-note { margin-top: 0.45rem; }
+
+.dossier { margin-top: 0.8rem; border-top: 1px solid var(--line-soft); padding-top: 0.7rem; }
+.dossier h4 { margin: 0.9rem 0 0.3rem; font-size: 0.82rem; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-dim); }
+.dossier-fields { margin: 0; display: grid; gap: 0.55rem; }
+.dossier-fields dt {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+.dossier-fields dd { margin: 0.1rem 0 0; font-size: 0.88rem; line-height: 1.5; }
+
+.prospective {
+  margin-top: 0.9rem; padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.prospective h4 { margin-top: 0; }
+.prospective-q { margin: 0.2rem 0; }
+.prospective-pred { margin: 0.3rem 0; font-size: 0.85rem; color: var(--text-dim); }
+.prospective-result {
+  margin: 0.5rem 0 0; padding: 0.45rem 0.6rem; border-radius: var(--radius-sm);
+  font-size: 0.85rem; line-height: 1.5;
+}
+.prospective-result.r-pass { background: rgba(48, 209, 88, 0.12); color: var(--accepted); }
+.prospective-result.r-fail { background: rgba(255, 69, 58, 0.12); color: var(--rejected); }
+.prospective-result.r-indeterminate { background: var(--fill-2); color: var(--text-dim); }
+
+.dossier-evidence ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.dossier-evidence li { font-size: 0.82rem; }
+.ev-ref {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--supports); font: inherit; text-align: left;
+}
+.ev-excerpt { margin: 0.2rem 0 0; color: var(--text-dim); line-height: 1.5; }
+
+.verification {
+  margin-top: 0.5rem; padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
+}
+.verification-head { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.82rem; }
+.v-detail, .v-limits { margin: 0.35rem 0 0; font-size: 0.82rem; line-height: 1.5; }
+.v-limits { color: var(--text-dim); }
+.chip.unsupported { color: var(--proposed); border-color: var(--proposed); }
+
+/* Research questions — what the inquiry was asking. */
+.questions { margin-bottom: 1.5rem; }
+.questions-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.question-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.6rem; }
+.question {
+  border-left: 3px solid var(--tests);
+  border-radius: var(--radius-sm);
+  background: var(--fill-1);
+  padding: 0.6rem 0.8rem;
+}
+.question-text { margin: 0; font-size: 1.02rem; line-height: 1.45; }
+.question-answerable { margin: 0.4rem 0 0.2rem; font-size: 0.84rem; color: var(--text-dim); line-height: 1.5; }
+.question-answerable span {
+  text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.68rem;
+  color: var(--text-faint); margin-right: 0.35rem;
+}
+.ask-form { display: grid; gap: 0.6rem; margin: 0.75rem 0; }
+.ask-form label { display: grid; gap: 0.25rem; font-size: 0.78rem; color: var(--text-dim); }
+.ask-form textarea {
+  font: inherit; color: var(--text); background: var(--track);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 0.5rem 0.6rem; resize: vertical;
+}

@@ -137,6 +137,29 @@ caused. So `model_call_id` on a node answers "which call produced this", and
 `summarize_model_calls()` totals spend from the log itself rather than from a
 running tally that could drift.
 
+## Runs are events too
+
+An agent run writes `run_started` and `run_finished` — non-mutating, like
+`model_call`, because a run beginning is not a change to the graph — and every
+event written while it is open carries its `run_id`.
+
+The stamp happens in one place, `EventLog.append`, rather than being threaded
+through every write signature. The difference from `model_call_id` is real: a
+model call is a *cause* that a particular write has to name, while a run is the
+session doing the writing, so the log knows it without being told once per call.
+
+Two things follow. A run survives the process that ran it — `read_runs()` and
+`cohort run --history` read it back from the log, where before a server restart
+erased every run ever launched from the browser. And the log becomes sliceable:
+`read_refusals(run_id=…)`, `summarize_refusals(run_id=…)` and
+`summarize_model_calls(run_id=…)` answer "what did *that* run do", which is a
+different question from what the graph has ever done, and the one a scaling
+comparison needs.
+
+A run with no closing event is reported open rather than repaired. It may still
+be going or it may have been killed mid-write; both are facts about the
+session, and inventing an end for it would be the tidying this log refuses.
+
 ## Two front ends, one capability set
 
 COHORT is meant to be driven from a terminal or from a browser, and "the same

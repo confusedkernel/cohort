@@ -293,7 +293,57 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
       {error && <p className="error">{error}</p>}
 
       {shown && <RunReport run={shown} active={active} />}
+
+      <RunHistory runs={runs?.recorded} />
     </section>
+  )
+}
+
+// Runs read back out of the event log, not out of this process's memory.
+//
+// `history` above is what this server has run since it started; before runs
+// were events, that was the only record there was, and a restart erased every
+// run ever launched from here. These survive, which is also what makes a run
+// something you can go back and census one at a time.
+function RunHistory({ runs }) {
+  if (!runs?.length) return null
+  return (
+    <div className="run-history">
+      <h3>Recorded runs</h3>
+      <p className="hint small">
+        From the event log, so they outlive this server. Each one&apos;s writes
+        carry its id &mdash; <code>cohort refusals --run &lt;id&gt;</code>.
+      </p>
+      <ul className="run-history-list">
+        {runs.map((r) => (
+          <li key={r.run_id} className="run-history-item">
+            <div className="run-history-head">
+              <code className="run-id">{r.run_id}</code>
+              <span className={`run-state state-${r.state || 'open'}`}>
+                {r.state || 'open'}
+              </span>
+              <time>{r.started_at}</time>
+              <span className="run-figures">
+                {r.spent_usd != null ? `$${r.spent_usd.toFixed(5)}` : '—'} ·{' '}
+                {r.calls} call{r.calls === 1 ? '' : 's'} · {r.events} event
+                {r.events === 1 ? '' : 's'}
+                {r.refusals > 0 && ` · ${r.refusals} refused`}
+              </span>
+            </div>
+            <div className="run-history-agents">
+              {r.agents.map((a) => (
+                <span key={a.agent_id} className="chip">
+                  {a.role === 'reviewer' ? '\u2713 ' : ''}
+                  {a.agent_id} · {a.model || 'default model'}
+                  {a.corpus_scope ? ` · ${a.corpus_scope}` : ''}
+                </span>
+              ))}
+            </div>
+            {r.error && <p className="error small">{r.error}</p>}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

@@ -38,6 +38,24 @@ class NodeType(StrEnum):
     CLAIM = "claim"
     CONJECTURE = "conjecture"
     QUERY = "query"
+    #: A research question: what an inquiry was actually asking.
+    #:
+    #: Added 2026-09-02 with the argument §6 requires, after a comparison
+    #: against two sibling projects that both lead their output with a
+    #: question and COHORT structurally could not.
+    #:
+    #: Every other node type answers "what is in the corpus" or "what does the
+    #: record say". None of them answers "what were we asking", so a reader of
+    #: a COHORT graph could not tell whether a claim was the point of an
+    #: inquiry or a byproduct of one, and a findings page had no title it could
+    #: honestly give itself. An agent's declared corpus scope also floated
+    #: free, being a scope of nothing in particular.
+    #:
+    #: It is **not** a `query`, and the two must not be conflated: a query is a
+    #: retrieval to run against the corpus, and a question is not runnable. It
+    #: is also not evidence — a question asserts nothing, so principle 2 has
+    #: nothing to object to.
+    QUESTION = "question"
     DECISION = "decision"
     #: one verification attempt against a claim/conjecture/passage/witness.
     #: Parallel to `decision`: a record of a judgement, not evidential
@@ -60,6 +78,15 @@ class EdgeType(StrEnum):
     #: verification -> {claim, conjecture, passage, witness}. The evidentiary
     #: node points at what it evidences, same direction as `attests`/`tests`.
     VERIFIES = "verifies"
+    #: {claim, conjecture} -> question. What an assertion was put forward as
+    #: an answer to. Direction follows `attests` and `tests`: the dependent
+    #: points at what it depends on.
+    #:
+    #: Deliberately *not* the other way round. A question pointing at its
+    #: answers would make it a container, and a container with nine claims in
+    #: it reads as a question that has been answered — which is a conclusion
+    #: no edge should draw.
+    ADDRESSES = "addresses"
     #: query -> conjecture. Records that a prior-art search was actually run
     #: before a conjecture was proposed, distinct from `tests` (which records
     #: what would settle the conjecture going forward, not what was already
@@ -145,6 +172,24 @@ class VerificationMethod(StrEnum):
     CROSS_EDITION_COLLATION = "cross_edition_collation"
     DATING_ROUTE_CONFIDENCE = "dating_route_confidence"
     HUMAN_REVIEW = "human_review"
+
+    #: Re-run a conjecture's prospective query and compare the hit count to
+    #: the prediction its author recorded *before* it was ever run
+    #: (`cohort.tools.run_prospective_test`).
+    #:
+    #: Added 2026-09-02 with the argument §6 requires. The falsifiability gate
+    #: has always demanded a query that would settle a conjecture going
+    #: forward, and nothing ever asked it — the gate checked that a test
+    #: *existed*, never that it was run. This is the method that runs it.
+    #:
+    #: It belongs here, and `MODEL_ENTAILMENT` still does not, because nothing
+    #: in it is anyone's opinion: a stored query is re-run against the corpus
+    #: and a stored integer is compared to the count that comes back. It is
+    #: also the only method that can fail on **new evidence** rather than on a
+    #: broken record — every other method here asks whether the record still
+    #: holds up, and this one asks whether the world still agrees. That is what
+    #: makes it a test rather than a check.
+    PROSPECTIVE_TEST = "prospective_test"
 
 
 class VerificationResult(StrEnum):
@@ -281,8 +326,50 @@ class ConjecturePayload(_Model):
     alternative_explanations: str = Field(min_length=1)
 
 
+class HitExpectation(StrEnum):
+    """The direction of a prediction about a prospective query's hit count.
+
+    Two values, not a free-text prediction, because the comparison has to be
+    mechanical: a sentence about what the author expects is a sentence someone
+    has to interpret afterwards, and an interpretation recorded after the
+    result is known is not a prediction."""
+
+    AT_MOST = "at_most"
+    AT_LEAST = "at_least"
+
+
 class QueryPayload(_Model):
     text: str = Field(min_length=1)
+
+    #: Set only on the `tests` query of a conjecture: what its author said the
+    #: query would return, recorded at proposal time, before it was run.
+    #: Optional because most query nodes are retrievals rather than
+    #: predictions — a prior-art search predicts nothing — and because every
+    #: query node written before this field existed must still validate.
+    #:
+    #: A prediction is only a prediction if it is on the record first. These
+    #: are written by `propose_conjecture` in the same call that creates the
+    #: conjecture, and nothing can edit a payload afterwards.
+    expectation: HitExpectation | None = None
+    expected_hits: int | None = Field(default=None, ge=0)
+
+
+class QuestionPayload(_Model):
+    """What is being asked, and what would count as an answer.
+
+    `answerable_by` is required for the same reason `propose_conjecture`
+    requires a query that would settle a conjecture: a question nobody can say
+    how to answer is not a research question, it is a mood. Stating it before
+    looking is what stops the question from being quietly reshaped afterwards
+    to fit whatever turned up.
+
+    Deliberately thin otherwise. A question is a framing, not a finding, and
+    every field it accumulates is a field that invites it to start asserting
+    things.
+    """
+
+    text: str = Field(min_length=1)
+    answerable_by: str = Field(min_length=1)
 
 
 class DecisionPayload(_Model):
@@ -317,6 +404,7 @@ PAYLOAD_BY_TYPE: dict[NodeType, type[_Model]] = {
     NodeType.CLAIM: ClaimPayload,
     NodeType.CONJECTURE: ConjecturePayload,
     NodeType.QUERY: QueryPayload,
+    NodeType.QUESTION: QuestionPayload,
     NodeType.DECISION: DecisionPayload,
     NodeType.VERIFICATION: VerificationPayload,
 }
@@ -366,7 +454,23 @@ class IndependentSupport(_Model):
     node_id: str
     attesting_count: int
     distinct_witnesses: int
+
+    #: False the instant a descent/parallel relation links two supporting
+    #: witnesses. **True is not a finding on its own** — see `vacuous`.
     independent: bool
+
+    #: Nothing attests this node, so `independent` is True only because there
+    #: is nothing that could make it False.
+    #:
+    #: Added 2026-09-02 after a seeded conjecture with no evidence at all
+    #: displayed as "0 attesting, 0 distinct witnesses — independent", which
+    #: reads as a clean bill of health for a node that has never been tested.
+    #: `independent` is deliberately left alone: it is a flip flag, computed
+    #: as "no discounting pair was found", and every caller since stage 1
+    #: depends on that meaning. The vacuous case is reported beside it instead,
+    #: so a front end says "not yet supported" rather than "independent".
+    vacuous: bool = False
+
     non_independent_pairs: list[tuple[str, str]] = Field(default_factory=list)
 
 
@@ -404,6 +508,17 @@ EVENT_TYPES = {
     "restore_edge",
     "propose", "attest", "accept", "reject", "reopen", "add_edge", "refused",
     "model_call", "verify", "register_agent",
+    # A question is asked, never proposed: it does not climb the ladder, so it
+    # cannot share the "propose" event, which is what puts a node at the
+    # bottom rung. Its own event, the same way `verify` has one.
+    "ask",
+    # Run boundaries. Non-mutating like "model_call" and "refused": a run
+    # starting is not a change to the graph. They exist because `run_id` alone
+    # can say which events belong together but not what the run was *for* —
+    # the roster, the declared scopes, the budget and what it actually spent
+    # are the run's own record, and a projection cannot hold them because a
+    # run is not graph content.
+    "run_started", "run_finished",
 }
 
 
@@ -417,6 +532,18 @@ class Event(_Model):
     node_type: NodeType | None = None
     edge_type: EdgeType | None = None
     detail: dict = Field(default_factory=dict)
+
+    #: Which run wrote this, or None for a write made outside one — a
+    #: researcher's `cohort accept`, a script, a test. Optional for the same
+    #: reason as the observability envelope below: every event logged before
+    #: this field existed replays identically.
+    #:
+    #: Stamped in one place, `EventLog.append`, rather than threaded through
+    #: every write signature the way `model_call_id` is. The difference is
+    #: real: a model call is a *cause* a particular write has to name, while a
+    #: run is the session doing the writing, so the log knows it without being
+    #: told once per call.
+    run_id: str | None = None
 
     #: observability envelope — all optional so every event logged before
     #: this addition, and every event with nothing to report, replays
@@ -469,6 +596,38 @@ class Refusal(_Model):
     edge_type: EdgeType | None = None
     #: set when a model call caused the refused write, pointing at its event seq
     model_call_id: int | None = None
+
+
+class RunRecord(_Model):
+    """One agent run, read back out of the event log.
+
+    The log is ground truth for runs as it is for everything else. `RunManager`
+    holds the live one in memory, which is fine while it is running and useless
+    afterwards: before this record existed, every run ever launched from the
+    browser was gone when the server restarted.
+
+    `finished_at` is None for a run that never wrote its closing event —
+    killed, crashed, or still going. That is reported rather than repaired: a
+    run that vanished mid-write is a fact about the session, and inventing an
+    end for it would be the kind of tidying this project's log deliberately
+    refuses.
+    """
+
+    run_id: str
+    started_at: str
+    finished_at: str | None = None
+    #: as reported by the run itself when it closed: "finished", "stopped",
+    #: "error". None while it is still open.
+    state: str | None = None
+    #: one entry per agent: id, role, model, declared scope and method
+    agents: list[dict] = Field(default_factory=list)
+    budget_usd: float | None = None
+    spent_usd: float | None = None
+    calls: int = 0
+    #: every event this run wrote, refusals included
+    events: int = 0
+    refusals: int = 0
+    error: str | None = None
 
 
 class ModelCallSummary(_Model):

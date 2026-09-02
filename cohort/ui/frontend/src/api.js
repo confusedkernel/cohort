@@ -67,3 +67,16 @@ export const startRun = (body) =>
     body: JSON.stringify(body),
   })
 export const stopRun = () => json('/api/run/stop', { method: 'POST' })
+
+export const getFindings = (limit) =>
+  json(`/api/findings${limit ? `?limit=${limit}` : ''}`)
+export const getDossier = (id) => json(`/api/findings?id=${encodeURIComponent(id)}`)
+
+export const getQuestions = (id) =>
+  json(`/api/questions${id ? `?id=${encodeURIComponent(id)}` : ''}`)
+export const askQuestion = (body) =>
+  json('/api/questions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })

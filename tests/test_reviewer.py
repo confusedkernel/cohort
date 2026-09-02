@@ -261,6 +261,43 @@ def test_a_model_verdict_cannot_promote_a_claim_whose_spans_fail(graph, source):
     assert "did not re-verify" in report.note
 
 
+def test_a_sound_verdict_never_lands_in_the_machines_field(graph, source):
+    """`detail` is what the re-fetch established; the reviewer's words are a
+    limit on what that establishes. A positive verdict was the exception until
+    the negative control showed what the exception cost: a model returned
+    `sound` over a citation that did not re-verify, and its confident sentence
+    was written into `detail` on a verification whose result was `fail`."""
+    w = graph.propose_witness(
+        WitnessPayload(
+            canonical_ref="poem-001",
+            dating=Dating(confidence=DatingRoute.UNKNOWN, basis="not dated for this test"),
+        ),
+        authored_by=AUTHOR,
+    )
+    graph.attest(w, authored_by=AUTHOR)
+    p = graph.propose_passage(
+        PassagePayload(canonical_ref="poem-001#ghost", locator="line 1",
+                       excerpt="這句話不在原文裡"),
+        witness_id=w, authored_by=AUTHOR,
+    )
+    graph.attest(p, authored_by=AUTHOR)
+    claim_id = graph.propose_claim(ClaimPayload(text="a claim on a bad citation"), authored_by=AUTHOR)
+    graph.add_edge(EdgeType.ATTESTS, p, claim_id, authored_by=AUTHOR)
+
+    report = review_claim(
+        graph, source,
+        ReviewClaimInput(claim_id=claim_id, verdict="sound",
+                         detail="Re-fetched and re-verified every cited passage."),
+        authored_by=REVIEWER,
+    )
+
+    payload = graph.get_node(report.verification_id).payload
+    assert payload["result"] == VerificationResult.FAIL
+    assert "re-verified every cited passage" not in payload["detail"]
+    assert "sound" in payload["limitations"]
+    assert "re-verified every cited passage" in payload["limitations"]
+
+
 def test_an_objection_withholds_promotion_and_is_recorded(graph, source):
     """The other side of the asymmetry: the reviewer's judgement can subtract.
     A silent non-attestation would be indistinguishable from a reviewer that

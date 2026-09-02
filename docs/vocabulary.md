@@ -18,7 +18,8 @@ addition is annotated there.
 | `passage` | a located span within a witness | `canonical_ref`, `locator` / `excerpt`, `source_ref` |
 | `claim` | an assertion that must cite passages | `text` |
 | `conjecture` | an assertion allowed to exceed its evidence, if testable | `text`, `derivation`, `corpus_boundary`, `selection_risks`, `alternative_explanations` |
-| `query` | a retrieval that was run, or that would test a conjecture | `text` |
+| `query` | a retrieval that was run, or that would test a conjecture | `text`, and on a `tests` query the prediction `expectation` / `expected_hits` |
+| `question` | what an inquiry is asking | `text`, `answerable_by` |
 | `decision` | a researcher judgement, kept as part of the record | `subject_node_id`, `verdict` / `reason` |
 | `verification` | one verification attempt against another node | `method`, `result`, `assurance_level`, `detail` / `limitations`, `source_hash`, `excerpt_hash`, `span_start`, `span_end` |
 
@@ -42,6 +43,7 @@ would duplicate it with no way to keep the two consistent.
 | `descends_from` | `passage`→`passage`, `witness`→`witness` | makes agreement non-independent |
 | `quotes` | `passage` → `passage` | citation within the corpus |
 | `tests` | `query` → `conjecture` | the falsifiability edge |
+| `addresses` | `claim`/`conjecture` → `question` | what an assertion was put forward as an answer to |
 | `supersedes` | same type → same type | revision |
 | `part_of` | `passage` → `witness` | locates a passage in its witness |
 | `verifies` | `verification` → `witness`\|`passage`\|`claim`\|`conjecture` | attaches an audit record |
@@ -186,6 +188,48 @@ derivable fact, and one `parallel_of` edge added elsewhere would falsify it
 with nobody having touched the node. The old string still *reads* — the event
 log is ground truth and is never rewritten — but is never written again.
 
+## The research question
+
+Added 2026-09-02, with the argument §6 requires for a new node type.
+
+Every other node answers *what is in the corpus* or *what does the record say*.
+None of them answered **what were we asking** — so a reader could not tell
+whether a claim was the point of an inquiry or a byproduct of one, a findings
+page had no title it could honestly give itself, and an agent's declared corpus
+scope was a scope of nothing in particular. Both sibling projects lead their
+output with a question and COHORT structurally could not.
+
+    graph.ask_question(QuestionPayload(text=..., answerable_by=...),
+                       authored_by=RESEARCHER)
+
+**`answerable_by` is required**, for the same reason `propose_conjecture`
+requires a query that would settle a conjecture: a question nobody can say how
+to answer is not a research question, it is a mood. Stating it before looking is
+what stops the question being quietly reshaped afterwards to fit whatever turned
+up.
+
+Four commitments, each with a test:
+
+- **It is not a `query`.** A query is a retrieval to run; a question is not
+  runnable. `tests` and `searched_for` refuse a question as an endpoint.
+- **It is not evidence.** A question asserts nothing, so principle 2 has nothing
+  to object to — and `citable()` excludes questions, because output cites what
+  *answers* a question, never the question.
+- **It is asked, not proposed.** No mechanical check could promote a question
+  and there is no rung for it to climb, so it has its own `ask` event and is
+  born `accepted`. **`accepted` means asked, not answered.**
+- **The researcher asks.** Agents propose claims and conjectures; setting the
+  agenda is the supervision, and an agent that could ask its own question and
+  then answer it would be doing unsupervised research with a paper trail. Same
+  reasoning as `accept`/`reject`/`reopen`.
+
+`addresses` points **from the answer to the question**, never the reverse. A
+question pointing at its answers would make it a container, and a container with
+nine claims in it reads as a question that has been answered — a conclusion no
+edge should draw. For the same reason the per-question view reports a tally
+(how many, at what status, how many with nothing attesting them) and never a
+verdict.
+
 ## Verification methods and results
 
 | Method | What it checks |
@@ -195,12 +239,28 @@ log is ground truth and is never rewritten — but is never written again.
 | `cross_edition_collation` | which edition families the apparatus cites |
 | `dating_route_confidence` | how a date was arrived at |
 | `human_review` | the researcher looked |
+| `prospective_test` | a conjecture's own query, re-run against the prediction recorded with it |
+
+There is deliberately **no `model_entailment`**: a second model's opinion is
+still another agent's opinion, and admitting it as a formal method would smuggle
+consensus-among-models back in through the side door.
+
+`prospective_test` (added 2026-09-02) is the odd one out and belongs here for a
+stated reason. Every other method asks whether the *record* still holds up;
+this one asks whether the *world* still agrees, which is what makes it a test
+rather than a check — it is the only method that can fail on new evidence. It
+qualifies because nothing in it is an opinion: a stored query is re-run and a
+stored integer is compared to the count that comes back. It grants no assurance
+rung either way; see [tools.md](tools.md).
 
 Results are `pass`, `fail`, `indeterminate`. **`indeterminate` is a real
-answer**, not a failure — the same commitment as `unknown` dating below.
+answer**, not a failure — the same commitment as `unknown` dating below. A
+prospective test whose search returned the cap reports `indeterminate` rather
+than treating a floor as a count.
 
 Every verification may carry `limitations`, free text stating what the check did
-*not* establish. `collate_editions` always populates it.
+*not* establish. `collate_editions` always populates it, and so does
+`run_prospective_test`.
 
 ## Dating routes
 
@@ -221,12 +281,20 @@ worker; no dating route run"* rather than guessing or leaving the field empty.
 ## `independent_support()` — the thesis, as code
 
     IndependentSupport(node_id, attesting_count, distinct_witnesses,
-                       independent, non_independent_pairs)
+                       independent, vacuous, non_independent_pairs)
 
 `independent` flips to `False` the moment a `descends_from` or `parallel_of`
 edge links two of the attesting witnesses, and `non_independent_pairs` names
 which. **The support count does not drop** — the evidence is still there; what
 changes is the claim about its independence.
+
+**`independent: True` is not a finding on its own.** It is computed as "no
+discounting pair was found", so a node nothing attests is vacuously independent,
+and *"0 attesting, 0 distinct witnesses — independent"* reads as a clean bill of
+health for something that has never been tested. `vacuous` says so beside it
+(added 2026-09-02, after exactly that display went out), and both front ends
+print "nothing attests it yet" rather than "independent". The flip flag itself
+is deliberately unchanged — every caller since stage 1 depends on its meaning.
 
 `demo.py` shows this in three lines of output, with no corpus and no API key:
 a claim whose count stays at two while its independence flag goes false. That

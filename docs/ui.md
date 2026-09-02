@@ -68,10 +68,27 @@ rather than evidence, behind a toggle in settings.
 
 - **Graph** — the evidence graph, its legend, provenance on click. The refusal
   count and the node/edge stats live here, because both describe this graph.
-- **Findings** — what the researcher has accepted (the only citable nodes) and
-  what they rejected, with reasons, side by side; plus the two integrity checks.
-  Rejections sit next to findings deliberately: showing conclusions without
-  showing what was thrown out and why would misrepresent the record.
+- **Findings** — the **research questions** first, then every claim and
+  conjecture as a **hypothesis**, then what the
+  researcher has accepted (the only citable nodes) and what they rejected, with
+  reasons, side by side; plus the two integrity checks. Rejections sit next to
+  findings deliberately: showing conclusions without showing what was thrown out
+  and why would misrepresent the record.
+
+  Opening a hypothesis shows its dossier, all of which the graph already held
+  and none of which was reachable without walking edges by hand: the
+  **derivation**, the **corpus boundary** it was framed against, the
+  **selection risks**, the **alternative explanations** that would account for
+  the same evidence, the prior-art search that was actually run before
+  proposing, the **prediction recorded at proposal time** and what happened when
+  its query was run, the evidence with excerpts, and the verifications — with
+  the machine's finding and a reviewer's reading in separate fields, because a
+  confident sentence in the machine's field reads later as a mechanical result.
+
+  The list is **not ranked**. Sorting hypotheses by how much attests them would
+  be a confidence score under another name, which is the habit the whole design
+  exists to break; where support does not survive the independence check the row
+  says so, and the attesting count is left unchanged.
 - **Corpus** — browse and search, with `--corpus`.
 - **Agent run** — the launcher, with `--allow-runs`.
 
@@ -95,7 +112,9 @@ URL path silently truncates at the fragment.
 | `GET /api/citable` | accepted nodes only — the only ones citable by output |
 | `GET /api/rejected?node_type=` | rejected nodes **with their reasons** |
 | `GET /api/agent?id=` | contribution counts, not a score |
-| `GET /api/refusals?limit=` | refused writes, read from the event log, plus a `census` over the whole log |
+| `GET /api/questions?id=` | research questions; with `id`, one and what addresses it |
+| `GET /api/findings?id=&limit=` | claims and conjectures as hypotheses; with `id`, the whole dossier |
+| `GET /api/refusals?limit=&run_id=` | refused writes, read from the event log, plus a `census`; `run_id` narrows both to one run |
 | `GET /api/integrity?id=` | re-hash stored payloads against their recorded hashes |
 | `GET /api/rebuild` | replay the log and diff it against this projection |
 
@@ -126,6 +145,7 @@ from it rather than tallying the rows it was given, which is what it used to do
 
 | Route | Body |
 |---|---|
+| `POST /api/questions` | `{text, answerable_by}` to ask, or `{id, address}` to record that a hypothesis answers one |
 | `POST /api/accept?id=` | — |
 | `POST /api/reject?id=` | `{"reason": "..."}` |
 | `POST /api/reopen?id=` | `{"reason": "..."}` |

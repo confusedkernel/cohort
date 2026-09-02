@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getCitable, getIntegrity, getRebuild, getRejected } from './api'
+import {
+  askQuestion,
+  getCitable,
+  getDossier,
+  getFindings,
+  getIntegrity,
+  getQuestions,
+  getRebuild,
+  getRejected,
+} from './api'
 
 // The researcher's output view, and the graph's self-checks.
 //
@@ -19,12 +28,16 @@ import { getCitable, getIntegrity, getRebuild, getRejected } from './api'
 export default function FindingsPanel({ onSelect }) {
   const [citable, setCitable] = useState(null)
   const [rejected, setRejected] = useState(null)
+  const [findings, setFindings] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
     let live = true
-    Promise.all([getCitable(), getRejected()])
-      .then(([c, r]) => { if (live) { setCitable(c); setRejected(r) } })
+    Promise.all([getCitable(), getRejected(), getFindings()])
+      .then(([c, r, f]) => {
+        if (!live) return
+        setCitable(c); setRejected(r); setFindings(f)
+      })
       .catch((e) => live && setError(e.message))
     return () => { live = false }
   }, [])
@@ -33,6 +46,10 @@ export default function FindingsPanel({ onSelect }) {
 
   return (
     <section className="findings">
+      <Questions />
+
+      <Hypotheses findings={findings} onSelect={onSelect} />
+
       <IntegrityStrip />
 
       <div className="findings-cols">
@@ -64,6 +81,296 @@ export default function FindingsPanel({ onSelect }) {
         </div>
       </div>
     </section>
+  )
+}
+
+// The research questions, above everything else on this tab.
+//
+// A COHORT graph used to record what was *found* and never what was being
+// asked, so this page had no title it could honestly give itself. A question
+// is not evidence and not a query: it asserts nothing, and it is not runnable.
+//
+// What it shows is a tally, never a verdict. Three hypotheses under a question
+// is not a question answered, which is also why the `addresses` edge points
+// from the answer to the question rather than the other way round.
+function Questions() {
+  const [data, setData] = useState(null)
+  const [asking, setAsking] = useState(false)
+  const [text, setText] = useState('')
+  const [answerable, setAnswerable] = useState('')
+  const [error, setError] = useState(null)
+
+  const load = useCallback(() => {
+    getQuestions().then(setData).catch((e) => setError(e.message))
+  }, [])
+  useEffect(load, [load])
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setError(null)
+    try {
+      await askQuestion({ text, answerable_by: answerable })
+      setText(''); setAnswerable(''); setAsking(false); load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  return (
+    <div className="questions">
+      <div className="questions-head">
+        <h2>Research questions</h2>
+        <button className="btn" onClick={() => setAsking(!asking)}>
+          {asking ? 'Cancel' : 'Ask a question'}
+        </button>
+      </div>
+      <p className="hint small">
+        What this inquiry is asking. Only the researcher may ask one &mdash;
+        setting the agenda is the supervision.
+      </p>
+
+      {asking && (
+        <form className="ask-form" onSubmit={submit}>
+          <label>
+            The question
+            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} required />
+          </label>
+          <label>
+            What would count as an answer
+            <textarea
+              value={answerable}
+              onChange={(e) => setAnswerable(e.target.value)}
+              rows={2}
+              required
+            />
+          </label>
+          <p className="hint small">
+            Stated before looking, so the question cannot be quietly reshaped
+            afterwards to fit whatever turned up. A question nobody can say how
+            to answer is not a research question.
+          </p>
+          <button className="btn accept" type="submit">Record it</button>
+        </form>
+      )}
+
+      {error && <p className="error">{error}</p>}
+
+      {data && data.count === 0 && (
+        <p className="hint small">
+          None recorded. The graph will still hold what was found; it just
+          won&apos;t say what was being asked.
+        </p>
+      )}
+
+      <ul className="question-list">
+        {data?.questions?.map((q) => (
+          <li key={q.id} className="question">
+            <p className="question-text">{q.question}</p>
+            <p className="question-answerable">
+              <span>Answerable by</span> {q.answerable_by}
+            </p>
+            <p className="hint small">
+              {q.addressed_by === 0
+                ? 'Nothing has been put forward as an answer yet.'
+                : `${q.addressed_by} hypothes${q.addressed_by === 1 ? 'is' : 'es'} address it — a tally, not a verdict.`}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// Claims and conjectures as hypotheses rather than as node ids.
+//
+// All of this was already in the graph and reachable only by walking edges by
+// hand — which is the step at which the honest fields get skipped. A dossier
+// that names what could have gone wrong in the selection, and what else could
+// explain the same evidence, is worth more than another support count.
+//
+// Deliberately unordered by support. A list sorted by "most attested" would be
+// a confidence ranking wearing a different hat, which is the habit this whole
+// system exists to break.
+function Hypotheses({ findings, onSelect }) {
+  const [open, setOpen] = useState(null)
+  const [dossier, setDossier] = useState(null)
+
+  const toggle = (id) => {
+    if (open === id) { setOpen(null); setDossier(null); return }
+    setOpen(id)
+    setDossier(null)
+    getDossier(id).then(setDossier).catch(() => setDossier(null))
+  }
+
+  if (!findings) return <p className="hint">Loading…</p>
+
+  return (
+    <div className="hypotheses">
+      <h2>
+        Hypotheses <span className="refusal-total">{findings.count}</span>
+      </h2>
+      <p className="hint small">
+        Every claim and conjecture, newest first and <strong>not ranked</strong>.
+        Sorting these by how much attests them would be a confidence score under
+        another name.
+      </p>
+
+      {findings.findings.length === 0 ? (
+        <p className="hint small">Nothing has been proposed yet.</p>
+      ) : (
+        <ul className="hyp-list">
+          {findings.findings.map((f) => (
+            <li key={f.id} className={`hyp ${open === f.id ? 'open' : ''}`}>
+              <button className="hyp-head" onClick={() => toggle(f.id)}>
+                <span className={`badge t-${f.type}`}>{f.type}</span>
+                <span className="hyp-text">{f.assertion || f.id}</span>
+              </button>
+
+              <div className="hyp-marks">
+                <span className={`chip s-${f.status}`}>{f.status}</span>
+                <span className="chip">{f.assurance.replace(/_/g, ' ').toLowerCase()}</span>
+                <span
+                  className={`chip ${
+                    f.support.vacuous ? 'unsupported' : f.support.independent ? '' : 'discounted'
+                  }`}
+                >
+                  {f.support.vacuous ? (
+                    'nothing attests it yet'
+                  ) : (
+                    <>
+                      {f.support.attesting_count} attesting ·{' '}
+                      {f.support.distinct_witnesses} witness
+                      {f.support.distinct_witnesses === 1 ? '' : 'es'} ·{' '}
+                      {f.support.independent ? 'independent' : 'shared descent'}
+                    </>
+                  )}
+                </span>
+                {f.prospective_result && (
+                  <span className={`chip r-${f.prospective_result}`}>
+                    prospective test: {f.prospective_result}
+                  </span>
+                )}
+                {!f.prospective_result && f.has_prospective_query && (
+                  <span className="chip">prospective query not yet run</span>
+                )}
+                {f.has_dossier && <span className="chip">dossier</span>}
+              </div>
+
+              {f.support.vacuous && (
+                <p className="hint small discount-note">
+                  No passage cites this yet, so &ldquo;independent&rdquo; would be
+                  true only because there is nothing that could make it false. A
+                  conjecture is <em>allowed</em> to exceed its evidence &mdash;
+                  that is what separates it from a claim &mdash; but a dossier
+                  asserting measurements with nothing attesting them is the shape
+                  to distrust first.
+                </p>
+              )}
+
+              {!f.support.vacuous && !f.support.independent && (
+                <p className="hint small discount-note">
+                  A <code>parallel_of</code> or <code>descends_from</code> edge
+                  links witnesses behind this, so their agreement is evidence of
+                  shared descent rather than independent confirmation. The
+                  attesting count is unchanged; what it <em>means</em> is not.
+                </p>
+              )}
+
+              {open === f.id && <Dossier d={dossier} onSelect={onSelect} />}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function Dossier({ d, onSelect }) {
+  if (!d) return <p className="hint small">Loading the dossier…</p>
+  const fields = Object.entries(d.dossier || {})
+  const test = d.prospective_test
+  return (
+    <div className="dossier">
+      {fields.length > 0 && (
+        <dl className="dossier-fields">
+          {fields.map(([k, v]) => (
+            <div key={k}>
+              <dt>{k.replace(/_/g, ' ')}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {d.prior_art?.length > 0 && (
+        <p className="hint small">
+          Prior art actually searched before proposing: {d.prior_art.map((q) => q.text).join('; ')}
+        </p>
+      )}
+
+      {d.prospective_queries?.map((q) => (
+        <div className="prospective" key={q.id}>
+          <h4>Prospective test</h4>
+          <p className="prospective-q"><code>{q.text}</code></p>
+          {q.expectation ? (
+            <p className="prospective-pred">
+              Predicted <strong>{q.expectation === 'at_most' ? 'at most' : 'at least'}{' '}
+              {q.expected_hits}</strong> — recorded when this was proposed, before the
+              query was ever run.
+            </p>
+          ) : (
+            <p className="hint small">No prediction was recorded for this query.</p>
+          )}
+          {test && (
+            <p className={`prospective-result r-${test.payload.result}`}>
+              {test.payload.result.toUpperCase()} — {test.payload.detail}
+            </p>
+          )}
+        </div>
+      ))}
+
+      {d.evidence?.length > 0 && (
+        <div className="dossier-evidence">
+          <h4>Evidence ({d.evidence.length})</h4>
+          <ul>
+            {d.evidence.map((e) => (
+              <li key={e.passage_id}>
+                <button className="ev-ref" onClick={() => onSelect(e.passage_id)}>
+                  <code>{e.canonical_ref}</code>
+                </button>
+                <span className="chip">{e.assurance.replace(/_/g, ' ').toLowerCase()}</span>
+                <p className="ev-excerpt">{e.excerpt}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {d.latest_verifications?.length > 0 && (
+        <div className="dossier-verifications">
+          <h4>Verifications</h4>
+          <p className="hint small">
+            Latest per method, so a stale pass cannot outrank a later failure.
+            The machine&apos;s finding and a reviewer&apos;s reading are separate
+            fields on purpose &mdash; that is what stops a confident sentence
+            from reading later as a mechanical result.
+          </p>
+          {d.latest_verifications.map((v) => (
+            <div key={v.id} className="verification">
+              <div className="verification-head">
+                <span className={`badge r-${v.payload.result}`}>{v.payload.result}</span>
+                <span>{v.payload.method.replace(/_/g, ' ')}</span>
+              </div>
+              <p className="v-detail"><strong>Machine:</strong> {v.payload.detail}</p>
+              {v.payload.limitations && (
+                <p className="v-limits"><strong>Does not establish:</strong>{' '}
+                  {v.payload.limitations}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

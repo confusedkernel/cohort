@@ -9,7 +9,8 @@ no question a researcher actually has — the question is always *which of these
 should I read?* That is what the census is for.
 
     cohort refusals --census
-    GET /api/refusals        → the same object under `census`
+    cohort refusals --run 1c0a47ba0b67 --census    # one run, not the graph's whole life
+    GET /api/refusals[?run_id=…]                   → the same object under `census`
 
 ## What a refusal indicts
 
@@ -108,7 +109,13 @@ says the two fixes landed.
 > Run 2's event log was overwritten by run 3 and is gone. The counts above come
 > from its console transcript, and the defect itself is now pinned by tests
 > rather than by that log. Keep the `.jsonl` of a live run before starting the
-> next one.
+> next one — `scripts/run_negative_control.py` now refuses to clobber one
+> without `--force`, for exactly this reason.
+
+Since then a run is an event, so a census can be taken of *one run* rather than
+of a graph's whole life: `cohort refusals --run <id>`. The whole-log view is
+still the right one for reading history; the per-run view is the one a
+comparison between runs needs. See [architecture.md](architecture.md).
 
 ## What the census does not do
 

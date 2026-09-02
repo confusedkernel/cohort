@@ -40,10 +40,18 @@ from .errors import (
     RebuildMismatch,
     SingleWriterViolation,
 )
-from .eventlog import EventLog, read_refusals, summarize_refusals
+from .eventlog import EventLog, read_refusals, read_runs, summarize_refusals
 from .graph import Graph
-from .schemas import RESEARCHER, NodeType
-from .views import edge_json, node_detail_json, node_json
+from .schemas import RESEARCHER, EdgeType, NodeType, QuestionPayload
+from .views import (
+    dossier_json,
+    edge_json,
+    findings_json,
+    node_detail_json,
+    node_json,
+    question_json,
+    questions_json,
+)
 
 DEFAULT_DB = "demo_graph.sqlite"
 
@@ -235,22 +243,24 @@ def cmd_agent(args) -> None:
 
 def cmd_refusals(args) -> None:
     log = _log_path(args)
+    run_id = getattr(args, "run", None)
     if not log.is_file():
         payload = {
             "available": False, "log_path": str(log), "refusals": [], "total": 0,
             "census": None,
         }
     else:
-        allr = read_refusals(log)
+        allr = read_refusals(log, run_id=run_id)
         shown = allr[-args.limit:]
         payload = {
-            "available": True, "log_path": str(log), "total": len(allr),
+            "available": True, "log_path": str(log), "run_id": run_id,
+            "total": len(allr),
             "truncated": len(shown) < len(allr),
             "refusals": [r.model_dump(mode="json") for r in shown],
-            # Over the whole log, never over `shown`: a census of a truncated
-            # tail would report a smaller total than the log holds while
-            # looking authoritative.
-            "census": summarize_refusals(log).model_dump(mode="json"),
+            # Over the whole log (or the whole run), never over `shown`: a
+            # census of a truncated tail would report a smaller total than the
+            # log holds while looking authoritative.
+            "census": summarize_refusals(log, run_id=run_id).model_dump(mode="json"),
         }
 
     def render(p):
@@ -446,6 +456,217 @@ def cmd_reopen(args) -> None:
     _verdict(args, "reopen")
 
 
+def cmd_question(args) -> None:
+    """Research questions: list them, read one, ask one, or record that a
+    claim or conjecture answers one.
+
+    Asking and linking are writes and take the writer's lock; listing does
+    not."""
+    if args.ask:
+        try:
+            graph = _write(args)
+        except SingleWriterViolation as e:
+            raise SystemExit(f"the graph is locked by another writer (an agent run?): {e}")
+        try:
+            qid = graph.ask_question(
+                QuestionPayload(text=args.ask, answerable_by=args.answerable_by),
+                authored_by=RESEARCHER,
+            )
+            payload = question_json(graph, qid)
+        except CohortError as e:
+            raise SystemExit(f"refused ({type(e).__name__}): {e}")
+        finally:
+            graph.close()
+    elif args.address:
+        if not args.id:
+            raise SystemExit("--address needs --id: which question does it answer?")
+        try:
+            graph = _write(args)
+        except SingleWriterViolation as e:
+            raise SystemExit(f"the graph is locked by another writer (an agent run?): {e}")
+        try:
+            graph.add_edge(
+                EdgeType.ADDRESSES, args.address, args.id, authored_by=RESEARCHER,
+            )
+            payload = question_json(graph, args.id)
+        except NodeNotFound as e:
+            raise SystemExit(str(e))
+        except CohortError as e:
+            raise SystemExit(f"refused ({type(e).__name__}): {e}")
+        finally:
+            graph.close()
+    else:
+        graph = _read(args)
+        try:
+            payload = question_json(graph, args.id) if args.id else questions_json(graph)
+        except NodeNotFound as e:
+            raise SystemExit(str(e))
+        finally:
+            graph.close()
+
+    def render_list(p):
+        if not p["questions"]:
+            print("no research questions recorded — `cohort question --ask \"...\"`")
+            return
+        for q in p["questions"]:
+            print(f"{q['id']}")
+            print(f"  {q['question']}")
+            print(f"  answerable by: {q['answerable_by']}")
+            print(f"  {q['addressed_by']} hypothesis/es address it\n")
+
+    def render_one(p):
+        print(f"{p['id']}\n\n{p['question']}\n")
+        print(f"  answerable by\n    {p['answerable_by']}\n")
+        if not p["hypotheses"]:
+            print("  nothing has been put forward as an answer yet")
+            return
+        counts = ", ".join(f"{n} {st}" for st, n in sorted(p["by_status"].items()))
+        print(f"  {len(p['hypotheses'])} hypothesis/es — {counts}")
+        if p["unsupported"]:
+            print(f"  {p['unsupported']} with nothing attesting them")
+        if p["discounted"]:
+            print(f"  {p['discounted']} whose support is shared descent")
+        print("  (a tally, not a verdict — nothing here says the question is answered)\n")
+        for h in p["hypotheses"]:
+            sup = h["support"]
+            state = ("nothing attests it yet" if sup["vacuous"]
+                     else "independent" if sup["independent"] else "SHARED DESCENT")
+            print(f"  {h['type']} {h['id']}")
+            print(f"    {h['assertion']}")
+            print(f"    {h['status']} · {h['assurance']} · "
+                  f"{sup['attesting_count']} attesting — {state}\n")
+
+    _emit(args, payload, render_list if (not args.id and not args.ask) else render_one)
+
+
+def cmd_findings(args) -> None:
+    """Claims and conjectures as hypotheses, not as node ids.
+
+    With `--id`, the whole dossier for one of them: what is asserted, how it
+    was reached, what was searched, what could have gone wrong in the
+    selection, what else could explain the same evidence, the prediction
+    recorded when it was proposed and what happened when it was run."""
+    graph = _read(args)
+    try:
+        if args.id:
+            payload = dossier_json(graph, args.id)
+        else:
+            payload = findings_json(graph, limit=args.limit)
+    except NodeNotFound as e:
+        raise SystemExit(str(e))
+    finally:
+        graph.close()
+
+    def render_list(p):
+        if not p["findings"]:
+            print("no claims or conjectures yet")
+            return
+        print(f"{p['count']} finding(s) — newest first, deliberately unranked\n")
+        for f in p["findings"]:
+            sup = f["support"]
+            flag = (
+                "nothing attests it yet" if sup["vacuous"]
+                else "independent" if sup["independent"]
+                else "SHARED DESCENT"
+            )
+            print(f"{f['id']}")
+            print(f"  {f['assertion'] or '(no text)'}")
+            marks = [f["status"], f["assurance"]]
+            if f["has_dossier"]:
+                marks.append("dossier")
+            if f["prospective_result"]:
+                marks.append(f"prospective:{f['prospective_result']}")
+            elif f["has_prospective_query"]:
+                marks.append("prospective:not run")
+            print(f"  {' · '.join(marks)}")
+            print(f"  {sup['attesting_count']} attesting, "
+                  f"{sup['distinct_witnesses']} distinct witness(es) — {flag}")
+            if f["rejected_reason"]:
+                print(f"  rejected: {f['rejected_reason']}")
+            print()
+
+    def render_one(p):
+        print(f"{p['id']}  {p['status']} · {p['assurance']}")
+        print(f"\n{p['assertion'] or '(no text)'}\n")
+        for field, value in p["dossier"].items():
+            print(f"  {field.replace('_', ' ')}")
+            print(f"    {value}")
+        for q in p["prior_art"]:
+            print(f"\n  prior art searched\n    {q['text']}")
+        for q in p["prospective_queries"]:
+            print(f"\n  prospective query\n    {q['text']!r}")
+            if q["expectation"]:
+                word = "at most" if q["expectation"] == "at_most" else "at least"
+                print(f"    predicted {word} {q['expected_hits']}, recorded at proposal")
+        t = p.get("prospective_test")
+        if t:
+            print(f"    -> {t['payload']['result'].upper()}: {t['payload']['detail']}")
+        sup = p.get("independent_support")
+        if sup:
+            flag = (
+                "nothing attests it yet" if sup["vacuous"]
+                else "independent" if sup["independent"]
+                else "SHARED DESCENT — discounted"
+            )
+            print(f"\n  support\n    {sup['attesting_count']} attesting, "
+                  f"{sup['distinct_witnesses']} distinct witness(es) — {flag}")
+        if p["evidence"]:
+            print(f"\n  evidence ({len(p['evidence'])})")
+            for e in p["evidence"]:
+                print(f"    {e['canonical_ref']}  {e['assurance']}")
+                print(f"      {e['excerpt']!r}")
+        if p["latest_verifications"]:
+            print("\n  verifications (latest per method)")
+            for v in p["latest_verifications"]:
+                vp = v["payload"]
+                print(f"    {vp['method']}: {vp['result']}")
+                print(f"      machine: {vp.get('detail')}")
+                if vp.get("limitations"):
+                    print(f"      limits:  {vp['limitations']}")
+
+    _emit(args, payload, render_one if args.id else render_list)
+
+
+def cmd_test_conjecture(args) -> None:
+    """Re-run a conjecture's prospective query and compare it to the
+    prediction recorded when the conjecture was proposed.
+
+    A write, because it records a verification — so it takes the writer's lock
+    like every other write, and answers the same way if a run holds it."""
+    from .tools.run_prospective_test import run_prospective_test
+
+    source = _corpus(args)
+    try:
+        graph = _write(args)
+    except SingleWriterViolation as e:
+        raise SystemExit(f"the graph is locked by another writer (an agent run?): {e}")
+    try:
+        report = run_prospective_test(
+            graph, source, args.id, authored_by=RESEARCHER,
+        )
+        payload = report.model_dump(mode="json")
+    except NodeNotFound as e:
+        raise SystemExit(str(e))
+    except CohortError as e:
+        raise SystemExit(f"refused ({type(e).__name__}): {e}")
+    finally:
+        graph.close()
+
+    def render(p):
+        print(f"{p['conjecture_id']}  {p['result']}")
+        print(f"  query    {p['query_text']!r}  ({p['query_id']})")
+        if p["expectation"] is None:
+            print("  predicted  nothing was recorded")
+        else:
+            word = "at most" if p["expectation"] == "at_most" else "at least"
+            print(f"  predicted  {word} {p['expected_hits']}")
+        cap = " (the search cap — a floor, not a count)" if p["count_saturated"] else ""
+        print(f"  observed   {p['observed_hits']}{cap}")
+        print(f"  {p['note']}")
+        print(f"  recorded as {p['verification_id']}")
+    _emit(args, payload, render)
+
+
 # --- corpus commands --------------------------------------------------------
 
 def cmd_search(args) -> None:
@@ -499,6 +720,10 @@ def cmd_run(args) -> None:
     from .ui.runs import AgentSpec, RunManager, RunRejected
 
     from .ui.runs import ROLE_REVIEWER
+
+    if args.history:
+        _run_history(args)
+        return
 
     source = _corpus(args)
     workers = args.agent or []
@@ -612,6 +837,35 @@ def cmd_run(args) -> None:
     _emit(args, run, render)
 
 
+def _run_history(args) -> None:
+    """Past runs, read from the log rather than from a run manager.
+
+    Needs no corpus, no key and no run manager: a run is a pair of events, so
+    this answers "what has been run against this graph" long after every
+    process that ran one has exited."""
+    log = _log_path(args)
+    runs = read_runs(log, limit=args.limit_runs)
+    payload = {"log_path": str(log), "runs": [r.model_dump(mode="json") for r in runs]}
+
+    def render(p):
+        if not p["runs"]:
+            print(f"no runs recorded in {p['log_path']}")
+            return
+        for r in p["runs"]:
+            spent = f"${r['spent_usd']:.5f}" if r["spent_usd"] is not None else "—"
+            state = r["state"] or "open"
+            print(f"{r['run_id']}  {state:<9} {r['started_at']}  {spent}  "
+                  f"{r['calls']} call(s)  {r['events']} event(s)  "
+                  f"{r['refusals']} refused")
+            for a in r["agents"]:
+                scope = a.get("corpus_scope") or "no declared scope"
+                print(f"    {a['role']:<8} {a['agent_id']:<22} {a.get('model') or '—'}"
+                      f"  — {scope}")
+            if r["error"]:
+                print(f"    error: {r['error']}")
+    _emit(args, payload, render)
+
+
 # --- parser -----------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -655,6 +909,31 @@ def build_parser() -> argparse.ArgumentParser:
                         "rule and category, and streaks of one agent refused repeatedly "
                         "by one rule. The census always covers the whole log, never the "
                         "--limit tail")
+    p.add_argument("--run", default=None, metavar="RUN_ID",
+                   help="narrow to one agent run (see `cohort run --history`). The "
+                        "log is cumulative across a graph's whole life, so this is a "
+                        "different question from what the graph has ever refused")
+
+    p = add("question", cmd_question,
+            "research questions — what an inquiry was asking")
+    p.add_argument("--id", default=None, help="read one, with what addresses it")
+    p.add_argument("--ask", default=None, metavar="TEXT",
+                   help="record a new research question (researcher only)")
+    p.add_argument("--answerable-by", default="", metavar="TEXT",
+                   help="what would count as an answer — required with --ask, and "
+                        "stated before looking so the question cannot be quietly "
+                        "reshaped to fit whatever turned up")
+    p.add_argument("--address", default=None, metavar="NODE_ID",
+                   help="record that this claim or conjecture answers --id")
+
+    p = add("findings", cmd_findings,
+            "claims and conjectures as hypotheses, with their dossiers")
+    p.add_argument("--id", default=None, help="the full dossier for one of them")
+    p.add_argument("--limit", type=int, default=None)
+
+    p = add("test-conjecture", cmd_test_conjecture,
+            "re-run a conjecture's prospective query against its recorded prediction")
+    p.add_argument("id", help="the conjecture id")
 
     p = add("integrity", cmd_integrity, "re-hash stored payloads against their recorded hashes")
     p.add_argument("--id", default=None, help="check one node instead of all")
@@ -720,6 +999,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="declared method, paired like --scope")
     p.add_argument("--budget", type=float, default=0.25, help="hard USD cap for the run")
     p.add_argument("--max-turns", type=int, default=8)
+    p.add_argument("--history", action="store_true",
+                   help="list past runs from the event log instead of starting one. "
+                        "Spends nothing and needs no corpus or key")
+    p.add_argument("--limit-runs", type=int, default=20, metavar="N",
+                   help="how many past runs --history lists")
 
     return parser
 

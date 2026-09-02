@@ -92,11 +92,16 @@ recorded; the claim waits at `proposed` for a reviewer or for the researcher.
 Creates a `conjecture` — an assertion allowed to exceed its evidence.
 
     text, derivation, corpus_boundary, selection_risks,
-    alternative_explanations, prior_art_query, tests_query_text
+    alternative_explanations, prior_art_query, tests_query_text,
+    tests_expectation, tests_expected_hits
 
-All seven required, none blank. The `prior_art_query` is run against the corpus
+All required, none blank. The `prior_art_query` is run against the corpus
 *before* proposing. The `tests_query_text` becomes a `query` node linked `tests`
-→ conjecture, which is what makes the conjecture attestable at all.
+→ conjecture, which is what makes the conjecture attestable at all — and it now
+carries the author's **prediction** about what that query will return
+(`at_most`/`at_least` and a count), recorded in the same call, on a payload
+nothing can edit afterwards. A prediction stated after the result is known is
+not a prediction.
 
 This is the falsifiability gate, and it is the contribution: it permits genuine
 novelty, which citation checking cannot, and it filters vacuous grounded claims,
@@ -176,6 +181,15 @@ the reviewer's own reading goes in `limitations`, the field for what a passing
 check does *not* establish. Separate fields are what stop a confident sentence
 from reading later as a mechanical finding.
 
+**Always**, including a `sound` verdict. That used to be the exception, on the
+reasoning that a positive verdict is not a limitation, and the negative control
+(`scripts/run_negative_control.py`) showed what the exception cost: a reviewer
+handed a claim with one altered excerpt returned `sound` with *"Re-fetched and
+re-verified the cited passages… confirming that the title indeed appears in the
+corpus"*, and that sentence was written into `detail` on a verification whose
+result was `fail`. A sound verdict over a failing check is not corroboration;
+it is the most important thing on the record to mark as not established.
+
 It refuses a claim the caller may not attest *before* re-fetching anything —
 `attest()` would refuse at the end anyway, but a reviewer that has already
 spent the fetches has learnt the rule too late to act on it.
@@ -185,6 +199,41 @@ author has no incentive to look and a researcher reading the verification
 should not have to ask separately.
 
 ## Not an agent tool
+
+### `run_prospective_test`
+Re-runs a conjecture's prospective query and compares the hit count to the
+prediction recorded when it was proposed.
+
+    conjecture_id: str  →  ProspectiveTestReport
+
+The falsifiability gate has always demanded a query that would settle a
+conjecture going forward, and `attest()` has always refused a conjecture with no
+`tests` edge. Between them they checked that a test *existed*. Nothing ran it.
+A gate that demands a prediction and never collects on it is a gate on
+paperwork.
+
+It is a `VerificationMethod` (`prospective_test`) where `MODEL_ENTAILMENT` is
+not, because nothing in it is anyone's opinion: a stored query is re-run and a
+stored integer is compared to the count that comes back. It is also the only
+method that can fail on **new evidence** rather than on a broken record — every
+other one asks whether the record still holds up, this one asks whether the
+world still agrees.
+
+**It grants no assurance rung**, passing or failing. The ladder grades how well
+a node's citations stand up; a surviving prediction says something else, and
+giving it a rung would repeat the A3 mistake of grading one thing with a name
+that reads as another.
+
+Here the *count* is the finding, so a search that returns the cap has been
+floored rather than counted. A floor settles `at most E` only when it already
+exceeds E, and `at least E` only when it already reaches it; otherwise the
+result is `indeterminate` and says so. Counting a capped result as exact is how
+a measurement layer starts publishing numbers it did not measure.
+
+Not registered for agents, same reasoning as `verify_exact_span` below: its
+whole value is in being run *later* — against a rebuilt index or a corpus that
+has grown — and an agent running it in the turn that proposed the conjecture
+would be testing a prediction against the state that produced it.
 
 ### `verify_exact_span`
 Re-fetches a passage's source and confirms the excerpt is still there, byte for

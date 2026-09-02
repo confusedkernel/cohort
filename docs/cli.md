@@ -25,6 +25,19 @@ functions, so a rule refuses identically whichever way you reach it.
     cohort retract-edge edge:abc --reason "the bracket was a cf., not an assertion"
     cohort restore-edge edge:abc --reason "checked again; it is a bare list"
 
+    cohort question                           # what this inquiry is asking
+    cohort question --ask "…" --answerable-by "…"
+    cohort question --id question:abc --address conjecture:def
+
+    cohort findings                           # claims and conjectures as hypotheses
+    cohort findings --id conjecture:abc123    # the whole dossier for one
+
+    cohort test-conjecture conjecture:abc123  # run its prospective query against
+                                              #   the prediction recorded with it
+
+    cohort run --history                      # past runs, from the log; spends nothing
+    cohort refusals --run 1c0a47ba0b67 --census
+
     cohort search 色即是空                     # same hits as the browser, same order
     cohort fetch "T08n0251::色即是空"
     cohort run --agent "find attestations for 色即是空" --budget 0.05
@@ -55,6 +68,12 @@ nothing to review before ([agents.md](agents.md)). A run of workers alone
 leaves its claims at `proposed` — no agent may attest what it authored — so
 either add a `--reviewer` on another provider, or check them yourself with
 `cohort node` and `cohort accept`.
+
+`cohort run --history` lists past runs out of the **event log**, not out of a
+running process: a run writes `run_started`/`run_finished` and stamps its id on
+everything it writes, so it outlives the server that launched it. That is also
+what makes `cohort refusals --run <id>` possible — the census of one run rather
+than of a graph's whole life. See [architecture.md](architecture.md).
 
 `--scope` and `--method` are each **one per agent**, in roster order (every
 `--agent`, then every `--reviewer`), or one for the whole roster:
@@ -135,6 +154,7 @@ a chat session.**
 | `scripts/run_cbeta_demo.py` | ~$0.002 | one agent against the real archive |
 | `scripts/run_swarm_demo.py` | ~$0.003 | two *concurrent* real agents, distinct declared scope |
 | `scripts/run_conjecture_demo.py` | ~$0.004 | the falsifiability gate live. `--budget` (default $0.25), `--max-turns` (4), `--db` |
+| `scripts/run_negative_control.py` | ~$0.0005 | **the one that shows it catching something.** A real claim, five real citations, one excerpt altered by a character with its hash recomputed so integrity stays clean — then a live reviewer on another family. The claim must not advance. `--db`, `--budget`, `--force`, `--reviewer-model` |
 
 ## The UI
 

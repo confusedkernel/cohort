@@ -304,6 +304,30 @@ def test_a_runs_refusals_are_attributed_to_that_run(graph_files, source, monkeyp
     assert run["refusals"][0]["rule"] == "NodeNotFound"
 
 
+def test_a_real_run_records_itself_and_stamps_what_it_wrote(manager, graph_files):
+    """End to end through `RunManager`: the id it has always minted now
+    reaches the log, so the run and its writes can be found again after the
+    process is gone."""
+    from cohort.eventlog import read_events, read_runs
+
+    _db, log_path = graph_files
+    started = manager.start([spec(instructions="propose a claim")], budget_usd=0.10)
+    run = _await_finish(manager)
+    run_id = started["id"]
+
+    recorded = read_runs(log_path)
+    assert [r.run_id for r in recorded] == [run_id]
+    assert recorded[0].state == run["state"] == "finished"
+    assert recorded[0].finished_at is not None
+    assert recorded[0].agents[0]["agent_id"] == "agent:ui-worker"
+    assert recorded[0].spent_usd is not None
+
+    # the seed claim was written before any run and must not be attributed
+    proposes = [ev for ev in read_events(log_path) if ev.event == "propose"]
+    assert proposes[0].run_id is None
+    assert proposes[-1].run_id == run_id
+
+
 def test_run_endpoints_report_spend_and_conflict_with_researcher_writes(
     graph_files, source, monkeypatch
 ):

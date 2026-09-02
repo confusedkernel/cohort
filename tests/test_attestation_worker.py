@@ -95,6 +95,7 @@ def test_worker_runs_a_tool_call_and_then_stops(graph, source):
             "alternative_explanations": "none identified",
             "prior_art_query": "a conjecture",
             "tests_query_text": "a testing query",
+            "tests_expectation": "at_most", "tests_expected_hits": 0,
         })], finish_reason="tool_calls"),
         _response(content="done", finish_reason="stop"),
     ])
@@ -251,6 +252,7 @@ def test_run_swarm_both_workers_write_to_the_shared_graph(graph, source):
             "derivation": "n/a", "corpus_boundary": "n/a",
             "selection_risks": "none identified", "alternative_explanations": "none identified",
             "prior_art_query": "worker 1 query", "tests_query_text": "a testing query",
+            "tests_expectation": "at_most", "tests_expected_hits": 0,
         })], finish_reason="tool_calls"),
         _response(content="done", finish_reason="stop"),
     ]))
@@ -260,6 +262,7 @@ def test_run_swarm_both_workers_write_to_the_shared_graph(graph, source):
             "derivation": "n/a", "corpus_boundary": "n/a",
             "selection_risks": "none identified", "alternative_explanations": "none identified",
             "prior_art_query": "worker 2 query", "tests_query_text": "a testing query",
+            "tests_expectation": "at_most", "tests_expected_hits": 0,
         })], finish_reason="tool_calls"),
         _response(content="done", finish_reason="stop"),
     ]))

@@ -216,7 +216,7 @@ cohort/                          # repo root
 │   ├── agents/                  # openrouter.py, attestation_worker.py,
 │   │                            #   swarm.py, budget.py, roster.py
 │   └── ui/                      # api.py, runs.py, frontend/ (React+Vite), static/
-└── tests/                       # 24 modules, 390 tests
+└── tests/                       # 28 modules, 439 tests
 ```
 
 Built fresh, so the layout ATELIER already uses (package dir + sibling
@@ -427,7 +427,7 @@ contribution; a large swarm without one is the thing being critiqued.
 |---|---|
 | Observability envelope | **Done** — `Event` fields, `log_model_call()`, `summarize_model_calls()`, threaded through the worker and both tools |
 | Verification/assurance model | **Done** — `verify()`, `assurance_for()`, five domain-appropriate methods. *(This row claimed `CROSS_EDITION_COLLATION` was "`independent_support()` finally wired into a formal, queryable record". **That was wrong**, and the same conflation the A3 rename corrected on 2026-09-02: apparatus describes variants within one document and says nothing about the relation between two witnesses. `independent_support()` is a live computed read and is deliberately not recorded as a verification.)* |
-| Conjecture dossier | **Done** — four required `ConjecturePayload` fields, `searched_for` edge, search-then-propose in the tool. The falsifiability gate itself is unchanged |
+| Conjecture dossier | **Done** — four required `ConjecturePayload` fields, `searched_for` edge, search-then-propose in the tool. The falsifiability gate itself is unchanged. *Extended 2026-09-02: the `tests` query now carries a prediction recorded at proposal time, and `run_prospective_test` runs it — the gate had demanded a query and never asked it* |
 | Multi-agent society, steps 1-3 | **Done** — `agents` table, `register_agent()`, `AttestationWorker(profile=...)`, `agent_report()` (counts only) |
 | Multi-agent society, step 4 (real concurrency) | **Done, live-verified** — `cohort/agents/swarm.py::run_swarm()`; `AttestationWorker.run_async()` is now the canonical loop, with `asyncio.to_thread` scoped only around the one blocking HTTP call so concurrent workers' graph writes can never interleave |
 | Multi-agent society, step 5 (reputation scoring) | Still deferred, deliberately — concurrency didn't change the reasoning that kept it out: it's about what a score would reward, not when agents run |
@@ -447,7 +447,7 @@ the current concrete state and next steps.
 
 Stage 1's original check — `pytest -q` green, `demo.py` printing the
 `independent_support()` flip, and a manual rebuild diff — is done and has
-stayed green through every stage since (390 tests). `demo.py` still runs with
+stayed green through every stage since (439 tests). `demo.py` still runs with
 no corpus and no API key.
 
 What the live scripts have additionally proven, each run by hand and never
@@ -468,6 +468,14 @@ all ten of its citations re-fetching byte for byte, because the reviewer
 returned `unsound`. That is the veto asymmetry working live: a model verdict
 withheld a promotion it could never have supplied.
 
+And a **negative control** ($0.00037): a real claim with five real citations,
+one excerpt altered by a single character and its payload hash recomputed so
+`verify_integrity()` stays clean. A live reviewer on another family returned
+`sound` — *"Re-fetched and re-verified the cited passages"* — and the claim did
+not advance, because promotion rests on the re-fetch. It also caught a defect:
+that sentence was landing in the verification's `detail` rather than its
+`limitations`. See `scripts/run_negative_control.py`.
+
 Rebuild fidelity and payload integrity are re-checked after each live run, not
-assumed: that one replayed 95 events to 40 nodes / 45 edges matching the live
-projection, with 0 mismatched payload hashes.
+assumed: the three-model run replayed 95 events to 40 nodes / 45 edges matching
+the live projection, with 0 mismatched payload hashes.

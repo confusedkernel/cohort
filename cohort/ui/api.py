@@ -51,10 +51,19 @@ from ..errors import (
 )
 from ..eventlog import read_refusals, summarize_refusals
 from ..graph import Graph
-from ..schemas import RESEARCHER, EdgeType, NodeType
+from pydantic import ValidationError
+
+from ..schemas import RESEARCHER, EdgeType, NodeType, QuestionPayload
 from ..sources.base import Source
 from ..sources.cbeta_markup import strip_markup_for_display
-from ..views import DISCOUNTING_EDGE_TYPES, node_detail_json
+from ..views import (
+    DISCOUNTING_EDGE_TYPES,
+    dossier_json,
+    findings_json,
+    node_detail_json,
+    question_json,
+    questions_json,
+)
 from ..views import edge_json as _edge_json
 from ..views import node_json as _node_json
 from .runs import ROLE_WORKER, AgentSpec, RunManager, RunRejected
@@ -209,7 +218,10 @@ def create_app(
             graph.close()
 
     @app.get("/api/refusals")
-    def refusals(limit: int = Query(default=100, ge=1, le=1000)) -> dict[str, Any]:
+    def refusals(
+        limit: int = Query(default=100, ge=1, le=1000),
+        run_id: str | None = Query(default=None),
+    ) -> dict[str, Any]:
         """The refused writes, most recent last.
 
         This is an output surface, not a debug view: docs/design.md §15 claims the
@@ -224,22 +236,77 @@ def create_app(
 
         `census` summarises the **whole** log even when `refusals` is a
         truncated tail — a census of the tail would report a smaller total
-        than the log holds while looking authoritative. See `RefusalCensus`."""
+        than the log holds while looking authoritative. See `RefusalCensus`.
+
+        `run_id` narrows both to one agent run. The log is cumulative across a
+        graph's whole life, so "what did the run I just watched refuse?" and
+        "what has this graph ever refused" are different questions."""
         if not log_path.is_file():
             return {
                 "available": False, "log_path": str(log_path), "refusals": [],
                 "total": 0, "census": None,
             }
-        all_refusals = read_refusals(log_path)
+        all_refusals = read_refusals(log_path, run_id=run_id)
         shown = all_refusals[-limit:]
         return {
             "available": True,
             "log_path": str(log_path),
+            "run_id": run_id,
             "total": len(all_refusals),
             "truncated": len(shown) < len(all_refusals),
             "refusals": [r.model_dump(mode="json") for r in shown],
-            "census": summarize_refusals(log_path).model_dump(mode="json"),
+            "census": summarize_refusals(log_path, run_id=run_id).model_dump(mode="json"),
         }
+
+    @app.get("/api/questions")
+    def questions(id: str | None = Query(default=None)) -> dict[str, Any]:
+        """Research questions. With `id`, one of them and what addresses it.
+
+        A COHORT graph used to record what was found and never what was being
+        asked, so a findings page had no title it could honestly give itself
+        and an agent's declared scope was a scope of nothing in particular.
+
+        The per-question view is a **tally, not a verdict**: it says how many
+        hypotheses address the question and where each stands, never whether
+        the question is answered. Nothing mechanical could know that."""
+        graph = read()
+        try:
+            if id is not None:
+                try:
+                    return question_json(graph, id)
+                except NodeNotFound as e:
+                    raise HTTPException(status_code=404, detail=str(e)) from e
+            return questions_json(graph)
+        finally:
+            graph.close()
+
+    @app.get("/api/findings")
+    def findings(
+        id: str | None = Query(default=None),
+        limit: int | None = Query(default=None, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        """Claims and conjectures as hypotheses rather than as node ids.
+
+        Without `id`, the scannable list; with it, the whole dossier — the
+        assertion, how it was reached, what was searched, what could have gone
+        wrong in the selection, what else could explain the same evidence, the
+        prediction recorded when it was proposed, and what happened when it was
+        run. All of it was already in the graph and reachable only by walking
+        edges by hand, which is the step at which the honest fields get
+        skipped.
+
+        Deliberately unranked. A list sorted by "most attested" would be a
+        confidence ranking wearing a different hat."""
+        graph = read()
+        try:
+            if id is not None:
+                try:
+                    return dossier_json(graph, id)
+                except NodeNotFound as e:
+                    raise HTTPException(status_code=404, detail=str(e)) from e
+            return findings_json(graph, limit=limit)
+        finally:
+            graph.close()
 
     @app.get("/api/integrity")
     def integrity(id: str | None = Query(default=None)) -> dict[str, Any]:
@@ -395,6 +462,81 @@ def create_app(
             finally:
                 graph.close()
 
+        @app.post("/api/questions")
+        def ask(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+            """Ask a research question, or record that a hypothesis answers one.
+
+            `{text, answerable_by}` asks; `{id, address}` links a claim or
+            conjecture to an existing question. Both act as `RESEARCHER` —
+            setting the agenda is the supervision, and an agent that could ask
+            its own question and then answer it would be doing unsupervised
+            research with a paper trail."""
+            graph = _write_graph()
+            try:
+                try:
+                    if body.get("address"):
+                        graph.add_edge(
+                            EdgeType.ADDRESSES, str(body["address"]),
+                            str(body.get("id") or ""), authored_by=RESEARCHER,
+                        )
+                        return question_json(graph, str(body.get("id") or ""))
+                    qid = graph.ask_question(
+                        QuestionPayload(
+                            text=str(body.get("text") or ""),
+                            answerable_by=str(body.get("answerable_by") or ""),
+                        ),
+                        authored_by=RESEARCHER,
+                    )
+                    return question_json(graph, qid)
+                except NodeNotFound as e:
+                    raise HTTPException(status_code=404, detail=str(e)) from e
+                except CohortError as e:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"rule": type(e).__name__, "message": str(e)},
+                    ) from e
+                except ValidationError as e:
+                    raise HTTPException(status_code=422, detail=str(e)) from e
+            finally:
+                graph.close()
+
+        @app.post("/api/test-conjecture")
+        def test_conjecture(id: str = Query(..., min_length=1)) -> dict[str, Any]:
+            """Re-run a conjecture's prospective query and record the outcome.
+
+            The falsifiability gate has always demanded a query that would
+            settle a conjecture going forward, and until 2026-09-02 nothing
+            ever ran it. This does — mechanically: a stored query re-run
+            against the corpus, a stored integer compared to the count that
+            comes back. No opinion enters, which is why it can be a
+            `VerificationMethod` when `MODEL_ENTAILMENT` cannot.
+
+            Behind `--allow-writes` because it records a verification, and
+            behind a configured corpus because it has to search one."""
+            from ..tools.run_prospective_test import run_prospective_test
+
+            if source is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="no corpus is configured, so the query cannot be run",
+                )
+            graph = _write_graph()
+            try:
+                try:
+                    report = run_prospective_test(
+                        graph, source, id, authored_by=RESEARCHER,
+                    )
+                except NodeNotFound as e:
+                    raise HTTPException(status_code=404, detail=str(e)) from e
+                except CohortError as e:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"rule": type(e).__name__, "message": str(e)},
+                    ) from e
+                return report.model_dump(mode="json")
+            finally:
+                graph.close()
+
         def _edge_verdict(edge_id: str, action: str, reason: str | None) -> dict[str, Any]:
             graph = _write_graph()
             try:
@@ -540,9 +682,15 @@ def create_app(
 
         @app.get("/api/run")
         def run_status() -> dict[str, Any]:
+            """`history` is this process's own runs, with their tool calls;
+            `recorded` is every run in the event log, including ones started
+            before the last restart. Both, because they answer different
+            questions and neither subsumes the other: the live one is richer,
+            the recorded one survives."""
             return {
                 "current": run_manager.current(),
                 "history": run_manager.history(),
+                "recorded": run_manager.recorded(),
             }
 
         @app.get("/api/run/{run_id}")

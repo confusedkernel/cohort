@@ -1129,3 +1129,286 @@ a live run before starting the next.
 
 **Still not called by a live model: `record_contradiction`.** The reviewer was
 told to record one if two claims disagreed. None did.
+
+---
+
+## The negative control, and runs become events
+
+**2026-09-02.** Two pieces, and the first found a defect in the second-most
+important field in the system.
+
+### Does it ever catch anything?
+
+Every live demonstration in this repository had been given honest input. Each
+showed COHORT recording something correctly; none showed it refusing something
+that looked fine, which is the first thing a reader should be suspicious of.
+
+`scripts/run_negative_control.py` supplies the other half. It grounds a real
+claim against the real archive, cites five real passages, then alters **one
+character** of one stored excerpt and recomputes that row's payload hash — so
+`verify_integrity()` comes back clean and the span re-fetch is the only thing
+left standing between a plausible-looking claim and `attested`. A real reviewer
+on another model family is then asked to check it.
+
+The first run is the one to quote. The reviewer returned **`sound`**:
+
+> Re-fetched and re-verified the cited passages. The title 般若波羅蜜多心經 is
+> attested in multiple witnesses in the corpus… confirming that the title
+> indeed appears in the corpus as claimed.
+
+Four of five spans re-verified. The claim stayed at `proposed`, the
+verification recorded `fail`, and $0.00037 was spent. A confident model said
+the citations checked out; they did not; the machine won. That is the veto
+asymmetry from the other side — [tools.md](tools.md) has always claimed a
+verdict can withhold but never supply, and until now nothing had made it
+supply the wrong thing and watched it fail.
+
+### What the control caught
+
+That sentence was in the **wrong field**. `review_claim` appended a `sound`
+reviewer's prose to `detail` — the machine's field — so a verification whose
+result was `fail` carried a confident claim of successful re-verification,
+written where a reader would take it for a mechanical finding. The code even
+carried a comment saying the reviewer's words go in `limitations` "never in
+`detail`", two lines above the branch that did the opposite.
+
+Fixed: the reviewer's words always go in `limitations`, whatever the verdict. A
+sound verdict over a failing check is not corroboration; it is the most
+important thing on the record to mark as not established. Pinned by
+`test_a_sound_verdict_never_lands_in_the_machines_field`.
+
+The script now refuses to overwrite an existing graph without `--force`. A live
+run's log is the artifact — the lesson from losing one the day before.
+
+### Runs are events
+
+`RunManager` has always minted a run id (`uuid4().hex[:12]`) and it never left
+the process. So a server restart erased every run ever launched from the
+browser, and the log could say what was written but never *which run wrote it*
+— which would have made a four-point scaling table four separate graphs and a
+column of numbers copied by hand out of console output.
+
+Now: `run_started`/`run_finished` events, non-mutating like `model_call`
+because a run beginning is not a change to the graph; `Event.run_id`, optional
+so every older log replays identically; and the stamp applied once in
+`EventLog.append` rather than threaded through every write signature — a model
+call is a *cause* a write must name, a run is the session doing the writing.
+
+What it buys: `read_runs()` and `cohort run --history` read runs back out of
+the log, with roster, declared scopes, spend and counts, long after the process
+is gone. `read_refusals(run_id=…)`, `summarize_refusals(run_id=…)` and
+`summarize_model_calls(run_id=…)` narrow to one run — `cohort refusals --run
+<id> --census`, and `?run_id=` on `GET /api/refusals`. `GET /api/run` gained a
+`recorded` list beside the in-memory `history`, and the browser renders it.
+A run with no closing event is reported **open**, not repaired.
+
+`RunManager` also stopped attributing refusals by diffing a count taken before
+the run and selects them by `run_id` instead. The old way was correct only
+because nothing else may write while a run holds the lock — a guarantee the
+reporting path should not have had to lean on.
+
+**14 new tests** (404 total), one new module, `tests/test_run_history.py`.
+
+**Still not called by a live model: `record_contradiction`.**
+
+---
+
+## The falsifiability gate finally collects
+
+**2026-09-02.** Looking at `graph-fact-check`'s findings page, the strongest
+element on it was a box reading *"Prospective test: predicted higher, observed
+higher (1.205 vs core 0.791) → SUPPORTED"* — a prediction stated before the
+measurement, then the measurement.
+
+COHORT has had the harder half of that since stage 3 and never used it.
+`propose_conjecture` requires a query that would settle the conjecture going
+forward, `attest()` refuses a conjecture with no `tests` edge, and between them
+they checked that a test *existed*. Nothing ever ran it. A gate that demands a
+prediction and never collects on it is a gate on paperwork.
+
+**The prediction.** `propose_conjecture` gained `tests_expectation`
+(`at_most`/`at_least`) and `tests_expected_hits`, both required, written onto
+the `tests` query node's payload in the same call that creates the conjecture.
+Two fields rather than a free-text prediction because the comparison has to be
+mechanical, and on the query node rather than the conjecture because it is a
+statement about what *that retrieval* will return. Payloads are immutable and
+hashed, so the prediction cannot be supplied after the answer is known.
+
+**Running it.** `cohort test-conjecture <id>`, `POST /api/test-conjecture`, and
+`cohort/tools/run_prospective_test.py`. A new `VerificationMethod`,
+`prospective_test`, added with the argument §6 requires: nothing in it is an
+opinion — a stored query is re-run and a stored integer is compared to the count
+that comes back — which is exactly why it can be a method when
+`MODEL_ENTAILMENT` cannot. It is also the only method that can fail on **new
+evidence** rather than on a broken record. Every other one asks whether the
+record still holds up; this asks whether the world still agrees.
+
+**It grants no assurance rung**, passing or failing. The ladder grades how well
+a node's citations stand up; a surviving prediction says something else, and
+giving it a rung would repeat the A3 mistake of grading one thing with a name
+that reads as another. Not an agent tool either, same reasoning as
+`verify_exact_span`: its value is in being run *later*, and an agent running it
+in the turn that proposed the conjecture would be testing a prediction against
+the state that produced it.
+
+**A defect found while demonstrating it.** Against the real corpus, a broken
+prediction came back `observed 50` — which was the search cap, not a count. Here
+the count *is* the finding, so a saturated search yields a floor, and a floor
+settles `at most E` only when it already exceeds E and `at least E` only when it
+already reaches it. Otherwise the result is `indeterminate` and says why.
+Counting a capped result as exact is how a measurement layer starts publishing
+numbers it did not measure. The cap is now 200 and `count_saturated` is on the
+report.
+
+Live against CBETA v061, no API spend:
+
+    conjecture:e848…  pass
+      predicted  at most 0
+      observed   0
+    conjecture:a7f3…  fail
+      predicted  at most 1
+      observed   200 (the search cap — a floor, not a count)
+
+**14 new tests** (418 total), one new module. What this still is not is a
+*deterministic measurement layer* — `delta_to_core` and friends compute
+statistics over texts, and this counts hits for a stored query. That gap is
+listed in [handoff.md](handoff.md) and is untouched.
+
+---
+
+## The Findings tab becomes a hypothesis view
+
+**2026-09-02.** Prompted by looking at `graph-fact-check`'s findings page next
+to ours. Theirs leads with a question, a verdict, a hypothesis and a prospective
+result. Ours led with a force-directed graph, and the Findings tab was two lists
+of bare node ids beside an integrity strip.
+
+The gap was not the rendering. COHORT already collects a **richer dossier than
+the page it was losing to** — `ConjecturePayload` has required `derivation`,
+`corpus_boundary`, `selection_risks` and `alternative_explanations`; the
+prior-art query is run before proposing and recorded with its hit count; the
+prospective query now carries a prediction made at proposal time. None of it was
+visible anywhere. It was reachable only by walking edges by hand, which is
+exactly the step at which the honest fields get skipped.
+
+`views.py` gained `dossier_json()` and `findings_json()` — in the shared
+read-shapes, so `cohort findings` and `GET /api/findings` give the same answer
+rather than two panels reconstructing it differently. New command, new route,
+both in the parity map.
+
+A hypothesis card now shows the assertion, the four dossier fields, the
+prior-art search, the prediction and its result, the evidence **with excerpts**
+rather than as a list of ids, and the verifications with the machine's finding
+and a reviewer's reading kept in separate fields.
+
+Three things it refuses to do, each with a test:
+
+* **It does not rank.** A list sorted by "most attested" is a confidence score
+  wearing a different hat. Newest first, and heavily-attested claims do not
+  float up.
+* **It does not merge** `detail` and `limitations` — the separation the negative
+  control caught being violated earlier the same day.
+* **It shows only the latest verification per method**, the same rule
+  `assurance_for` follows, so a stale pass cannot sit beside a later failure as
+  though both were findings.
+
+Where support fails the independence check the card says so in the reader's
+words — *"their agreement is evidence of shared descent rather than independent
+confirmation; the attesting count is unchanged, what it means is not"* — which
+is `independent_support()` finally saying its piece somewhere a person reads.
+
+**9 new tests** (427 total), one new module.
+
+What is still missing is the thing their page leads with: a **question**. A
+COHORT graph does not record what it was investigating, only what it found. That
+is the next gap, and it is a vocabulary question rather than a UI one.
+
+---
+
+## "0 attesting, 0 witnesses — independent"
+
+**2026-09-02.** A conjecture seeded to demonstrate the new hypothesis view came
+with a full dossier, a prediction that held, and **no evidence at all**. The
+card reported it as *"0 attesting, 0 distinct witnesses — independent"*, and the
+researcher asked the obvious question: where are the attestations?
+
+Two things wrong, one of them mine and one of them the code's.
+
+**Mine.** `propose_conjecture` records a prior-art search and a prospective
+query; it does not gather evidence — that is `find_attestations`' job — so a
+conjecture proposed and never attested has nothing behind it. Fixed by running
+the searches: 9 attesting passages across 9 witnesses, from four queries
+returning 11 hits, the two extra collapsing by identity convergence because two
+witnesses matched more than one query (principle 5, visible in the numbers).
+
+The derivation still cites counts — "18 entries", "2 entries" — that were
+measured in a terminal and typed into free text. The graph does not hold them
+and cannot check them. That is the *no deterministic measurement layer* gap in
+[handoff.md](handoff.md), and this is what it looks like from the inside.
+
+**The code's.** `independent` is computed as `not flips` — "no discounting pair
+was found" — so a node nothing attests is *vacuously* independent. Over an empty
+support set that phrasing reads as a clean bill of health for something never
+tested, which is the opposite of what the flag is for.
+
+`IndependentSupport` gained `vacuous`, and both front ends now say "nothing
+attests it yet" instead. The flip flag itself is unchanged, deliberately: it has
+meant "no discounting pair was found" since stage 1 and every caller depends on
+that. The vacuous case is reported *beside* it rather than folded into it.
+
+**1 new test** (428 total).
+
+---
+
+## The research question
+
+**2026-09-02.** The previous entry ended: *"What is still missing is the thing
+their page leads with: a question. A COHORT graph does not record what it was
+investigating, only what it found."* This closes that.
+
+A new node type, so §6 requires an argument rather than a convenience.
+
+**The argument.** Every existing node answers *what is in the corpus* or *what
+does the record say*. None answered **what were we asking**. Three consequences,
+all of them real rather than hypothetical: a reader could not tell whether a
+claim was the point of an inquiry or a byproduct; a findings page had no title
+it could honestly give itself; and an agent's declared corpus scope — the thing
+[roadmap.md](roadmap.md) makes the condition for allowing more than one agent —
+was a scope of *nothing in particular*.
+
+**What it is not** is most of the design:
+
+- **Not a `query`.** A query is a retrieval to run against the corpus; a
+  question is not runnable. Conflating them would put a research question where
+  `tests` and `searched_for` expect something executable, and the edge domains
+  refuse it.
+- **Not evidence.** A question asserts nothing, so principle 2 has no objection
+  to it being a node — and `citable()` excludes questions, because output cites
+  what *answers* a question, never the question. Without that exclusion a
+  question would become quotable as a premise the moment it was written down,
+  since `citable()` returns accepted nodes.
+- **Not proposed.** No mechanical check could promote a question and there is no
+  rung for it to climb, so it has its own `ask` event rather than sharing
+  `propose`, which is what puts a node on the bottom rung. Born `accepted`, like
+  `decision` and `verification` — and **`accepted` means asked, not answered**.
+- **Not an agent's to ask.** Setting the agenda is the supervision. An agent
+  that could ask its own question and then answer it would be doing
+  unsupervised research with a paper trail. Same reasoning as
+  `accept`/`reject`/`reopen`, and easy to relax later.
+- **Not a container.** `addresses` points from the answer *to* the question,
+  never the reverse. A question pointing at its answers would read as a question
+  that has been answered once nine claims hung off it — a conclusion no edge
+  should draw. For the same reason the per-question view reports a tally (how
+  many, at what status, how many with nothing attesting them) and never a
+  verdict.
+
+`answerable_by` is required alongside the text, for the same reason
+`propose_conjecture` requires a query that would settle a conjecture: a question
+nobody can say how to answer is not a research question, it is a mood. Stating
+it before looking is what stops it being quietly reshaped afterwards.
+
+`cohort question` (list / `--id` / `--ask` / `--address`), `GET`/`POST
+/api/questions`, both in the parity map, and the Findings tab now leads with the
+question rather than with a list of node ids.
+
+**11 new tests** (439 total), one new module.

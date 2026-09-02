@@ -153,6 +153,8 @@ def _conjecture_input(**overrides):
         alternative_explanations="a later redactor independently chose similar vocabulary",
         prior_art_query="Kuchean recension",
         tests_query_text="search Kuchean fragment catalogues for a parallel",
+        tests_expectation="at_most",
+        tests_expected_hits=0,
     )
     defaults.update(overrides)
     return ProposeConjectureInput(**defaults)

@@ -19,7 +19,7 @@ What is true as of **2026-09-02**. For how the system got here, see
 
 ## Verified state
 
-    .venv/bin/pytest -q      # 390 passed
+    .venv/bin/pytest -q      # 439 passed
     .venv/bin/python demo.py # no corpus, no API key, no network
 
 Proven by real runs rather than by assertion — every one manual, none
@@ -53,6 +53,19 @@ integrity are re-checked after each live run, not assumed — that one replayed
 - **A reviewer role.** `ReviewWorker` and `review_claim`: an agent may not
   attest what it authored, nor what an agent on its own model family authored,
   and the reviewer's judgment can withhold promotion but never supply it.
+- **Research questions.** A `question` node with an `addresses` edge, so a graph
+  records what it was investigating and not only what it found. Researcher-only
+  to ask, never citable, and reported as a tally rather than a verdict. See
+  [vocabulary.md](vocabulary.md).
+- **Hypotheses as dossiers.** `cohort findings` / `GET /api/findings` and the
+  Findings tab render a claim or conjecture with its derivation, corpus
+  boundary, selection risks, alternative explanations, prior-art search,
+  recorded prediction, evidence with excerpts and verifications — deliberately
+  unranked. See [ui.md](ui.md).
+- **A prospective test that is actually run.** `run_prospective_test` re-runs a
+  conjecture's own `tests` query and compares the hit count to the prediction
+  recorded when it was proposed. The falsifiability gate demanded that query
+  since stage 3 and nothing ever asked it. See [tools.md](tools.md).
 - **The refusal census.** `summarize_refusals()` over the event log: counts by
   rule, by category and by author, plus streaks — one agent refused repeatedly
   by one rule, which is the shape of a tool gap rather than a model error. On
@@ -124,12 +137,19 @@ than implying coverage.
   the shared text among its witnesses being dominated by the attribution
   colophon itself. **Build the exclusion in the same change as the detector,
   not after** — see compare.md §10.
-- **No deterministic measurement layer.** Tools return spans; agents compute
+- **No deterministic measurement layer.** *(Narrowed 2026-09-02, not closed:
+  `run_prospective_test` counts hits for a stored query and compares them to a
+  recorded prediction, which is a mechanical measurement. It is not a
+  measurement *layer* — nothing computes statistics over texts.)* Tools return spans; agents compute
   everything themselves and can therefore miscount. Both sibling projects now
   measure first and let models only interpret and cite the measurements —
   `epistemic-swarm` with a census worker, the third with an evidence table whose
   ids are the only citable objects. Arrived at independently by both, which is
   the strongest signal in compare.md §8.
+- **Run history in the graph.** Runs are events and `read_runs()` reads them
+  back, but a run is not a node and is not meant to become one: it is
+  operational metadata about a session, not evidence about the corpus
+  (principle 2), the same footing as the `agents` table.
 - **Claim versioning.** A claim can be rejected and reopened but not revised
   into a new version with typed lineage, the way `epistemic-swarm` does it.
   Corrections are therefore coarse. (Edge retraction, previously listed here,
@@ -177,12 +197,24 @@ rather than reusing a copy from elsewhere.
    The first two each found a defect in the census's own reach — nine tool rules
    raising bare `ValueError`, and an id listing whose `claim:` prefix all three
    models read as a label — and the third came back clean. See
-   [refusals.md](refusals.md) and [changelog.md](changelog.md). What is still
-   missing is a *negative control*: nothing has yet shown the system catching a
-   citation that does not re-verify, only one whose reviewer disagreed with what
-   the citations were taken to show.
+   [refusals.md](refusals.md) and [changelog.md](changelog.md).
+
+3c. **The negative control is done, 2026-09-02** —
+   `scripts/run_negative_control.py`. A real claim, five real citations, one
+   excerpt altered by a character with its payload hash recomputed so integrity
+   checking stays clean. A live reviewer returned `sound`; the claim did not
+   advance. It also caught a real defect: a `sound` verdict's prose was being
+   written into the verification's `detail`, the machine's field, on a
+   verification whose result was `fail`. See [tools.md](tools.md).
 4. **A measured scaling study.** Scaling still rests on one two-agent run;
-   `epistemic-swarm` publishes a four-point table. Needs live API calls.
+   `epistemic-swarm` publishes a four-point table. Needs live API calls — but no
+   longer needs anything else: runs carry a `run_id` through the log as of
+   2026-09-02, so refusals, model calls and spend are sliceable per run and a
+   table can be re-derived from the artifact instead of copied out of console
+   output. Measure the curves that could embarrass the design — does
+   `independent_support()` stay honest as N grows, does convergence rise, does
+   per-agent refusal rate rise — not agents against claims, which is the
+   headline number [roadmap.md](roadmap.md) §9 names as an anti-goal.
 5. **A self-hosting position.** OpenRouter is still the only model path — see
    compare.md §8.
 6. **Deferred and fine to leave**: ATELIER integration, reputation scoring,
