@@ -8,9 +8,9 @@ Read off three working trees on **2026-09-02**, not estimated:
 
 | | Repository | HEAD |
 |---|---|---|
-| **COHORT** | `~/cohort` (`confusedkernel/cohort`) — this repository | `6fd9f55` + the refusal-taxonomy work in progress |
+| **COHORT** | `~/cohort` (`confusedkernel/cohort`) | `6fd9f55` + the refusal-taxonomy work in progress |
 | **Epistemic Swarm** | `~/epistemic-swarm` (`lopentu/epistemic-swarm`) | `3a37aa9` |
-| **graph-fact-check** | `~/graph-fact-check` | `7c39d58` |
+| **graph-fact-check** | `~/graph-fact-check` (`TNTErick/graph-fact-checl`)| `7c39d58` |
 
 Every number below was read off a tree. Where a project's own document is
 quoted, it is marked as a quotation and checked against its code.
@@ -684,15 +684,6 @@ checkable.
   than pedantic. This document asserted a shared corpus for three editions on
   the strength of all three saying "CBETA", which is the same shape of error
   §3 exists to catch: a shared label mistaken for a shared observation.
-- **`confusedkernel/meep` and `confusedkernel/cohort` are the same repository** —
-  identical history. Not a separate offshoot. graph-fact-check's comparison
-  establishes this correctly.
-- **COHORT has no Anthropic dependency.** `BUDDHIST_ATTRIBUTION_PIPELINE.md` §1
-  (dated 2026-08-31, marked design-only) lists COHORT as "Anthropic SDK",
-  "Stage-1 core done; single worker; LLM mocked". It talks to OpenRouter over
-  stdlib `urllib`, for the same reason `client.py` does.
-  `SIBLING_SYSTEMS_COMPARISON.md` already supersedes that row; noted only so a
-  reader of the older file does not take it as current.
 - **"Still demo corpus"** is not right. The corpus is the real hash-verified
   CBETA v061 archive with FTS over 15.28M citable spans across all 20,190
   entries. What is demo-scale is the **run**.
