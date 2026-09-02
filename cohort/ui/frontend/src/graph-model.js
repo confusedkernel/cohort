@@ -18,6 +18,10 @@ export const COLUMNS = [
   { key: 'witness', label: 'Witnesses', types: ['witness'] },
   { key: 'passage', label: 'Passages', types: ['passage'] },
   { key: 'assertion', label: 'Claims & conjectures', types: ['claim', 'conjecture'] },
+  // The chain terminates in what it was for. `addresses` points from the
+  // assertion to the question, so the question sits to the right of the
+  // claims that answer it and the arrows keep reading left to right.
+  { key: 'question', label: 'Research questions', types: ['question'] },
   { key: 'audit', label: 'Queries & audit', types: ['query', 'verification', 'decision'] },
 ]
 
@@ -34,6 +38,11 @@ export const EDGE_STYLE = {
   verifies:     { klass: 'e-structural',   label: 'verifies' },
   searched_for: { klass: 'e-structural',   label: 'searched for' },
   tests:        { klass: 'e-tests',        label: 'tests' },
+  // Its own channel, not `e-structural`. `part_of` and `verifies` are
+  // bookkeeping that says where a record sits; `addresses` says what the work
+  // was *for*, and a graph that drew it as bookkeeping would be hiding the one
+  // relation a reader scans for first.
+  addresses:    { klass: 'e-addresses',    label: 'addresses' },
   supersedes:   { klass: 'e-structural',   label: 'supersedes' },
   quotes:       { klass: 'e-structural',   label: 'quotes' },
   contradicts:  { klass: 'e-contradicts',  label: 'contradicts' },

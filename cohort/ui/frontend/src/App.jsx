@@ -225,6 +225,7 @@ function Legend() {
       <span className="li"><i className="swatch e-discount" /> parallel of / descends from — <b>discounts</b> support</span>
       <span className="li"><i className="swatch e-contradicts" /> contradicts</span>
       <span className="li"><i className="swatch e-structural" /> structural</span>
+      <span className="li"><i className="swatch e-addresses" /> addresses — what an assertion answers</span>
       <span className="sep" />
       {['proposed', 'attested', 'accepted', 'rejected'].map((s) => (
         <span className="li" key={s}><i className={`dot s-${s}`} /> {s}</span>

@@ -1797,3 +1797,17 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   border: 1px solid var(--line); border-radius: var(--radius-sm);
   padding: 0.5rem 0.6rem; resize: vertical;
 }
+
+/* `addresses` — claim/conjecture -> question. Its own channel rather than
+   `structural`: part_of and verifies say where a record sits, this says what
+   the work was for, and a reader scans for it first. Solid, because an
+   assertion addressing a question is an assertion and not a hypothetical —
+   the dotted `tests` edge is the one that is still open. */
+:root { --addresses: #5ac8f5; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --addresses: #0a7ea4; } }
+:root[data-theme="light"] { --addresses: #0a7ea4; }
+.e-addresses { stroke: var(--addresses); stroke-width: 1.6; }
+.a-addresses { fill: var(--addresses); }
+.swatch.e-addresses { border-color: var(--addresses); }
+.badge.t-question { color: var(--addresses); border-color: var(--addresses); }
+.stats-dot.t-question { background: var(--addresses); }

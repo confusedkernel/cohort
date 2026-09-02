@@ -38,7 +38,7 @@ export default function GraphView({ data, selectedId, onSelect, showAudit }) {
     <div className="graph-scroll">
       <svg width={width} height={height} className="graph" role="img" aria-label="Evidence graph">
         <defs>
-          {['attests', 'discount', 'contradicts', 'structural', 'tests'].map((k) => (
+          {['attests', 'discount', 'contradicts', 'structural', 'tests', 'addresses'].map((k) => (
             <marker
               key={k} id={`arrow-${k}`} viewBox="0 0 10 10" refX="9" refY="5"
               markerWidth="6" markerHeight="6" orient="auto-start-reverse"
