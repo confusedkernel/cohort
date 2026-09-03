@@ -137,6 +137,17 @@ export default function CorpusPanel({ onCite }) {
                   <button className="corpus-ref" onClick={() => open(h.ref)}>
                     {h.title || h.ref}
                   </button>
+                  {h.cbeta_url && (
+                    <a
+                      className="btn tiny cbeta-link"
+                      href={h.cbeta_url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      title="Read this text in CBETA Online"
+                    >
+                      CBETA ↗
+                    </a>
+                  )}
                   {onCite && (
                     <button
                       className="btn tiny"

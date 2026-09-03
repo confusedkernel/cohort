@@ -56,6 +56,7 @@ from pydantic import ValidationError
 from ..schemas import RESEARCHER, EdgeType, NodeType, QuestionPayload
 from ..sources.base import Source
 from ..sources.cbeta_markup import strip_markup_for_display
+from ..sources.cbeta_refs import reader_url
 from ..views import (
     DISCOUNTING_EDGE_TYPES,
     dossier_json,
@@ -620,7 +621,16 @@ def create_app(
                 "count": len(hits),
                 "ordering": "corpus order; no relevance ranking",
                 "truncated": len(hits) >= limit,
-                "hits": [h.model_dump(mode="json") for h in hits],
+                # A link to the published edition beside each hit. Provenance
+                # for the reader, never for a check: `verify_exact_span`
+                # re-fetches from the local archive whose bytes were hashed,
+                # because a verification that depended on a remote page would
+                # fail on a network error and pass or fail differently
+                # depending on when it ran.
+                "hits": [
+                    {**h.model_dump(mode="json"), "cbeta_url": reader_url(h.ref)}
+                    for h in hits
+                ],
             }
 
         @app.get("/api/corpus/fetch")

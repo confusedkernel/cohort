@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from .graph import Graph
+from .sources.cbeta_refs import reader_url
 from .schemas import EdgeType, NodeType
 
 #: The two edge types that *discount* support rather than adding it: witnesses
@@ -33,6 +34,11 @@ def node_json(graph: Graph, node) -> dict[str, Any]:
         "created_seq": node.created_seq,
         "updated_seq": node.updated_seq,
         "assurance": graph.assurance_for(node.id),
+        # Present on witnesses and passages, absent everywhere else, and
+        # absent for a corpus CBETA does not publish. Computed here rather
+        # than in each front end so the graph view, the dossier and the
+        # corpus browser cannot disagree about where a passage lives.
+        "cbeta_url": reader_url(node.payload.get("canonical_ref") or ""),
     }
 
 

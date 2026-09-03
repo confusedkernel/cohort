@@ -1846,3 +1846,14 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
               font-size: 12px; color: var(--text-dim); }
 
 .btn.customize-open { align-self: flex-start; }
+
+
+/* --- links out to the published edition --------------------------------- */
+
+/* Marked as leaving the app. A link that looks like the in-app buttons beside
+   it invites a click that navigates away from an unsaved panel. */
+.cbeta-link { text-decoration: none; white-space: nowrap; }
+a.cbeta-link.block { display: inline-block; margin: 6px 0 2px; font-size: 12px;
+                     color: var(--addresses); text-decoration: underline;
+                     text-underline-offset: 2px; }
+a.cbeta-link.block:hover { color: var(--text); }

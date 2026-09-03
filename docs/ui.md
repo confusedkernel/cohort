@@ -212,6 +212,20 @@ Status codes carry meaning:
 | `GET /api/corpus/search?q=&limit=` | exactly `source.search()` — a query typed here returns the same hits in the same order as one typed in Python. Response states `ordering: "corpus order; no relevance ranking"` |
 | `GET /api/corpus/fetch?ref=&max_chars=&strip_markup=` | one record; `strip_markup` is display-only and **breaks offsets**, so never store its output |
 
+Every hit carries a `cbeta_url` deep link to the published edition, and so does
+every witness and passage node (`GET /api/node`). The mapping is not guessable
+— CBETA Online addresses a work by a canon-scoped id with the volume digits
+removed (`A097n1267` → `A1267`) — so it lives in
+[`cohort/sources/cbeta_refs.py`](../cohort/sources/cbeta_refs.py), checked
+against CBETA's own metadata API rather than reasoned out, and returns `None`
+for a ref it does not recognise rather than a guess.
+
+These links are **display-only provenance**. `verify_exact_span` re-fetches
+from the local archive whose bytes were hashed, because a verification that
+depended on a remote page would fail on a network error and pass or fail
+differently depending on when it ran. A link is a courtesy to the reader; a
+citation is what the graph checks.
+
 Search returns 503 if the reader has no index, naming the reason.
 
 ### With `--allow-runs`

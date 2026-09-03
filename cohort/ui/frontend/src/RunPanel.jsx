@@ -62,6 +62,12 @@ export default function RunPanel({ instructionSeed, onGraphChanged }) {
 
   useEffect(() => {
     if (!instructionSeed) return
+    // A phrase sent over from the Corpus tab is a free-text task, and free
+    // text is what Customize is for — so arriving with one switches modes.
+    // Auto mode renders no agent cards, so before this the seed landed in
+    // state nothing displayed: "send to agents" took you to a screen showing
+    // no sign of what you had sent.
+    setMode('custom')
     setAgents((prev) => {
       if (prev[0].instructions) return prev
       const next = [...prev]

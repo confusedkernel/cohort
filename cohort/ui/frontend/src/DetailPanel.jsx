@@ -96,6 +96,20 @@ function NodeCard({ node, onSelect, canWrite, reload, onGraphChanged }) {
       <h2>{nodeTitle(node)}</h2>
       <code className="node-id">{node.id}</code>
 
+      {/* Where this text is published, for a reader who wants to see the
+          passage in its own context. Not what any check reads: verification
+          re-fetches from the local archive whose bytes were hashed. */}
+      {node.cbeta_url && (
+        <a
+          className="cbeta-link block"
+          href={node.cbeta_url}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          Read in CBETA Online ↗
+        </a>
+      )}
+
       {canWrite && (
         <Verdict
           node={node}
