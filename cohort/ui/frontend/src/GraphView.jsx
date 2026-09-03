@@ -102,10 +102,18 @@ export default function GraphView({ data, selectedId, onSelect, showAudit }) {
                 aria-pressed={isSel}
                 onKeyDown={(ev) => (ev.key === 'Enter' || ev.key === ' ') && pick()}
               >
+                {/* Selection gets its own ring outside the box rather than
+                    restyling the box's stroke. The stroke now carries status
+                    (docs/design.md §10), and a selected node whose status
+                    colour had been overwritten by the selection colour would
+                    hide the one channel §10 requires — exactly when the
+                    reader is looking hardest at it. */}
+                <rect
+                  x="-3" y="-3" width={w + 6} height={h + 6} rx="10"
+                  className="node-ring"
+                />
                 <rect width={w} height={h} rx="7" className="node-box" />
                 <g clipPath="url(#node-clip)">
-                  {/* status as a visual channel, not a tooltip (docs/design.md §10) */}
-                  <rect width="5" height={h} rx="2" className="status-bar" />
                   <text className="node-type" x="14" y="19">{node.type}</text>
                   <text className="node-status" x={w - 12} y="19" textAnchor="end">
                     {node.status}

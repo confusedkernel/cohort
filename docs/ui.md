@@ -48,7 +48,11 @@ the visualization would silently argue *against* the thesis.
 
 So, enforced (and covered by `tests/test_ui_theme.py`):
 
-- **node status is a visual channel**, not a tooltip;
+- **node status is a visual channel**, not a tooltip — the node's own
+  outline, and not by hue alone: `proposed` is dashed because it is
+  provisional, `accepted` is heavier because it is the only citable state, and
+  `rejected` keeps a struck-through title. Selection and focus ride a separate
+  outer ring, so selecting a node never repaints its status;
 - **`parallel_of` and `descends_from` are visually distinct** from `attests` —
   dashed, heavier, differently coloured, and labelled "**discounts** support" in
   the legend. The API also flags them `discounts: true` so a frontend cannot

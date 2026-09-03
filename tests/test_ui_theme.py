@@ -142,3 +142,47 @@ def test_discounting_edges_stay_distinguishable_without_hue(css):
     assert swatch and "dashed" in swatch.group(1), (
         "the legend swatch for discounting edges must be dashed too"
     )
+
+
+def test_node_status_is_not_a_hue_only_channel(css):
+    """§10 requires status to be a visual channel. It was a coloured bar down
+    the node's left edge and is now the node's outline, which is a better place
+    for it — but an outline that varies only in colour is a channel a greyscale
+    printout and a red-green colourblind reader both lose.
+
+    So the ladder differs in more than hue: `proposed` is dashed because it is
+    provisional, `accepted` is heavier because it is the only citable state,
+    and `rejected` keeps its struck-through title.
+    """
+    proposed = re.search(r"^\.s-proposed \.node-box \{([^}]*)\}", css, re.M)
+    assert proposed, "no status outline rule for proposed nodes"
+    assert "stroke-dasharray" in proposed.group(1), (
+        "`proposed` must be distinguishable without colour — nothing has "
+        "checked it yet, and a solid outline claims otherwise"
+    )
+
+    accepted = re.search(r"^\.s-accepted \.node-box \{([^}]*)\}", css, re.M)
+    assert accepted and "stroke-width" in accepted.group(1), (
+        "`accepted` is the only citable state and must carry weight, not just hue"
+    )
+
+    rejected = re.search(r"^\.s-rejected \.node-title \{([^}]*)\}", css, re.M)
+    assert rejected and "line-through" in rejected.group(1), (
+        "a rejected node must read as rejected without its outline colour"
+    )
+
+
+def test_selecting_a_node_does_not_repaint_its_status(css):
+    """The status outline and the selection indicator are different channels on
+    the same shape, so they must not be the same property. Before the outline
+    carried status, `.node.selected .node-box` set `stroke` — harmless then,
+    and now it would hide a node's status at the moment the reader is looking
+    hardest at it."""
+    selected = re.search(r"^\.node\.selected \.node-box \{([^}]*)\}", css, re.M)
+    if selected:
+        assert "stroke" not in selected.group(1), (
+            "selection must not restyle the box stroke: that stroke is status. "
+            "Use `.node-ring` instead."
+        )
+    ring = re.search(r"^\.node\.selected \.node-ring \{([^}]*)\}", css, re.M)
+    assert ring and "stroke" in ring.group(1), "selection has no visible ring"

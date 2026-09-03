@@ -542,21 +542,33 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: h
 .a-tests { fill: var(--tests); }
 
 .node { cursor: pointer; transition: opacity var(--med); }
+/* Status is the node's outline. It used to be a 5px bar down the left edge,
+   which had two problems: at this node size the bar competed with the column
+   structure for the reader's left-to-right scan, and it put the most important
+   attribute of a node in its least-looked-at 3%. An outline states it around
+   the whole shape, which is also what a reader glancing at a dense column is
+   actually able to see. */
 .node-box {
-  fill: var(--node-fill); stroke: var(--line); stroke-width: 1;
-  transition: stroke var(--fast), fill var(--fast);
+  fill: var(--node-fill);
+  stroke: color-mix(in srgb, var(--proposed) 45%, var(--node-fill));
+  stroke-width: 1.5;
+  transition: stroke var(--fast), fill var(--fast), stroke-width var(--fast);
 }
-.node:hover .node-box { stroke: var(--hairline); fill: var(--node-fill-hover); }
-.node.selected .node-box {
-  stroke: var(--supports); stroke-width: 2; fill: var(--node-fill-selected);
-}
+.node:hover .node-box { fill: var(--node-fill-hover); }
+.node.selected .node-box { fill: var(--node-fill-selected); }
 /* The selected fill is tinted, which drops `--text-faint` to 2.66:1 in dark
    and 4.17:1 in light — below AA for the small type/status labels. One step up
    the grey ramp restores it (5.23 / 5.88) without making them compete with the
    title. */
 .node.selected .node-type,
 .node.selected .node-status { fill: var(--text-dim); }
-.node:focus-visible .node-box { stroke: var(--supports); stroke-width: 2; }
+/* Selection and keyboard focus ride the outer ring, so neither can repaint
+   the status outline. Hidden rather than transparent: an invisible stroke on
+   every node would still be painted on every frame. */
+.node-ring { fill: none; stroke: none; stroke-width: 2; }
+.node.selected .node-ring { stroke: var(--supports); }
+.node:focus-visible { outline: none; }
+.node:focus-visible .node-ring { stroke: var(--supports); stroke-dasharray: 3 2; }
 .node-type {
   fill: var(--text-faint); font-size: 9.5px; letter-spacing: .1em;
   text-transform: uppercase; font-weight: 600;
@@ -564,11 +576,46 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: h
 .node-status { fill: var(--text-faint); font-size: 10px; }
 .node-title { fill: var(--text); font-size: 13px; }
 
-/* status as its own visual channel */
-.status-bar { fill: var(--proposed); }
-.s-attested .status-bar { fill: var(--attested); }
-.s-accepted .status-bar { fill: var(--accepted); }
-.s-rejected .status-bar { fill: var(--rejected); }
+/* Status as its own visual channel (docs/design.md §10) — and not by hue
+   alone, for the same reason the discounting edges are not: the ladder still
+   has to be readable in greyscale and to a reader who cannot separate these
+   hues.
+
+   `proposed` is dashed because it is provisional: nothing has checked it yet,
+   and a dashed outline says so without a legend. `accepted` is heavier because
+   it is the only citable state. `rejected` keeps its struck-through title, so
+   it differs from the rest in weight, hue and text. */
+/* Muted toward the node's own surface rather than used at full saturation.
+   The status tokens were tuned for badges, legend dots and swatches — small
+   marks that need punch to register at all. Wrapped around every node in a
+   dense column they become four competing hues, and the picture starts
+   shouting about status at the expense of the structure the reader is trying
+   to follow. Mixing toward `--node-fill` keeps each one identifiable while
+   letting the graph settle; it also stays theme-aware for free, since both
+   sides of the mix are themed tokens, so nothing has to be duplicated across
+   the three token blocks.
+
+   The mix ratios are not uniform, and that is the point: they follow how much
+   the state is worth interrupting a reader for. `proposed` is the quietest —
+   nothing has happened to it yet, and it has the dash to say so. */
+.s-proposed .node-box {
+  stroke: color-mix(in srgb, var(--proposed) 45%, var(--node-fill));
+  stroke-dasharray: 4 3;
+}
+.s-attested .node-box { stroke: color-mix(in srgb, var(--attested) 52%, var(--node-fill)); }
+.s-accepted .node-box {
+  stroke: color-mix(in srgb, var(--accepted) 58%, var(--node-fill));
+  stroke-width: 2;
+}
+.s-rejected .node-box { stroke: color-mix(in srgb, var(--rejected) 52%, var(--node-fill)); }
+
+/* Hover and selection lift the outline back toward the full hue, so the
+   muting costs nothing at the moment a reader is actually interrogating one
+   node rather than scanning the column. */
+.node:hover .s-attested .node-box, .node.s-attested:hover .node-box { stroke: var(--attested); }
+.node.s-accepted:hover .node-box { stroke: var(--accepted); }
+.node.s-rejected:hover .node-box { stroke: var(--rejected); }
+.node.s-proposed:hover .node-box { stroke: var(--proposed); }
 .s-rejected .node-title { text-decoration: line-through; fill: var(--text-dim); }
 
 /* --- detail panel -------------------------------------------------------- */
