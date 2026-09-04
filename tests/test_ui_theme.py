@@ -186,3 +186,79 @@ def test_selecting_a_node_does_not_repaint_its_status(css):
         )
     ring = re.search(r"^\.node\.selected \.node-ring \{([^}]*)\}", css, re.M)
     assert ring and "stroke" in ring.group(1), "selection has no visible ring"
+
+
+def test_the_findings_panel_cannot_be_widened_by_a_long_ref(css):
+    """A grid/flex item's default `min-width: auto` refuses to shrink below its
+    content, and a canonical ref
+    (`A097n1267#Bookcase/CBETA/XML/A/A097/A097n1267_004.xml`) is a single
+    unbreakable word. One evidence row was enough to push the whole tab into a
+    horizontal scroll.
+
+    Both halves are load-bearing: `min-width: 0` alone lets the box shrink
+    while the token spills out of it, and wrapping alone does nothing while the
+    grid track is still sized to the token. So both are asserted.
+    """
+    shrink = re.search(r"^\.hypotheses, \.hyp-list, \.hyp, [^{]*\{([^}]*)\}", css, re.M)
+    assert shrink and "min-width: 0" in shrink.group(1), (
+        "the hypothesis list and its rows must be allowed to shrink below "
+        "their content, or a long ref widens the panel"
+    )
+
+    wrap = re.search(r"^\.ev-ref, \.dossier code[^{]*\{([^}]*)\}", css, re.M | re.S)
+    assert wrap and "overflow-wrap: anywhere" in wrap.group(1), (
+        "refs and node ids in a dossier must be able to break mid-token: "
+        "`break-word` alone will not break inside `/` and `::` runs"
+    )
+
+
+def test_buttons_holding_prose_are_allowed_to_wrap(css):
+    """The bug the rule above did not fix. The hypothesis assertion and the
+    evidence ref are both `<button>`s — text with a click target around it —
+    and the global button rule sets `white-space: nowrap` along with
+    `overflow: hidden` and an ellipsis. Those are right for compact controls
+    and fatal for prose: `overflow-wrap` has no effect at all while wrapping is
+    forbidden, so every wrapping declaration in the panel was inert.
+
+    Asserted separately from the wrapping rules because it is a different
+    failure — the wrapping was present and correct and still did nothing.
+    """
+    base = re.search(r"^button \{([^}]*)\}", css, re.M | re.S)
+    assert base and "nowrap" in base.group(1), (
+        "this guard assumes the global button rule forbids wrapping; if that "
+        "changed, re-check whether the override below is still needed"
+    )
+
+    override = re.search(
+        r"^\.hyp-head, \.ev-ref[^{]*\{([^}]*)\}", css, re.M | re.S
+    )
+    assert override, "no wrapping override for the prose-bearing buttons"
+    rule = override.group(1)
+    for prop in ("white-space: normal", "overflow: visible", "text-overflow: clip"):
+        assert prop in rule, (
+            f"`{prop}` missing: all three of the global button's clipping "
+            "properties have to be undone, or the text still truncates"
+        )
+
+
+def test_the_floating_panels_stay_opaque(css):
+    """Node detail, settings and graph contents float over the graph and carry
+    small provenance text — ids, refs, verification detail. Translucency was
+    tried and removed: it costs legibility over whatever the graph puts behind
+    them, in exchange for an effect that barely registered, because the graph
+    is mostly flat ground and thin strokes with little back there to blur.
+
+    Asserted so a future pass at "glass" has to argue with this rather than
+    rediscover it.
+    """
+    for sel in (".panel", ".settings-pop", ".stats-pop"):
+        rules = re.findall(rf"^{re.escape(sel)} \{{([^}}]*)}}", css, re.M | re.S)
+        surfaced = [r for r in rules if "background:" in r]
+        assert surfaced, f"no surface rule for {sel}"
+        for rule in surfaced:
+            assert "backdrop-filter" not in rule, (
+                f"{sel} is translucent again — see the comment on `.panel`"
+            )
+            assert "var(--bg-raised)" in rule, (
+                f"{sel} must use the opaque raised surface"
+            )

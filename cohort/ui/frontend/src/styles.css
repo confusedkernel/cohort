@@ -59,7 +59,6 @@
   --input-bg-focus: rgba(0, 0, 0, 0.45);
   --code-bg: rgba(0, 0, 0, 0.32);
   --glass: rgba(31, 31, 34, 0.72);
-  --glass-panel: rgba(22, 22, 25, 0.86);
   --glass-panel-quiet: rgba(22, 22, 25, 0.72);
   --grid-dot: rgba(255, 255, 255, 0.055);
 
@@ -167,7 +166,6 @@
     --input-bg-focus: #ffffff;
     --code-bg: rgba(0, 0, 0, 0.04);
     --glass: rgba(250, 250, 252, 0.78);
-    --glass-panel: rgba(255, 255, 255, 0.88);
     --glass-panel-quiet: rgba(255, 255, 255, 0.76);
     --grid-dot: rgba(0, 0, 0, 0.07);
 
@@ -230,7 +228,6 @@
   --input-bg-focus: #ffffff;
   --code-bg: rgba(0, 0, 0, 0.04);
   --glass: rgba(250, 250, 252, 0.78);
-  --glass-panel: rgba(255, 255, 255, 0.88);
   --glass-panel-quiet: rgba(255, 255, 255, 0.76);
   --grid-dot: rgba(0, 0, 0, 0.07);
 
@@ -313,11 +310,15 @@ code { font-family: var(--mono); font-size: .9em; }
   padding: 11px 18px;
   border-bottom: 1px solid var(--line);
   background: var(--glass);
-  backdrop-filter: saturate(180%) blur(24px);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
   flex: none;
   position: relative; z-index: 20;
 }
+/* No `backdrop-filter` here, and none wanted. `.app` is a flex column —
+   topbar, then `.body` — and scrolling happens inside `.tab-panel`, entirely
+   below the bar, so nothing ever passes under the topbar for a blur to act on.
+   It also used to make this element a *backdrop root*, which capped the blur
+   of the two popovers rendered inside it at "the inside of the topbar". Both
+   reasons survive the panels going opaque. */
 .brand { display: flex; align-items: baseline; gap: 9px; flex: none; }
 .brand h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.005em; }
 .tag {
@@ -638,9 +639,13 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: h
   padding: 16px 18px 22px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--glass-panel);
-  backdrop-filter: saturate(180%) blur(30px);
-  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  /* Opaque, not glass. Translucency was tried and removed: these panels
+     carry small provenance text — ids, refs, verification detail — read over
+     whatever the graph happens to put behind them, and a backdrop that shows
+     through costs legibility for an effect that barely registered even at
+     blur(44px). The graph is mostly flat ground and thin strokes, so there
+     was never much back there to blur. */
+  background: var(--bg-raised);
   box-shadow: var(--shadow-panel), 0 1px 0 var(--fill-2) inset;
   animation: panel-in 250ms var(--ease);
   overscroll-behavior: contain;
@@ -1413,9 +1418,7 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   padding: 14px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  background: var(--glass-panel);
-  backdrop-filter: saturate(180%) blur(30px);
-  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  background: var(--bg-raised);
   box-shadow: var(--shadow-panel);
   /* grows out of the control it hangs from, not out of its own middle */
   transform-origin: top right;
@@ -1519,9 +1522,7 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
   padding: 14px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  background: var(--glass-panel);
-  backdrop-filter: saturate(180%) blur(30px);
-  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  background: var(--bg-raised);
   box-shadow: var(--shadow-panel);
   animation: pop-in 170ms var(--ease);
 }
@@ -1823,6 +1824,66 @@ button:disabled { opacity: .42; cursor: not-allowed; transform: none; }
 .v-detail, .v-limits { margin: 0.35rem 0 0; font-size: 0.82rem; line-height: 1.5; }
 .v-limits { color: var(--text-dim); }
 .chip.unsupported { color: var(--proposed); border-color: var(--proposed); }
+
+/* --- long refs must not widen the panel ---------------------------------
+   A grid or flex item's default `min-width: auto` means it refuses to shrink
+   below its content, and this panel's content includes tokens with no break
+   opportunity at all: `A097n1267#Bookcase/CBETA/XML/A/A097/A097n1267_004.xml`
+   is one word as far as line breaking is concerned. One evidence row was
+   therefore enough to widen `.hyp-list`, then `.hypotheses`, then the whole
+   tab into a horizontal scroll.
+
+   Two halves, and both are needed — `min-width: 0` alone lets the box shrink
+   while the token still spills out of it, and wrapping alone does nothing
+   while the track is still sized to the token.
+
+   Wrapping rather than `overflow-x` on each row: a canonical ref is read, not
+   scanned past, and a reader who has to drag a tiny scrollbar to see the end
+   of a citation is being asked to work for the one thing this panel exists to
+   show. `anywhere` rather than `break-word` so it also breaks inside the
+   ref's `/` and `::` runs, which is where the length actually is. */
+.hypotheses, .hyp-list, .hyp, .dossier, .questions, .question-list, .question { min-width: 0; }
+.hyp-head, .verification-head, .prospective { min-width: 0; }
+.hyp-head > *, .verification-head > * { min-width: 0; }
+
+/* The two elements holding the longest text in this panel are `<button>`s —
+   the hypothesis is clickable to expand, the ref is clickable to select the
+   passage — and the global button rule sets
+   `overflow: hidden; text-overflow: ellipsis; white-space: nowrap`, which is
+   right for the compact controls it was written for and fatal here.
+   `overflow-wrap` cannot do anything while `white-space: nowrap` forbids
+   wrapping at all, so every wrapping rule below was inert until these three
+   properties were put back. That is the actual bug; `min-width` was only half
+   of it.
+
+   Buttons wrapping prose, not prose in a button: these are text with a click
+   target around it, so they take text behaviour and keep the affordance. */
+.hyp-head, .ev-ref, .question.pick, .prospective-q {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.hyp-text,
+.dossier-fields dd,
+.prospective-q, .prospective-pred, .prospective-result,
+.ev-excerpt, .v-detail, .v-limits,
+.question-text, .question-answerable {
+  overflow-wrap: anywhere;
+}
+
+/* The refs and ids themselves. `.finding-row code` keeps its single-line
+   ellipsis instead — that list is a scan, and a wrapped id there would push
+   every row to two lines for no reading benefit. */
+.ev-ref, .dossier code, .prospective-q code, .hyp code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* The planned roster: model names are monospace and can be long, and the
+   third grid track is `auto`. */
+.plan-row { min-width: 0; }
+.plan-method, .plan-model { min-width: 0; overflow-wrap: anywhere; }
 
 /* Research questions — what the inquiry was asking. */
 .questions { margin-bottom: 1.5rem; }
